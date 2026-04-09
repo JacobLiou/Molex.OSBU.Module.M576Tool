@@ -19,8 +19,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
-	DDX_Control(pDX, IDC_COMBO_429F, m_combo429f);
-	DDX_Control(pDX, IDC_COMBO_MCS, m_comboMcs);
+	DDX_Control(pDX, IDC_COMBO_COM, m_comboCom);
 	DDX_Control(pDX, IDC_EDIT_LOG, m_editLog);
 	DDX_Control(pDX, IDC_PROGRESS_MAIN, m_progress);
 	DDX_Text(pDX, IDC_EDIT_CSV, m_strCsv);
@@ -43,12 +42,21 @@ END_MESSAGE_MAP()
 BOOL CM576CalibratorDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
-	SetWindowText(_T("M576 / 1310 Calibrator (MCS Z4671)"));
+	SetWindowText(_T("M576 / 1310 Calibrator (429F)"));
+	/// Chinese UI: avoid UTF-8 literals in .rc (RC code page); use Unicode API + \\u escapes.
+	::SetDlgItemTextW(m_hWnd, IDC_STATIC_LABEL_COM,
+		L"\u4e32\u53e3 (429F):");
+	::SetDlgItemTextW(m_hWnd, IDC_BTN_OPEN_PORTS,
+		L"\u6253\u5f00\u4e32\u53e3");
+	::SetDlgItemTextW(m_hWnd, IDC_BTN_FLASH,
+		L"\u70e7\u5f55\u5b9a\u6807");
+	::SetDlgItemTextW(m_hWnd, IDC_STATIC_VERSION,
+		L"\u4ec5\u8fde\u63a5 429F\uff1b\u5b9a\u6807\u70e7\u5f55\u7531\u4e3b\u677f\u900f\u4f20\u81f3 MCS");
 	FillComPorts();
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	ZeroMemory(&m_lut, sizeof(m_lut));
-	AppendLog(_T("Ready. Configure COM ports and CSV, then run."));
+	AppendLog(_T("Ready. Select 429F COM port, open port, then run."));
 	return TRUE;
 }
 
@@ -58,11 +66,9 @@ void CM576CalibratorDlg::FillComPorts()
 	{
 		CString s;
 		s.Format(_T("COM%d"), i);
-		m_combo429f.AddString(s);
-		m_comboMcs.AddString(s);
+		m_comboCom.AddString(s);
 	}
-	m_combo429f.SetCurSel(0);
-	m_comboMcs.SetCurSel(1);
+	m_comboCom.SetCurSel(0);
 }
 
 void CM576CalibratorDlg::AppendLog(LPCTSTR sz)
@@ -77,52 +83,43 @@ void CM576CalibratorDlg::AppendLog(LPCTSTR sz)
 	m_editLog.SetSel(n, n);
 }
 
-CString CM576CalibratorDlg::GetComboCom(CComboBox& combo)
+CString CM576CalibratorDlg::GetComboCom()
 {
 	CString s;
-	int i = combo.GetCurSel();
+	int i = m_comboCom.GetCurSel();
 	if (i >= 0)
-		combo.GetLBText(i, s);
+		m_comboCom.GetLBText(i, s);
 	return s;
 }
 
-BOOL CM576CalibratorDlg::OpenPorts()
+BOOL CM576CalibratorDlg::OpenPort()
 {
-	m_comm429f.ClosePort();
-	m_cmdMcs.ClosePort();
+	m_dev429f.ClosePort();
 
-	CString s429 = GetComboCom(m_combo429f);
-	CString sMcs = GetComboCom(m_comboMcs);
-	if (s429.IsEmpty() || sMcs.IsEmpty())
+	CString sCom = GetComboCom();
+	if (sCom.IsEmpty())
 	{
-		AppendLog(_T("Select COM ports."));
+		AppendLog(_T("Select COM port."));
 		return FALSE;
 	}
-	CString path429, pathMcs;
-	path429.Format(_T("\\\\.\\%s"), (LPCTSTR)s429);
-	pathMcs.Format(_T("\\\\.\\%s"), (LPCTSTR)sMcs);
+	CString path;
+	path.Format(_T("\\\\.\\%s"), (LPCTSTR)sCom);
 
-	if (!m_comm429f.OpenPort((LPTSTR)(LPCTSTR)path429, 115200, 8, NOPARITY, ONESTOPBIT))
+	if (!m_dev429f.OpenPort((LPTSTR)(LPCTSTR)path, 115200, 8, NOPARITY, ONESTOPBIT))
 	{
-		AppendLog(_T("429F COM open failed."));
+		AppendLog(_T("Serial port open failed."));
 		return FALSE;
 	}
-	if (!m_cmdMcs.OpenPort((LPTSTR)(LPCTSTR)pathMcs, 115200, 8, NOPARITY, ONESTOPBIT))
-	{
-		AppendLog(_T("MCS COM open failed."));
-		m_comm429f.ClosePort();
-		return FALSE;
-	}
-	m_pRecal.reset(new CRecalSession(m_comm429f));
-	AppendLog(_T("Ports opened."));
+	m_pRecal.reset(new CRecalSession(m_dev429f));
+	AppendLog(_T("Port opened (429F)."));
 	return TRUE;
 }
 
 void CM576CalibratorDlg::OnBnClickedOpenPorts()
 {
 	UpdateData(TRUE);
-	if (OpenPorts())
-		AppendLog(_T("Open ports OK."));
+	if (OpenPort())
+		AppendLog(_T("Open port OK."));
 }
 
 void CM576CalibratorDlg::OnBrowse(UINT idEdit)
@@ -166,7 +163,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	m_bStop = FALSE;
 	if (!m_pRecal.get())
 	{
-		if (!OpenPorts())
+		if (!OpenPort())
 			return;
 	}
 	CArray<SPathStep, SPathStep const&> steps;
@@ -287,19 +284,19 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("BIN not found."));
 		return;
 	}
-	if (!m_cmdMcs.GetPortHandle() || m_cmdMcs.GetPortHandle() == INVALID_HANDLE_VALUE)
+	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
 	{
-		if (!OpenPorts())
+		if (!OpenPort())
 			return;
 	}
 	CString err;
 	m_progress.SetRange(0, 100);
-	if (!McsFwUploadBinEx(m_cmdMcs, m_strOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	if (!McsFwUploadBinEx(m_dev429f, m_strOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
 	{
 		CString m;
 		m.Format(_T("Flash failed: %s"), (LPCTSTR)err);
 		AppendLog(m);
 		return;
 	}
-	AppendLog(_T("Flash completed."));
+	AppendLog(_T("Flash completed (via 429F forward to MCS)."));
 }

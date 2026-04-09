@@ -9,6 +9,7 @@
 #include "PathCsvDriver.h"
 #include "McsFwTransport.h"
 
+/// Single serial link to 429F: ASCII RECAL + Z4671 binary frames (forwarded to MCS by firmware).
 class CM576CalibratorDlg : public CDialog
 {
 public:
@@ -23,8 +24,7 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 private:
-	CComboBox m_combo429f;
-	CComboBox m_comboMcs;
+	CComboBox m_comboCom;
 	CEdit m_editLog;
 	CProgressCtrl m_progress;
 	CString m_strCsv;
@@ -32,8 +32,8 @@ private:
 	CString m_strOutBin;
 	CString m_strSn;
 
-	COpComm m_comm429f;
-	Z4671Command m_cmdMcs;
+	/// One port: 429F board (RECAL ASCII + MCS LUT transport via firmware forwarding).
+	Z4671Command m_dev429f;
 	std::unique_ptr<CRecalSession> m_pRecal;
 
 	stLutSettingZ4671 m_lut;
@@ -41,8 +41,8 @@ private:
 
 	void AppendLog(LPCTSTR sz);
 	void FillComPorts();
-	CString GetComboCom(CComboBox& combo);
-	BOOL OpenPorts();
+	CString GetComboCom();
+	BOOL OpenPort();
 	void OnBrowse(UINT idEdit);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	static void ProgressThunk(int cur, int total, void* user);

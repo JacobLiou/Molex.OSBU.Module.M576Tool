@@ -2,8 +2,7 @@
 #define IDR_MAINFRAME                     128
 #define IDM_ABOUT                         0x0010
 
-#define IDC_COMBO_429F                    1000
-#define IDC_COMBO_MCS                     1001
+#define IDC_COMBO_COM                     1000
 #define IDC_EDIT_CSV                      1002
 #define IDC_EDIT_BACKUP_BIN               1003
 #define IDC_EDIT_OUT_BIN                  1004
@@ -19,3 +18,4 @@
 #define IDC_BTN_FLASH                     1014
 #define IDC_BTN_STOP                      1015
 #define IDC_STATIC_VERSION                1016
+#define IDC_STATIC_LABEL_COM              1017

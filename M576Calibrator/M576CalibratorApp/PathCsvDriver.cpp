@@ -18,6 +18,9 @@ BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CSt
 		line.Trim();
 		if (line.IsEmpty() || line[0] == _T('#'))
 			continue;
+		/// Skip CSV header row (allows leading # comments; tolerates UTF-8 BOM on first column).
+		if (line.Find(_T("target_index")) >= 0 && line.Find(_T("p1b")) >= 0)
+			continue;
 		if (lineNo == 1 && (line.Find(_T("target")) >= 0 || line.Find(_T("Target")) >= 0
 			|| line.Find(_T("TARGET")) >= 0))
 			continue;

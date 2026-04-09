@@ -10,6 +10,14 @@ Build (Visual Studio 2015, v140, Win32, MFC dynamic)
 Character set: **Multi-Byte** (not Unicode). The ported Z4671 sources use ANSI string
 literals with CString::Format; a Unicode project would require wide literals throughout.
 
+Topology (single COM)
+---------------------
+- Host opens **one** serial port to **429F** only. RECAL (ASCII) and MCS LUT programming
+  (Z4671 binary frames) share the same `Z4671Command` instance; firmware forwards binary
+  traffic to MCS.
+- On bring-up: run a short RECAL path, then flash a small known-good BIN on the **same**
+  COM; confirm 429F firmware version supports transparent forward.
+
 CRC / BIN parity (manual)
 -------------------------
 - CLutBinWriter::Write follows the same fwrite order and CRC steps as legacy CreateBinFileZ4671
@@ -19,12 +27,13 @@ CRC / BIN parity (manual)
 
 Integration checklist
 ---------------------
-429F (ASCII)
-- Open 429F COM, run a short path CSV; confirm RECAL lines and responses appear in the log.
+429F (ASCII + forward)
+- Open the single 429F COM, run a short path CSV; confirm RECAL lines and responses in the log.
 - Tune ReadAsciiResponse timeout and line framing when firmware samples are available.
 
-MCS (Z4671 binary)
-- Open MCS COM, use “Flash MCS” with a known-good LUT BIN; confirm StartFWUpdate → transport → FWUpdateEnd.
+MCS LUT (Z4671 binary via 429F)
+- Use "烧录定标" with a known-good LUT BIN; confirm StartFWUpdate → transport → FWUpdateEnd
+  on the same link (no separate MCS COM port on PC).
 
 path_0330 CSV format (nine integer fields per row)
 --------------------------------------------------
