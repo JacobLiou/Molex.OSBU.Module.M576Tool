@@ -44,7 +44,8 @@ private:
 	CString GetComboCom(CComboBox& combo);
 	BOOL OpenPorts();
 	void OnBrowse(UINT idEdit);
-	static void CALLBACK ProgressThunk(int cur, int total, void* user);
+	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
+	static void ProgressThunk(int cur, int total, void* user);
 
 	afx_msg void OnBnClickedOpenPorts();
 	afx_msg void OnBnClickedBrowseCsv();

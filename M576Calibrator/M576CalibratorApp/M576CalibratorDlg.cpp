@@ -202,7 +202,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		else
 		{
 			CString msg;
-			msg.Format(_T("Step %d/%d: %hs"), i + 1, total, line.GetString());
+			msg.Format(_T("Step %d/%d: %s"), i + 1, total, line.GetString());
 			AppendLog(msg);
 			std::vector<double> powers;
 			if (CRecalSession::ParsePowerDoubles(line, powers) && powers.size() > 4)

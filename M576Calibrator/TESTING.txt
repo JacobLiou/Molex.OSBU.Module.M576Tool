@@ -7,6 +7,9 @@ Build (Visual Studio 2015, v140, Win32, MFC dynamic)
 2. Configuration: Debug or Release | Win32
 3. Build Z4671Core, then M576CalibratorApp
 
+Character set: **Multi-Byte** (not Unicode). The ported Z4671 sources use ANSI string
+literals with CString::Format; a Unicode project would require wide literals throughout.
+
 CRC / BIN parity (manual)
 -------------------------
 - CLutBinWriter::Write follows the same fwrite order and CRC steps as legacy CreateBinFileZ4671
