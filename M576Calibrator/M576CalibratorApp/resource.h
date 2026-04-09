@@ -1,0 +1,21 @@
+#define IDD_M576CALIBRATOR_DIALOG         102
+#define IDR_MAINFRAME                     128
+#define IDM_ABOUT                         0x0010
+
+#define IDC_COMBO_429F                    1000
+#define IDC_COMBO_MCS                     1001
+#define IDC_EDIT_CSV                      1002
+#define IDC_EDIT_BACKUP_BIN               1003
+#define IDC_EDIT_OUT_BIN                  1004
+#define IDC_EDIT_SN                       1005
+#define IDC_EDIT_LOG                      1006
+#define IDC_PROGRESS_MAIN                 1007
+#define IDC_BTN_BROWSE_CSV                1008
+#define IDC_BTN_BROWSE_BACKUP             1009
+#define IDC_BTN_BROWSE_OUT                1010
+#define IDC_BTN_OPEN_PORTS                1011
+#define IDC_BTN_RUN_PATH                  1012
+#define IDC_BTN_GEN_BIN                   1013
+#define IDC_BTN_FLASH                     1014
+#define IDC_BTN_STOP                      1015
+#define IDC_STATIC_VERSION                1016

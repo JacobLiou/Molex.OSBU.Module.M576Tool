@@ -1,0 +1,34 @@
+M576 Calibrator — build and verification notes
+===============================================
+
+Build (Visual Studio 2015, v140, Win32, MFC dynamic)
+----------------------------------------------------
+1. Open M576Calibrator\M576Calibrator.sln
+2. Configuration: Debug or Release | Win32
+3. Build Z4671Core, then M576CalibratorApp
+
+CRC / BIN parity (manual)
+-------------------------
+- CLutBinWriter::Write follows the same fwrite order and CRC steps as legacy CreateBinFileZ4671
+  (stLutBundleHeader1, stLutBundleHeader2, stImageHeader x2, stLutSettingZ4671).
+- Regression: fill an identical stLutSettingZ4671 in the old tool and in this tool, write BIN,
+  compare file hashes.
+
+Integration checklist
+---------------------
+429F (ASCII)
+- Open 429F COM, run a short path CSV; confirm RECAL lines and responses appear in the log.
+- Tune ReadAsciiResponse timeout and line framing when firmware samples are available.
+
+MCS (Z4671 binary)
+- Open MCS COM, use “Flash MCS” with a known-good LUT BIN; confirm StartFWUpdate → transport → FWUpdateEnd.
+
+path_0330 CSV format (nine integer fields per row)
+--------------------------------------------------
+target_index, p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c
+Optional first row with header containing “target” is skipped.
+
+1310 merge
+----------
+- Backup BIN optional: ReadLutFromFile → MergeLut1310LowTempSlot → CLutBinWriter::Write
+- Only IDX_TEMP_LOW (0) wCalibPtrDAC and per-switch low temperature point are overwritten from session LUT.
