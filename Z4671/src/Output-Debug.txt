@@ -1,0 +1,54 @@
+﻿'SWBoxCal.exe' (Win32): Loaded 'C:\Users\cwang118\OneDrive - kochind.com\work\2026\MCAL\CODE\bin\SWBoxCal.exe'. Symbols loaded.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\ntdll.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\kernel32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\KernelBase.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\ws2_32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\ucrtbase.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\rpcrt4.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\user32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\win32u.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\mfc140d.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Users\cwang118\OneDrive - kochind.com\work\2026\MCAL\CODE\bin\dllpro.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\gdi32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\advapi32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\gdi32full.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\msvcrt.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\msvcp_win.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\ole32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\sechost.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\combase.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\oleaut32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\oleaut32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Unloaded 'C:\Windows\SysWOW64\oleaut32.dll'
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\vcruntime140d.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\ucrtbased.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\shlwapi.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\ucrtbased.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Unloaded 'C:\Windows\SysWOW64\ucrtbased.dll'
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\ucrtbased.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\windows.storage.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Unloaded 'C:\Windows\SysWOW64\ucrtbased.dll'
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\imm32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\uxtheme.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\CsXumd32_20309.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Unloaded 'C:\Windows\SysWOW64\CsXumd32_20309.dll'
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\CsXumd32_20309.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\kernel.appcore.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\bcryptprimitives.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\WinSxS\x86_microsoft.windows.common-controls_6595b64144ccf1df_5.82.26100.7309_none_cf9c45068ea8c077\comctl32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\msctf.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\WinSxS\x86_microsoft.windows.common-controls_6595b64144ccf1df_6.0.26100.7705_none_85b39051f7b2640a\comctl32.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\clbcatq.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\NTGraph.ocx'. Module was built without symbols.
+'SWBoxCal.exe' (Win32): Unloaded 'C:\Windows\SysWOW64\NTGraph.ocx'
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\NTGraph.ocx'. Module was built without symbols.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\mfc42.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\SHCore.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\TextInputFramework.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\TextShaping.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\CoreMessaging.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\CoreUIComponents.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\WinTypes.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\cryptbase.dll'. Cannot find or open the PDB file.
+'SWBoxCal.exe' (Win32): Loaded 'C:\Windows\SysWOW64\wtdccm.dll'. Cannot find or open the PDB file.
+The program '[372] SWBoxCal.exe' has exited with code 0 (0x0).

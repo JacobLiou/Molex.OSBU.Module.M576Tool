@@ -1,0 +1,409 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// Chinese (Simplified, PRC) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+#pragma code_page(936)
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "#define _AFX_NO_SPLITTER_RESOURCES\r\n"
+    "#define _AFX_NO_OLE_RESOURCES\r\n"
+    "#define _AFX_NO_TRACKER_RESOURCES\r\n"
+    "#define _AFX_NO_PROPERTY_RESOURCES\r\n"
+    "\r\n"
+    "#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)\r\n"
+    "#ifdef _WIN32\r\n"
+    "LANGUAGE 4, 2\r\n"
+    "#pragma code_page(936)\r\n"
+    "#endif //_WIN32\r\n"
+    "#include ""res\\126S_45V_Switch_App.rc2""  // non-Microsoft Visual C++ edited resources\r\n"
+    "#include ""l.chs\\afxres.rc""          // Standard components\r\n"
+    "#endif\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDR_MAINFRAME           ICON                    "res\\126S_45V_Switch_App.ico"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_ABOUTBOX DIALOG 0, 0, 235, 55
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "关于 126S_45V_Switch_App"
+FONT 9, "宋体"
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,11,17,20,20
+    LTEXT           "126S_45V_Switch_App 1.0 版",IDC_STATIC,40,10,119,8,SS_NOPREFIX
+    LTEXT           "版权所有 (C) 2012",IDC_STATIC,40,25,119,8
+    DEFPUSHBUTTON   "确定",IDOK,178,7,50,14,WS_GROUP
+END
+
+IDD_MY126S_45V_SWITCH_APP_DIALOG DIALOGEX 0, 0, 500, 403
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "SWBoxForFIM_V1.0.3.0001 Release 2024-9-23"
+FONT 9, "宋体", 0, 0, 0x1
+BEGIN
+    PUSHBUTTON      "下载FW",IDC_BUTTON_SEND_MESSAGE,29,297,47,15,NOT WS_TABSTOP
+    GROUPBOX        "1.测试信息",IDC_STATIC,13,13,122,72,BS_FLAT
+    LTEXT           "工号：",IDC_STATIC,18,31,24,11
+    LTEXT           "SN序号:",IDC_STATIC,18,68,29,10
+    EDITTEXT        IDC_EDIT_ID,47,26,57,15,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_SN,47,44,57,15,ES_AUTOHSCROLL
+    GROUPBOX        "3.扫描",IDC_STATIC,13,225,122,51,BS_FLAT
+    PUSHBUTTON      "归零",IDC_BUTTON_IL_REF,35,119,65,16
+    PUSHBUTTON      "IL测试",IDC_BUTTON_ILCT_TEST,213,212,45,17
+    PUSHBUTTON      "停止测试",IDC_BUTTON_STOP_TEST,363,378,50,15
+    COMBOBOX        IDC_COMBO_CH_SET,46,160,60,96,CBS_DROPDOWN | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX        "2.初始化",IDC_STATIC,13,87,122,133,BS_FLAT
+    LISTBOX         IDC_LIST_INFO,146,261,346,114,LBS_OWNERDRAWVARIABLE | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP
+    LTEXT           "通道：",IDC_STATIC,20,160,24,12
+    PUSHBUTTON      "退出",IDC_BUTTON_EXIT,423,377,50,15
+    PUSHBUTTON      "清空信息",IDC_BUTTON_CLEAR,307,378,50,15
+    COMBOBOX        IDC_COMBO_SEND_MESSAGE,134,302,89,86,CBS_DROPDOWN | NOT WS_VISIBLE | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX        "4.指令发送",IDC_STATIC,13,281,122,96,BS_FLAT
+    EDITTEXT        IDC_EDIT_X,33,337,33,14,ES_AUTOHSCROLL
+    LTEXT           "X：",IDC_STATIC_X,20,341,13,10
+    EDITTEXT        IDC_EDIT_Y,33,355,33,14,ES_AUTOHSCROLL
+    LTEXT           "Y：",IDC_STATIC_Y,19,357,12,10
+    CONTROL         "",IDC_NTGRAPHCTRL1,
+                    "{C9FE01C2-2746-479B-96AB-E0BE9931B018}",WS_TABSTOP,144,13,348,170
+    GROUPBOX        "5.光学测试",IDC_STATIC,146,199,225,59,BS_FLAT
+    LTEXT           "mv",IDC_STATIC_UNIT1,70,340,18,11
+    LTEXT           "mv",IDC_STATIC_UNIT2,70,357,18,11
+    PUSHBUTTON      "读取光功率",IDC_BUTTON_TEST,255,378,46,15
+    PUSHBUTTON      "RL测试",IDC_BUTTON_RL_TEST,394,212,45,17,NOT WS_VISIBLE
+    COMBOBOX        IDC_COMBO_SaveData,24,254,39,75,CBS_DROPDOWNLIST | CBS_AUTOHSCROLL | NOT WS_VISIBLE | WS_DISABLED | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_COMBO_COMPORT,68,237,39,75,CBS_DROPDOWNLIST | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "Progress2",IDC_PROGRESS2,"msctls_progress32",WS_BORDER,145,185,348,11
+    LTEXT           "进光通道：",IDC_STATIC_COMPORT,26,238,41,8
+    EDITTEXT        IDC_EDIT_PM_IL1,370,218,122,34,ES_AUTOHSCROLL
+    LTEXT           "IL:",IDC_STATIC,419,185,13,8,NOT WS_VISIBLE
+    PUSHBUTTON      "重复性测试",IDC_BUTTON_REPEAT_TEST2,375,202,45,17,NOT WS_VISIBLE
+    PUSHBUTTON      "Dark值测试",IDC_BUTTON_DARK_TEST,375,217,45,17,NOT WS_VISIBLE
+    PUSHBUTTON      "设置电压",IDC_BUTTON_SET_VOLTAGE,89,337,37,15,NOT WS_TABSTOP
+    PUSHBUTTON      "打开串口和设备",IDC_BUTTON_OPEN_TESTER_PORT,35,97,64,17
+    EDITTEXT        IDC_EDIT_COM_TESTER_PORT,103,174,33,14,ES_AUTOHSCROLL | NOT WS_VISIBLE
+    PUSHBUTTON      "遍历开关切换",IDC_BUTTON_SWITCH_ALL,258,304,61,17,NOT WS_VISIBLE
+    PUSHBUTTON      "设置测试板电压",IDC_BUTTON_SET_TESTER_VOLTAGE,184,321,68,15,NOT WS_VISIBLE | NOT WS_TABSTOP
+    PUSHBUTTON      "上传无纸化",IDC_BUTTON_UP,396,238,45,17,NOT WS_VISIBLE
+    PUSHBUTTON      "调节扫描",IDC_BUTTON_REGULATE_SCAN,69,253,50,14,NOT WS_VISIBLE
+    PUSHBUTTON      "数据检查",IDC_BUTTON_CHECK,239,325,50,14,NOT WS_VISIBLE
+    PUSHBUTTON      "RL归零",IDC_BUTTON_RL_REF,35,138,65,16,NOT WS_VISIBLE
+    PUSHBUTTON      "单通道扫描",IDC_BUTTON_SCAN_CH,109,143,45,17,NOT WS_VISIBLE
+    PUSHBUTTON      "IL/CT(不扫描)",IDC_BUTTON_ILCT_TEST2,388,242,54,17,NOT WS_VISIBLE
+    COMBOBOX        IDC_COMBO_TEMPNAME,366,214,34,75,CBS_DROPDOWNLIST | CBS_AUTOHSCROLL | NOT WS_VISIBLE | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "温度",IDC_STATIC_COMPORT2,361,225,17,8,NOT WS_VISIBLE
+    PUSHBUTTON      "设置波长",IDC_BUTTON_SET_WL,154,378,37,15,NOT WS_VISIBLE | NOT WS_TABSTOP
+    EDITTEXT        IDC_EDIT_TLSWL,194,379,33,14,ES_AUTOHSCROLL | NOT WS_VISIBLE
+    COMBOBOX        IDC_COMBO_SN_INDEX,52,67,75,125,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "SN：",IDC_STATIC,18,46,24,11
+    PUSHBUTTON      "定标",IDC_BUTTON_SW_CAL,152,211,45,17
+    PUSHBUTTON      "数据下载",IDC_BUTTON_DOWNLoad,152,235,45,17
+    PUSHBUTTON      "获取电压",IDC_BUTTON_SET_VOLTAGE2,89,354,37,15,NOT WS_TABSTOP
+    PUSHBUTTON      "切开关",IDC_BUTTON_ILCT_TEST4,213,234,45,17
+    PUSHBUTTON      "PD定标",IDC_BUTTON_ILCT_TEST5,271,212,45,17
+    PUSHBUTTON      "PD验证",IDC_BUTTON_ILCT_TEST6,271,234,45,17
+    CONTROL         "mV/DAC",IDC_CHECK1,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,69,320,40,10
+    COMBOBOX        IDC_COMBO_SET_WL,46,178,60,96,CBS_DROPDOWN | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "波长：",IDC_STATIC,19,178,24,12
+    COMBOBOX        IDC_COMBO_SET_PDBOX,46,196,60,96,CBS_DROPDOWN | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "PD盒：",IDC_STATIC,19,195,24,12
+    EDITTEXT        IDC_EDIT_SET_VOA,319,215,36,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "设置VOA",IDC_BUTTON_SET_VOLTAGE3,320,236,37,15,NOT WS_TABSTOP
+END
+
+IDD_DIALOG_RL DIALOG 0, 0, 231, 194
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "RL_TEST"
+FONT 10, "System"
+BEGIN
+    DEFPUSHBUTTON   "确定",IDOK,174,150,50,14
+    PUSHBUTTON      "取消",IDCANCEL,174,167,50,14
+    EDITTEXT        IDC_EDIT_RL1,43,16,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL2,43,32,40,14,ES_AUTOHSCROLL
+    LTEXT           "CH1-RL:",IDC_STATIC,13,18,28,8
+    LTEXT           "CH2-RL:",IDC_STATIC,13,35,28,8
+    LTEXT           "CH3-RL:",IDC_STATIC,13,52,28,8
+    LTEXT           "CH6-RL:",IDC_STATIC,13,101,28,8
+    LTEXT           "CH5-RL:",IDC_STATIC,13,84,28,8
+    LTEXT           "CH4-RL:",IDC_STATIC,13,68,28,8
+    LTEXT           "CH7-RL:",IDC_STATIC,13,117,28,8
+    LTEXT           "CH8-RL:",IDC_STATIC,13,135,28,8
+    LTEXT           "CH9-RL:",IDC_STATIC,13,152,28,8
+    LTEXT           "CH10-RL:",IDC_STATIC,13,170,32,8
+    LTEXT           "CH11-RL:",IDC_STATIC,95,18,32,8
+    LTEXT           "CH12-RL:",IDC_STATIC,95,34,32,8
+    LTEXT           "CH13-RL:",IDC_STATIC,95,51,32,8
+    LTEXT           "CH14-RL:",IDC_STATIC,95,67,32,8
+    LTEXT           "CH15-RL:",IDC_STATIC,95,82,32,8
+    LTEXT           "CH16-RL:",IDC_STATIC,95,100,32,8
+    LTEXT           "CH17-RL:",IDC_STATIC,95,116,32,8
+    LTEXT           "CH18-RL:",IDC_STATIC,95,133,32,8
+    LTEXT           "CH19-RL:",IDC_STATIC,95,150,32,8
+    EDITTEXT        IDC_EDIT_RL3,43,50,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL4,43,67,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL5,43,82,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL6,43,99,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL7,43,114,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL8,43,132,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL9,43,148,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL10,45,165,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL11,129,16,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL12,129,32,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL13,129,47,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL14,129,66,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL15,129,84,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL16,129,101,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL17,129,116,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL18,129,133,40,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_RL19,129,149,40,14,ES_AUTOHSCROLL
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,4,0
+ PRODUCTVERSION 1,0,4,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x4L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "FileDescription", "126S_45V_Switch_App Microsoft 基础类应用程序"
+            VALUE "FileVersion", "1.0.4.0"
+            VALUE "InternalName", "126S_45V_Switch_App"
+            VALUE "LegalCopyright", "(C)Molex, LLC"
+            VALUE "OriginalFilename", "126S_45V_Switch_App.EXE"
+            VALUE "ProductName", "126S_45V_Switch_App 应用程序"
+            VALUE "ProductVersion", "1.0.4.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_ABOUTBOX, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 228
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 48
+    END
+
+    IDD_MY126S_45V_SWITCH_APP_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 492
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 396
+    END
+
+    IDD_DIALOG_RL, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 224
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 187
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog Info
+//
+
+IDD_MY126S_45V_SWITCH_APP_DIALOG DLGINIT
+BEGIN
+    IDC_COMBO_SEND_MESSAGE, 0x403, 11, 0
+0x2e31, 0xc1b6, 0xa1c8, 0xc5d0, 0xa2cf, "\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 19, 0
+0x2e32, 0xd0c7, 0xbbbb, 0xfab2, 0xb7c6, 0xaabf, 0xd8b9, 0xa8cd, 0xc0b5, 
+"\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 19, 0
+0x2e33, 0xf1bb, 0xa1c8, 0xb1b5, 0xb0c7, 0xa8cd, 0xe2b9, 0xa8cd, 0xc0b5, 
+"\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 10, 0
+0x2e34, 0xf1bb, 0xa1c8, 0x4144, 0x0043, 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 15, 0
+0x2e35, 0xf1bb, 0xa1c8, 0xa8b1, 0xafbe, 0xb4d7, 0xaccc, "\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 7, 0
+0x2e36, 0xb4b8, 0xbbce, "\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 9, 0
+0x2e37, 0xc2cf, 0xd8d4, 0x5746, "\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 17, 0
+0x2e38, 0xf1bb, 0xa1c8, 0x504f, 0x494c, 0x4b4e, 0xe6b0, 0xbeb1, "\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 7, 0
+0x2e39, 0x4553, 0x5854, "\000" 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 8, 0
+0x3031, 0x532e, 0x5445, 0x0059, 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 12, 0
+0x3131, 0xb62e, 0xc8c1, 0xcea1, 0xb6c2, 0x00c8, 
+    IDC_COMBO_SEND_MESSAGE, 0x403, 18, 0
+0x3231, 0xcf2e, 0xcad4, 0xb8be, 0xcdf7, 0xb5a8, 0xb5c0, 0xd1e7, 0x00b9, 
+
+    IDC_COMBO_SEND_MESSAGE, 0x403, 22, 0
+0x3331, 0xc72e, 0xbbd0, 0xb2bb, 0xcae2, 0xb0d4, 0xbfe5, 0xb9aa, 0xcdd8, 
+0xb5a8, 0x00c0, 
+    IDC_NTGRAPHCTRL1, 0x376, 274, 0
+0x0000, 0x0000, 0x0000, 0x0001, 0x35f3, 0x0000, 0x1a64, 0x0000, 0x00c2, 
+0x0000, 0x4f06, 0x4c50, 0x4e49, 0x014b, 0x0000, 0x0000, 0x0101, 0x0000, 
+0x0100, 0xe600, 0xfae6, 0x3800, 0x8e8e, 0x0000, 0x0000, 0x0000, 0x0000, 
+0x8000, 0x8080, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 
+0x0000, 0x0000, 0x0000, 0x0000, 0xff00, 0xffff, 0x0200, 0x6725, 0x2502, 
+0x0067, 0x0100, 0x0200, 0x0100, 0xff01, 0x0000, 0x0000, 0x0000, 0x0000, 
+0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0900, 0x6c45, 0x6d65, 0x6e65, 
+0x2d74, 0x0031, 0x0000, 0x0000, 0xffff, 0x00ff, 0x0000, 0x0000, 0x0000, 
+0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0101, 0x0300, 0xe352, 0x910b, 
+0xce8f, 0x9d11, 0x00e3, 0x00aa, 0xb84b, 0x0151, 0x0000, 0x9000, 0x0801, 
+0x014c, 0x0500, 0x7241, 0x6169, 0xff6c, 0x00ff, 0x5203, 0x0be3, 0x8f91, 
+0x11ce, 0xe39d, 0xaa00, 0x4b00, 0x51b8, 0x0001, 0x0000, 0x0190, 0x4c08, 
+0x0001, 0x4105, 0x6972, 0x6c61, 0x0400, 0xe352, 0x910b, 0xce8f, 0x9d11, 
+0x00e3, 0x00aa, 0xb84b, 0x6c51, 0x0074, 0x0000, 0x0000, 0x0000, 0x5204, 
+0x0be3, 0x8f91, 0x11ce, 0xe39d, 0xaa00, 0x4b00, 0x51b8, 0x746c, 0x0000, 
+0x0000, 0x0000, 
+    IDC_COMBO_SaveData, 0x403, 7, 0
+0xe3b5, 0xbabd, 0xb0c7, "\000" 
+    IDC_COMBO_SaveData, 0x403, 7, 0
+0xe3b5, 0xbabd, 0xf3ba, "\000" 
+    IDC_COMBO_COMPORT, 0x403, 5, 0
+0x4f43, 0x304d, "\000" 
+    IDC_COMBO_COMPORT, 0x403, 5, 0
+0x4f43, 0x314d, "\000" 
+    IDC_COMBO_TEMPNAME, 0x403, 5, 0
+0x6f52, 0x6d6f, "\000" 
+    IDC_COMBO_TEMPNAME, 0x403, 4, 0
+0x6f4c, 0x0077, 
+    IDC_COMBO_TEMPNAME, 0x403, 5, 0
+0x6948, 0x6867, "\000" 
+    IDC_COMBO_SET_WL, 0x403, 5, 0
+0x3331, 0x3031, "\000" 
+    IDC_COMBO_SET_WL, 0x403, 5, 0
+0x3531, 0x3035, "\000" 
+    IDC_COMBO_SET_PDBOX, 0x403, 7, 0
+0x3a31, 0x3032, 0x4843, "\000" 
+    IDC_COMBO_SET_PDBOX, 0x403, 7, 0
+0x3a32, 0x3436, 0x4843, "\000" 
+    0
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_MY126S_45V_SWITCH_APP_DIALOG AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE
+BEGIN
+    IDS_ABOUTBOX            "关于 126S_45V_Switch_App(&A)..."
+END
+
+#endif    // Chinese (Simplified, PRC) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+#define _AFX_NO_SPLITTER_RESOURCES
+#define _AFX_NO_OLE_RESOURCES
+#define _AFX_NO_TRACKER_RESOURCES
+#define _AFX_NO_PROPERTY_RESOURCES
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+#ifdef _WIN32
+LANGUAGE 4, 2
+#pragma code_page(936)
+#endif //_WIN32
+#include "res\126S_45V_Switch_App.rc2"  // non-Microsoft Visual C++ edited resources
+#include "l.chs\afxres.rc"          // Standard components
+#endif
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+

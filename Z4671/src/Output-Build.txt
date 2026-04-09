@@ -1,0 +1,412 @@
+﻿1>------ Build started: Project: 126S_45V_Switch_App, Configuration: Debug Win32 ------
+1>C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V140\Microsoft.CppBuild.targets(392,5): warning MSB8028: The intermediate directory (.\Debug\) contains files shared from another project (126S_45V_Switch_App.vcxproj).  This can lead to incorrect clean and rebuild behavior.
+1>  PDBoxForMCS.cpp
+1>PDBoxForMCS.cpp(49): warning C4018: '<': signed/unsigned mismatch
+1>PDBoxForMCS.cpp(107): warning C4101: 'allcout': unreferenced local variable
+1>PDBoxForMCS.cpp(107): warning C4101: 'cout': unreferenced local variable
+1>PDBoxForMCS.cpp(288): warning C4101: 'allcout': unreferenced local variable
+1>PDBoxForMCS.cpp(288): warning C4101: 'cout': unreferenced local variable
+1>PDBoxForMCS.cpp(587): warning C4101: 'allcout': unreferenced local variable
+1>PDBoxForMCS.cpp(587): warning C4101: 'cout': unreferenced local variable
+1>  126S_45V_Switch_AppDlg.cpp
+1>126S_45V_Switch_AppDlg.cpp(263): warning C4101: 'wPNCount': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(492): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(573): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(478): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(480): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(482): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(484): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(486): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(488): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(517): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(522): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(534): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(559): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(561): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(563): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(565): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(567): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(569): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(598): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(603): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(616): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(394): warning C4101: 'dblValue': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(799): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(803): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(807): warning C4477: 'fprintf' : format string '%s' requires an argument of type 'char *', but variadic argument 1 has type 'CString'
+1>126S_45V_Switch_AppDlg.cpp(822): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(827): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(875): warning C4101: 'nCH': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(937): warning C4101: 'win32Find': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(868): warning C4101: 'dblPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(940): warning C4101: 'i': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(939): warning C4101: 'j': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(942): warning C4101: 'dblCT': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(1805): warning C4996: '_gcvt': This function or variable may be unsafe. Consider using _gcvt_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdlib.h(805): note: see declaration of '_gcvt'
+1>126S_45V_Switch_AppDlg.cpp(2100): warning C4244: 'return': conversion from 'double' to 'BOOL', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(2107): warning C4244: 'return': conversion from 'double' to 'BOOL', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(2111): warning C4244: 'return': conversion from 'double' to 'BOOL', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(2125): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(2133): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(2123): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(2131): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(2194): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(2192): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(2616): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(2618): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(3884): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(3885): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(3887): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(3888): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4489): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4490): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4491): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4492): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4494): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4495): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4496): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4497): warning C4244: '=': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(4624): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(4625): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(4627): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(5309): warning C4996: 'strncpy': This function or variable may be unsafe. Consider using strncpy_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(346): note: see declaration of 'strncpy'
+1>126S_45V_Switch_AppDlg.cpp(6742): warning C4018: '<': signed/unsigned mismatch
+1>126S_45V_Switch_AppDlg.cpp(6301): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6311): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6321): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6331): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6342): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6502): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6503): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6506): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6549): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6550): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6553): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(6910): warning C4101: 'bSlot': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(6908): warning C4101: 'iSocket': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(6911): warning C4101: 'bChannel': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(6905): warning C4101: 'wSendLen': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(6903): warning C4101: 'pchCmd': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(6904): warning C4101: 'recvBuf': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(6909): warning C4101: 'nPM': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(7104): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(7115): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(7103): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(7113): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(7152): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(7151): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(7880): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(7881): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(7884): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(7885): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(7888): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(7889): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8041): warning C4996: 'strcpy': This function or variable may be unsafe. Consider using strcpy_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(119): note: see declaration of 'strcpy'
+1>126S_45V_Switch_AppDlg.cpp(8080): warning C4996: 'strcpy': This function or variable may be unsafe. Consider using strcpy_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(119): note: see declaration of 'strcpy'
+1>126S_45V_Switch_AppDlg.cpp(8108): warning C4996: 'strcpy': This function or variable may be unsafe. Consider using strcpy_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(119): note: see declaration of 'strcpy'
+1>126S_45V_Switch_AppDlg.cpp(8294): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(8295): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(8315): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8323): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8324): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8327): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8328): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8507): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8512): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8544): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(8737): warning C4101: 'nDACX': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(8738): warning C4101: 'nDACY': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(8909): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8910): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8919): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9001): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9002): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9087): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9106): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9210): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9211): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9299): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9300): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9388): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9389): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9475): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(9476): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(8826): warning C4101: 'dblMin': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(8825): warning C4101: 'dblMax': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(10106): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(10140): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(10159): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(10186): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(10206): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(10225): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(10316): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10327): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10328): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10330): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10348): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10359): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10360): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10362): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10370): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10398): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10457): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10524): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10572): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10619): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10665): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10714): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(10769): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10775): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(10981): warning C4101: 'nWL': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11159): warning C4101: 'dblPref': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11161): warning C4101: 'dblPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11160): warning C4101: 'dblPout': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11324): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(11328): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(11332): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(11310): warning C4101: 'nAtten': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11317): warning C4101: 'nWL': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11311): warning C4101: 'nIndex': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12000): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(12004): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(12008): warning C4996: 'stricmp': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _stricmp. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(568): note: see declaration of 'stricmp'
+1>126S_45V_Switch_AppDlg.cpp(11985): warning C4101: 'nPara': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11835): warning C4101: 'iSel': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(11984): warning C4101: 'nWDL': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12597): warning C4101: 'iSel': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12585): warning C4101: 'dwTmptBuf': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12594): warning C4101: 'st': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12586): warning C4101: 'dwBufCH': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12587): warning C4101: 'dwWDMTemp': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12700): warning C4101: 'nValue': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(12876): warning C4101: 'nValue': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(13172): warning C4800: 'BOOL': forcing value to bool 'true' or 'false' (performance warning)
+1>126S_45V_Switch_AppDlg.cpp(13072): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13073): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13076): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13077): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13040): warning C4101: 'nComPort': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(13579): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(13583): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(13593): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13594): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13596): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13664): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(13625): warning C4101: 'tszValue': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(13704): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(13807): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(13818): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13819): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13822): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(13824): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14011): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(14023): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14024): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14026): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14028): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14103): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14104): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14106): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14192): warning C4101: 'nReadCount': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(14400): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(14399): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(14416): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14439): warning C4267: '=': conversion from 'size_t' to 'WORD', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(14438): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(14454): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14590): warning C4244: 'initializing': conversion from 'LONGLONG' to 'int', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(14613): warning C4800: 'BOOL': forcing value to bool 'true' or 'false' (performance warning)
+1>126S_45V_Switch_AppDlg.cpp(14888): warning C4244: '=': conversion from 'double' to 'long', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(14889): warning C4244: '=': conversion from 'double' to 'long', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(14735): warning C4477: 'sprintf' : format string '%s' requires an argument of type 'char *', but variadic argument 1 has type 'CString'
+1>126S_45V_Switch_AppDlg.cpp(14735): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+1>126S_45V_Switch_AppDlg.cpp(14819): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14827): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14835): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14843): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14852): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14881): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(14883): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(15141): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\stdio.h(205): note: see declaration of 'fopen'
+1>126S_45V_Switch_AppDlg.cpp(14694): warning C4101: 'nTempIndex': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15174): warning C4101: 'pszError': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15402): warning C4244: '=': conversion from 'double' to 'SHORT', possible loss of data
+1>126S_45V_Switch_AppDlg.cpp(15382): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(15385): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(15401): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(15602): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(15604): warning C4996: 'strtok': This function or variable may be unsafe. Consider using strtok_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+1>  C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt\string.h(453): note: see declaration of 'strtok'
+1>126S_45V_Switch_AppDlg.cpp(15475): warning C4101: 'dblMaxPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15528): warning C4101: 'dblCurPowe': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15476): warning C4101: 'dblMinPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15436): warning C4101: 'dwSampleCount': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15529): warning C4101: 'dblRefPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15681): warning C4101: 'dblMaxPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15654): warning C4101: 'stScanPara': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15734): warning C4101: 'dblCurPowe': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15682): warning C4101: 'dblMinPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15645): warning C4101: 'dwSampleCount': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15735): warning C4101: 'dblRefPower': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15823): warning C4101: 'nReadCount': unreferenced local variable
+1>126S_45V_Switch_AppDlg.cpp(15817): warning C4101: 'dblPower': unreferenced local variable
+1>  Generating Code...
+1>c:\users\cwang118\onedrive - kochind.com\work\2026\mcal\code\src\126s_45v_switch_appdlg.cpp(1685): warning C4700: uninitialized local variable 'bFunctionOK' used
+1>c:\users\cwang118\onedrive - kochind.com\work\2026\mcal\code\src\126s_45v_switch_appdlg.cpp(2179): warning C4700: uninitialized local variable 'iSocket' used
+1>c:\users\cwang118\onedrive - kochind.com\work\2026\mcal\code\src\126s_45v_switch_appdlg.cpp(13031): warning C4700: uninitialized local variable 'x' used
+1>c:\users\cwang118\onedrive - kochind.com\work\2026\mcal\code\src\126s_45v_switch_appdlg.cpp(13032): warning C4700: uninitialized local variable 'y' used
+1>c:\users\cwang118\onedrive - kochind.com\work\2026\mcal\code\src\126s_45v_switch_appdlg.cpp(15424): warning C4715: 'CMy126S_45V_Switch_AppDlg::OnButtonPdDownload': not all control paths return a value
+1>C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V140\Microsoft.CppBuild.targets(1189,5): warning MSB8012: TargetPath(C:\Users\cwang118\OneDrive - kochind.com\work\2026\MCAL\CODE\src\.\Debug\126S_45V_Switch_App.exe) does not match the Linker's OutputFile property value (C:\Users\cwang118\OneDrive - kochind.com\work\2026\MCAL\CODE\bin\SWBoxCal.exe). This may cause your project to build incorrectly. To correct this, please make sure that $(OutDir), $(TargetName) and $(TargetExt) property values match the value specified in %(Link.OutputFile).
+1>C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V140\Microsoft.CppBuild.targets(1191,5): warning MSB8012: TargetName(126S_45V_Switch_App) does not match the Linker's OutputFile property value (SWBoxCal). This may cause your project to build incorrectly. To correct this, please make sure that $(OutDir), $(TargetName) and $(TargetExt) property values match the value specified in %(Link.OutputFile).
+1>  126S_45V_Switch_App.vcxproj -> C:\Users\cwang118\OneDrive - kochind.com\work\2026\MCAL\CODE\src\.\Debug\126S_45V_Switch_App.exe
+1>  126S_45V_Switch_App.vcxproj -> .\Debug\126S_45V_Switch_App.pdb (Full PDB)
+========== Build: 1 succeeded, 0 failed, 0 up-to-date, 0 skipped ==========
