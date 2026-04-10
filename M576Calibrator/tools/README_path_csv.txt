@@ -1,4 +1,4 @@
-sample_path.csv (1286 rows) generation
+output/standard.csv (1286 rows) generation
 =======================================
 
 PRD formula (需求Spec PRD.md line 78):
@@ -12,7 +12,7 @@ Blocks:
   64   — target_index=5, sweep 2#1x64 back channels 1..64
   3    — target_index=6, boundary samples (ch 1,32,64)
 
-Regenerate:
+Regenerate (creates M576Calibrator/output/standard.csv):
   python tools/generate_sample_path_1286.py
 
 Tune path tuples with firmware; routing helpers follow PRD 1x64 ch 1-32 vs 33-64 to MCS sides.

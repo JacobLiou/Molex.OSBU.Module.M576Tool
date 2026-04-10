@@ -10,10 +10,42 @@
 #define new DEBUG_NEW
 #endif
 
+namespace {
+
+CString GetExeFolder()
+{
+	TCHAR sz[MAX_PATH];
+	DWORD n = GetModuleFileName(NULL, sz, MAX_PATH);
+	if (n == 0 || n >= MAX_PATH)
+		return CString();
+	CString path = sz;
+	int p = path.ReverseFind(_T('\\'));
+	if (p > 0)
+		path = path.Left(p);
+	return path;
+}
+
+void EnsureOutputFolderUnderExe(const CString& exeFolder)
+{
+	if (exeFolder.IsEmpty())
+		return;
+	CString outDir = exeFolder + _T("\\output");
+	(void)CreateDirectory(outDir, NULL);
+}
+
+} // namespace
+
 CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	: CDialogEx(IDD, pParent)
 	, m_bStop(FALSE)
 {
+	const CString exe = GetExeFolder();
+	if (!exe.IsEmpty())
+	{
+		const CString sub = exe + _T("\\output");
+		m_strCsv = sub + _T("\\standard.csv");
+		m_strOutBin = sub + _T("\\standard.bin");
+	}
 }
 
 void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
@@ -60,11 +92,15 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		L"\u70e7\u5f55\u5b9a\u6807");
 	::SetDlgItemTextW(m_hWnd, IDC_STATIC_VERSION,
 		L"\u4ec5\u8fde\u63a5 429F\uff1b\u5b9a\u6807\u70e7\u5f55\u7531\u4e3b\u677f\u900f\u4f20\u81f3 MCS");
+	EnsureOutputFolderUnderExe(GetExeFolder());
+	UpdateData(FALSE);
 	FillComPorts();
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	AppendLog(_T("Ready. Select 429F COM port, open port, then run."));
+	AppendLog(_T("Path CSV default: .\\output\\standard.csv (generate with tools if missing)."));
+	AppendLog(_T("Backup BIN: optional LUT file on this PC to merge with calibrated 1310 slot; not read from serial."));
 	return TRUE;
 }
 
@@ -132,10 +168,18 @@ void CM576CalibratorDlg::OnBnClickedOpenPorts()
 
 void CM576CalibratorDlg::OnBrowse(UINT idEdit)
 {
-	CFileDialog dlg(TRUE, _T("csv"), NULL, OFN_HIDEREADONLY, _T("CSV files (*.csv)|*.csv|All (*.*)|*.*||"), this);
+	const CString exe = GetExeFolder();
+	CString initDir = exe;
+	const CString outDir = exe + _T("\\output");
+	if (GetFileAttributes(outDir) != INVALID_FILE_ATTRIBUTES)
+		initDir = outDir;
+	CFileDialog dlg(TRUE, _T("csv"), _T("standard.csv"), OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
+		_T("CSV files (*.csv)|*.csv|All (*.*)|*.*||"), this);
+	dlg.GetOFN().lpstrInitialDir = initDir.GetString();
 	if (dlg.DoModal() != IDOK)
 		return;
 	SetDlgItemText(idEdit, dlg.GetPathName());
+	UpdateData(TRUE);
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseCsv()
@@ -145,18 +189,26 @@ void CM576CalibratorDlg::OnBnClickedBrowseCsv()
 
 void CM576CalibratorDlg::OnBnClickedBrowseBackup()
 {
-	CFileDialog dlg(TRUE, _T("bin"), NULL, OFN_HIDEREADONLY, _T("BIN (*.bin)|*.bin|All (*.*)|*.*||"), this);
+	const CString exe = GetExeFolder();
+	CFileDialog dlg(TRUE, _T("bin"), NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
+		_T("BIN (*.bin)|*.bin|All (*.*)|*.*||"), this);
+	dlg.GetOFN().lpstrInitialDir = exe.GetString();
 	if (dlg.DoModal() != IDOK)
 		return;
 	SetDlgItemText(IDC_EDIT_BACKUP_BIN, dlg.GetPathName());
+	UpdateData(TRUE);
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseOut()
 {
-	CFileDialog dlg(FALSE, _T("bin"), NULL, OFN_OVERWRITEPROMPT, _T("BIN (*.bin)|*.bin|All (*.*)|*.*||"), this);
+	const CString exe = GetExeFolder();
+	CFileDialog dlg(FALSE, _T("bin"), _T("standard.bin"), OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST,
+		_T("BIN (*.bin)|*.bin|All (*.*)|*.*||"), this);
+	dlg.GetOFN().lpstrInitialDir = exe.GetString();
 	if (dlg.DoModal() != IDOK)
 		return;
 	SetDlgItemText(IDC_EDIT_OUT_BIN, dlg.GetPathName());
+	UpdateData(TRUE);
 }
 
 void CM576CalibratorDlg::OnBnClickedStop()

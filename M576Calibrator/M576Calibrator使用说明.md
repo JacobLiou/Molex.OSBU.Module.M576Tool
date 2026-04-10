@@ -90,7 +90,7 @@ target_index, p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c
 
 `64 + 3 + 32×18 + 32×18 + 64 + 3 = 1286`  
 
-| 段 | 行数 | 含义（与 `sample_path.csv` 生成脚本一致） |
+| 段 | 行数 | 含义（与 `output\standard.csv` 生成脚本一致） |
 |----|------|---------------------------------------------|
 | 64 | 64 | `target_index=1`，扫 1#1x64 前级通道 1…64 |
 | 3 | 3 | `target_index=2`，边界点（ch 1 / 32 / 64） |
@@ -99,7 +99,9 @@ target_index, p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c
 | 64 | 64 | `target_index=5`，扫 2#1x64 通道 1…64 |
 | 3 | 3 | `target_index=6`，边界点（ch 1 / 32 / 64） |
 
-工程内 **`sample_path.csv`** 即为上述 **1286 行** 的示例路径表；可用 `tools\generate_sample_path_1286.py` 重新生成。具体四元组与 `target_index` 的对应关系需与 **固件 / 现场 path_0330** 对齐后微调。
+上位机默认路径为 **`程序目录\output\standard.csv`**（与「写 BIN」默认 **`程序目录\output\standard.bin`** 一致）；可用 `tools\generate_sample_path_1286.py` 生成 **1286 行** 路径表到该位置。具体四元组与 `target_index` 的对应关系需与 **固件 / 现场 path_0330** 对齐后微调。
+
+**Backup BIN（旧 BIN）**：来自本机已保存的 LUT 定标包文件，用于与本次定标得到的 1310 低温槽合并后写出；**不是**通过串口从设备自动读出，需自行选择磁盘上的 `.bin`（没有旧文件可留空，则仅使用本次会话内存中的 LUT）。
 
 可选：表头行以 **`target_index`** 开头会被自动跳过；以 **`#`** 开头的注释行会被忽略。
 

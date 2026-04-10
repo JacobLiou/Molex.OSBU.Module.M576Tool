@@ -10,8 +10,10 @@ Routing hints from PRD (for 1#1x64 channel c):
   c in 1..32  -> 1# MCS side; c in 33..64 -> 2# MCS side
 """
 from __future__ import print_function
+import os
 
-OUT = r"..\sample_path.csv"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(SCRIPT_DIR, "..", "output", "standard.csv")
 
 
 def path_for_1x64_front(c1):
@@ -107,13 +109,15 @@ def main():
     data_lines = [r for r in rows if not r.startswith("target_index")]
     assert len(data_lines) == 1286, len(data_lines)
 
-    with open(OUT, "w", encoding="utf-8-sig", newline="") as f:
+    out_abs = os.path.abspath(OUT)
+    os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+    with open(out_abs, "w", encoding="utf-8-sig", newline="") as f:
         f.write("# PRD: 1286 steps = 64+3+576+576+64+3; path_0330 style 9-field CSV\n")
         f.write("# target 1..6 per PRD switch stages; verify with firmware before production\n")
         for r in rows:
             f.write(r + "\n")
 
-    print("Wrote", OUT, "lines:", len(rows), "data rows:", len(data_lines))
+    print("Wrote", out_abs, "lines:", len(rows), "data rows:", len(data_lines))
 
 
 if __name__ == "__main__":

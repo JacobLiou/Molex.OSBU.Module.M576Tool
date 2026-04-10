@@ -42,6 +42,7 @@ MCS LUT (Z4671 binary via 429F)
 
 path_0330 CSV format (nine integer fields per row)
 --------------------------------------------------
+Default file: .\\output\\standard.csv (see tools/generate_sample_path_1286.py).
 target_index, p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c
 Optional first row with header containing “target” is skipped.
 
