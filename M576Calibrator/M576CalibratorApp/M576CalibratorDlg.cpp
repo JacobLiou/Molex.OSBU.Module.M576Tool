@@ -4,6 +4,7 @@
 #include "LutMerge1310.h"
 #include "CalibConstants.h"
 #include "PeakFinder2D.h"
+#include "LutPeakApply.h"
 #include <math.h>
 
 #ifdef _DEBUG
@@ -242,6 +243,9 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	int total = (int)steps.GetSize();
 	m_progress.SetRange(0, total);
 
+	ZeroMemory(&m_lut, sizeof(m_lut));
+	int occT3 = 0, occT4 = 0;
+
 	// PRD: Command A — RECAL 0 (TLS source + wavelength) before RECAL 1 loop.
 	// Full scan parameters (DAC range/step/delay) may be added when firmware contract is fixed.
 	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, err))
@@ -267,6 +271,13 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		if (m_bStop)
 			break;
 		SPathStep& st = steps[i];
+		const int idxOcc3 = (st.targetSwitchIndex == 3) ? occT3 : -1;
+		const int idxOcc4 = (st.targetSwitchIndex == 4) ? occT4 : -1;
+		if (st.targetSwitchIndex == 3)
+			occT3++;
+		else if (st.targetSwitchIndex == 4)
+			occT4++;
+
 		CString verr;
 		if (!ValidatePathStep(st, verr))
 		{
@@ -298,6 +309,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 					{
 						msg.Format(_T("  -> peak (cross) row=%d col=%d (0-based)"), br, bc);
 						AppendLog(msg);
+						ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, n, br, bc, m_lut);
 					}
 				}
 			}

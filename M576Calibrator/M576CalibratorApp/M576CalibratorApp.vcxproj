@@ -105,6 +105,7 @@
   <ItemGroup>
     <ClInclude Include="CalibConstants.h" />
     <ClInclude Include="LutMerge1310.h" />
+    <ClInclude Include="LutPeakApply.h" />
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
     <ClInclude Include="McsFwTransport.h" />
@@ -117,6 +118,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="LutMerge1310.cpp" />
+    <ClCompile Include="LutPeakApply.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />

@@ -13,3 +13,16 @@
 #ifndef M576_DEFAULT_WAVELENGTH_NM
 #define M576_DEFAULT_WAVELENGTH_NM 1310.0
 #endif
+
+/// Peak grid → DAC: symmetric around mid DAC; PRD often uses base ± range (e.g. ±64). Tune with firmware.
+#ifndef M576_PEAK_GRID_DAC_BASE
+#define M576_PEAK_GRID_DAC_BASE 2048
+#endif
+#ifndef M576_PEAK_GRID_DAC_RANGE
+#define M576_PEAK_GRID_DAC_RANGE 64
+#endif
+
+/// 2# MCS rows: if firmware maps 32 MCS to LUT[0..31] for 1# and LUT[16..31] or second bank for 2#, adjust (default: same index as 1#, last write wins — verify on integration).
+#ifndef M576_MCS2_SW_INDEX_OFFSET
+#define M576_MCS2_SW_INDEX_OFFSET 0
+#endif
