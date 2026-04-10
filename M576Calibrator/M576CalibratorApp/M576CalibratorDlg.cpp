@@ -74,6 +74,12 @@ END_MESSAGE_MAP()
 BOOL CM576CalibratorDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
+	HICON hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+	if (hIcon)
+	{
+		SetIcon(hIcon, TRUE);
+		SetIcon(hIcon, FALSE);
+	}
 	SetWindowText(_T("M576 / 1310 Calibrator (429F)"));
 	/// Chinese UI: avoid UTF-8 literals in .rc (RC code page); use Unicode API + \\u escapes.
 	::SetDlgItemTextW(m_hWnd, IDC_GROUP_CONN,
@@ -235,6 +241,26 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	}
 	int total = (int)steps.GetSize();
 	m_progress.SetRange(0, total);
+
+	// PRD: Command A — RECAL 0 (TLS source + wavelength) before RECAL 1 loop.
+	// Full scan parameters (DAC range/step/delay) may be added when firmware contract is fixed.
+	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, err))
+	{
+		AppendLog(err);
+		return;
+	}
+	{
+		CStringA line0;
+		if (!m_pRecal->ReadAsciiResponse(line0, 3000, err))
+			AppendLog(_T("RECAL 0: timeout waiting for response."));
+		else
+		{
+			CString msg;
+			msg.Format(_T("RECAL 0 -> %s"), CString(line0));
+			AppendLog(msg);
+		}
+	}
+
 	CStringA line;
 	for (int i = 0; i < total; ++i)
 	{

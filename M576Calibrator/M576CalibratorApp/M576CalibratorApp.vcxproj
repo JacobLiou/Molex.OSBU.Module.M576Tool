@@ -129,6 +129,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="M576CalibratorApp.manifest" />
+    <None Include="res\M576Calibrator.ico" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="M576CalibratorApp.rc" />

@@ -4,6 +4,9 @@
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
 LANGUAGE 4, 2
 
+// Application icon (taskbar / title bar / .exe)
+IDR_MAINFRAME           ICON                    "res\\M576Calibrator.ico"
+
 IDD_M576CALIBRATOR_DIALOG DIALOGEX 0, 0, 400, 440
 STYLE DS_SETFONT | WS_MINIMIZEBOX | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
 EXSTYLE WS_EX_APPWINDOW
