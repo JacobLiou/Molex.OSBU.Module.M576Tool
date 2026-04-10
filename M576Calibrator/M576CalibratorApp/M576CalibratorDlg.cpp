@@ -52,6 +52,45 @@ void EnsureOutputFolderUnderExe(const CString& exeFolder)
 	(void)CreateDirectory(outDir, NULL);
 }
 
+/// Convert an absolute path to a relative path from the exe folder.
+/// Returns the original path unchanged if conversion is not possible.
+CString ToRelPath(const CString& absPath)
+{
+	const CString base = GetExeFolder();
+	if (base.IsEmpty() || absPath.IsEmpty())
+		return absPath;
+	TCHAR rel[MAX_PATH] = {};
+	if (PathRelativePathTo(rel, base.GetString(), FILE_ATTRIBUTE_DIRECTORY,
+						   absPath.GetString(), 0))
+	{
+		CString r = rel;
+		// Strip leading ".\" for a cleaner display
+		if (r.GetLength() > 2 && r[0] == _T('.') && r[1] == _T('\\'))
+			r = r.Mid(2);
+		return r;
+	}
+	return absPath;
+}
+
+/// Resolve a stored path (may be relative) to an absolute path using the exe folder as base.
+CString ResolveFilePath(const CString& path)
+{
+	if (path.IsEmpty())
+		return path;
+	// Already absolute if it starts with a drive letter or UNC prefix
+	if ((path.GetLength() >= 2 && path[1] == _T(':')) ||
+		(path.GetLength() >= 2 && path[0] == _T('\\')))
+		return path;
+	const CString base = GetExeFolder();
+	if (base.IsEmpty())
+		return path;
+	TCHAR abs[MAX_PATH] = {};
+	CString combined = base + _T("\\") + path;
+	if (PathCanonicalize(abs, combined.GetString()))
+		return CString(abs);
+	return combined;
+}
+
 } // namespace
 
 CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
@@ -62,14 +101,9 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_dacRange(M576_DEFAULT_DAC_RANGE)
 	, m_dacStep(M576_DEFAULT_DAC_STEP)
 {
-	const CString exe = GetExeFolder();
-	if (!exe.IsEmpty())
-	{
-		const CString sub = exe + _T("\\output");
-		m_strCsv = sub + _T("\\standard.csv");
-		m_strOutBin = sub + _T("\\standard.bin");
-		m_strBackupBin = sub + _T("\\mcs_lut_backup.bin");
-	}
+	m_strCsv        = _T("output\\standard.csv");
+	m_strOutBin     = _T("output\\standard.bin");
+	m_strBackupBin  = _T("output\\mcs_lut_backup.bin");
 }
 
 void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
@@ -205,7 +239,7 @@ void CM576CalibratorDlg::OnBrowse(UINT idEdit)
 	dlg.GetOFN().lpstrInitialDir = initDir.GetString();
 	if (dlg.DoModal() != IDOK)
 		return;
-	SetDlgItemText(idEdit, dlg.GetPathName());
+	SetDlgItemText(idEdit, ToRelPath(dlg.GetPathName()));
 	UpdateData(TRUE);
 }
 
@@ -222,7 +256,7 @@ void CM576CalibratorDlg::OnBnClickedBrowseBackup()
 	dlg.GetOFN().lpstrInitialDir = exe.GetString();
 	if (dlg.DoModal() != IDOK)
 		return;
-	SetDlgItemText(IDC_EDIT_BACKUP_BIN, dlg.GetPathName());
+	SetDlgItemText(IDC_EDIT_BACKUP_BIN, ToRelPath(dlg.GetPathName()));
 	UpdateData(TRUE);
 }
 
@@ -234,7 +268,7 @@ void CM576CalibratorDlg::OnBnClickedBrowseOut()
 	dlg.GetOFN().lpstrInitialDir = exe.GetString();
 	if (dlg.DoModal() != IDOK)
 		return;
-	SetDlgItemText(IDC_EDIT_OUT_BIN, dlg.GetPathName());
+	SetDlgItemText(IDC_EDIT_OUT_BIN, ToRelPath(dlg.GetPathName()));
 	UpdateData(TRUE);
 }
 
@@ -243,16 +277,17 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	UpdateData(TRUE);
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	if (m_strBackupBin.IsEmpty())
-		m_strBackupBin = GetExeFolder() + _T("\\output\\mcs_lut_backup.bin");
+		m_strBackupBin = _T("output\\mcs_lut_backup.bin");
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
 	{
 		if (!OpenPort())
 			return;
 	}
+	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
 	CString err;
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	if (!McsReadLutBundleFromDevice(m_dev429f, m_strBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this))
 	{
 		CString m;
 		m.Format(_T("Read Flash backup failed: %s"), (LPCTSTR)err);
@@ -262,7 +297,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	UpdateData(FALSE);
 	m_progress.SetPos(100);
 	CString ok;
-	ok.Format(_T("Flash LUT backup saved: %s"), (LPCTSTR)m_strBackupBin);
+	ok.Format(_T("Flash LUT backup saved: %s"), (LPCTSTR)absBackupBin);
 	AppendLog(ok);
 }
 
@@ -291,7 +326,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 {
 	CArray<SPathStep, SPathStep const&> steps;
 	CString err;
-	if (!LoadPathCsv(m_strCsv, steps, err))
+	if (!LoadPathCsv(ResolveFilePath(m_strCsv), steps, err))
 	{
 		AppendLog(err);
 		return;
@@ -378,7 +413,7 @@ void CM576CalibratorDlg::RunPathPd()
 {
 	CArray<SPathStepPd, SPathStepPd const&> steps;
 	CString err;
-	if (!LoadPathCsvPd(m_strCsv, steps, err))
+	if (!LoadPathCsvPd(ResolveFilePath(m_strCsv), steps, err))
 	{
 		AppendLog(err);
 		return;
@@ -471,9 +506,11 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	}
 	stLutSettingZ4671 merged;
 	ZeroMemory(&merged, sizeof(merged));
-	if (!m_strBackupBin.IsEmpty() && GetFileAttributes(m_strBackupBin) != INVALID_FILE_ATTRIBUTES)
+	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
+	const CString absOutBin = ResolveFilePath(m_strOutBin);
+	if (!m_strBackupBin.IsEmpty() && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
 	{
-		if (!CLutBinWriter::ReadLutFromFile(m_strBackupBin, merged))
+		if (!CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
 		{
 			AppendLog(_T("Read backup BIN failed."));
 			return;
@@ -488,7 +525,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	}
 
 	SLutBinWriteParams p;
-	p.strOutputPath = m_strOutBin;
+	p.strOutputPath = absOutBin;
 	p.pLut = &merged;
 	p.strBundleSN = m_strSn;
 	if (p.strBundleSN.IsEmpty())
@@ -519,7 +556,8 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("Set output BIN path (same file used for flash)."));
 		return;
 	}
-	if (GetFileAttributes(m_strOutBin) == INVALID_FILE_ATTRIBUTES)
+	const CString absOutBin = ResolveFilePath(m_strOutBin);
+	if (GetFileAttributes(absOutBin) == INVALID_FILE_ATTRIBUTES)
 	{
 		AppendLog(_T("BIN not found."));
 		return;
@@ -531,7 +569,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	CString err;
 	m_progress.SetRange(0, 100);
-	if (!McsFwUploadBinEx(m_dev429f, m_strOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	if (!McsFwUploadBinEx(m_dev429f, absOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
 	{
 		CString m;
 		m.Format(_T("Flash failed: %s"), (LPCTSTR)err);

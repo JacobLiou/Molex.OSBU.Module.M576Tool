@@ -131,6 +131,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="M576CalibratorApp.manifest" />
+    <None Include="output\standard_pd.csv" />
+    <None Include="output\standard_pm.csv" />
     <None Include="res\M576Calibrator.ico" />
   </ItemGroup>
   <ItemGroup>
