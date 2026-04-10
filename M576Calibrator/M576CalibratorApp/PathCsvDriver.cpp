@@ -19,13 +19,14 @@ BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CSt
 		if (line.IsEmpty() || line[0] == _T('#'))
 			continue;
 		/// Skip CSV header row (allows leading # comments; tolerates UTF-8 BOM on first column).
-		if (line.Find(_T("target_index")) >= 0 && line.Find(_T("p1b")) >= 0)
+		if (line.Find(_T("target_index")) >= 0
+			&& (line.Find(_T("ch1")) >= 0 || line.Find(_T(",c1,")) >= 0 || line.Find(_T("p1b")) >= 0))
 			continue;
 		if (lineNo == 1 && (line.Find(_T("target")) >= 0 || line.Find(_T("Target")) >= 0
 			|| line.Find(_T("TARGET")) >= 0))
 			continue;
 
-		int vals[9] = {};
+		int vals[5] = {};
 		int n = 0;
 		int start = 0;
 		for (;;)
@@ -36,25 +37,25 @@ BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CSt
 			if (!t.IsEmpty())
 			{
 				vals[n++] = _ttoi(t);
-				if (n >= 9)
+				if (n >= 5)
 					break;
 			}
 			if (p < 0)
 				break;
 			start = p + 1;
 		}
-		if (n < 9)
+		if (n < 5)
 		{
-			errMsg.Format(_T("Line %d: expected 9 integer fields, got %d."), lineNo, n);
+			errMsg.Format(_T("Line %d: expected 5 integer fields (target_index,c1,c2,c3,c4), got %d."), lineNo, n);
 			return FALSE;
 		}
 
 		SPathStep s;
 		s.targetSwitchIndex = vals[0];
-		s.p1b = vals[1]; s.p1c = vals[2];
-		s.p2b = vals[3]; s.p2c = vals[4];
-		s.p3b = vals[5]; s.p3c = vals[6];
-		s.p4b = vals[7]; s.p4c = vals[8];
+		s.c1 = vals[1];
+		s.c2 = vals[2];
+		s.c3 = vals[3];
+		s.c4 = vals[4];
 		steps.Add(s);
 	}
 	f.Close();
@@ -68,41 +69,20 @@ BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CSt
 
 BOOL ValidatePathStep(const SPathStep& s, CString& errMsg)
 {
-	struct Seg
+	if (s.targetSwitchIndex < 1 || s.targetSwitchIndex > 6)
 	{
-		int segOrder;
-		int b;
-		int c;
-	} segs[] = {
-		{ 1, s.p1b, s.p1c },
-		{ 2, s.p2b, s.p2c },
-		{ 3, s.p3b, s.p3c },
-		{ 4, s.p4b, s.p4c },
-	};
-	for (int i = 0; i < 4; ++i)
+		errMsg.Format(_T("target_index %d out of 1..6"), s.targetSwitchIndex);
+		return FALSE;
+	}
+	if (s.c1 < 1 || s.c1 > 64 || s.c4 < 1 || s.c4 > 64)
 	{
-		bool is1x64 = (segs[i].segOrder == 1 || segs[i].segOrder == 4);
-		if (is1x64)
-		{
-			if (segs[i].c < 1 || segs[i].c > 64)
-			{
-				errMsg.Format(_T("1x64 segment %d: channel %d out of 1..64"), segs[i].segOrder, segs[i].c);
-				return FALSE;
-			}
-		}
-		else
-		{
-			if (segs[i].c < 1 || segs[i].c > 18)
-			{
-				errMsg.Format(_T("MCS segment %d: channel %d out of 1..18"), segs[i].segOrder, segs[i].c);
-				return FALSE;
-			}
-		}
-		if (segs[i].b < 1 || segs[i].b > 2)
-		{
-			errMsg.Format(_T("Segment %d: block %d out of 1..2"), segs[i].segOrder, segs[i].b);
-			return FALSE;
-		}
+		errMsg.Format(_T("1x64 channel out of 1..64 (c1=%d c4=%d)"), s.c1, s.c4);
+		return FALSE;
+	}
+	if (s.c2 < 1 || s.c2 > 18 || s.c3 < 1 || s.c3 > 18)
+	{
+		errMsg.Format(_T("MCS channel out of 1..18 (c2=%d c3=%d)"), s.c2, s.c3);
+		return FALSE;
 	}
 	return TRUE;
 }

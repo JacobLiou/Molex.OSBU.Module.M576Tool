@@ -15,4 +15,7 @@ Blocks:
 Regenerate (creates M576Calibrator/output/standard.csv):
   python tools/generate_sample_path_1286.py
 
+Wire format matches Z4744 Command B: five integers per row — target_index + ch1..ch4
+  ([1#1x64][1#MCS][2#MCS][2#1x64] channel numbers only; no per-segment block columns).
+
 Tune path tuples with firmware; routing helpers follow PRD 1x64 ch 1-32 vs 33-64 to MCS sides.

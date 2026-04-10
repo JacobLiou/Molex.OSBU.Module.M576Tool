@@ -2,15 +2,15 @@
 
 #include <afxtempl.h>
 
-/// One row of path_0330-style CSV: target index + four (block, channel) pairs for RECAL 1.
-/// Order matches PRD: [1#1x64][1#MCS][2#MCS][2#1x64] — channel ranges validated separately.
+/// Power meter (RECAL 1 / Command B): target + four channel numbers per Z4744 — no per-segment block.
+/// Order: [1#1x64 ch] [1#MCS ch] [2#MCS ch] [2#1x64 ch] -> c1..c4.
 struct SPathStep
 {
 	int targetSwitchIndex;
-	int p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c;
+	int c1, c2, c3, c4;
 	SPathStep()
 		: targetSwitchIndex(0)
-		, p1b(0), p1c(0), p2b(0), p2c(0), p3b(0), p3c(0), p4b(0), p4c(0)
+		, c1(0), c2(0), c3(0), c4(0)
 	{
 	}
 };
@@ -30,7 +30,7 @@ struct SPathStepPd
 
 BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CString& errMsg);
 
-/// PRD: 1x64 channels 1..64, MCS 1..18 — uses segment index 1..4 (1,4 = 1x64; 2,3 = MCS).
+/// Z4744 ranges: c1,c4 (1x64) 1..64; c2,c3 (MCS) 1..18; routing 1#1x64 / 2#1x64 <-> MCS sides.
 BOOL ValidatePathStep(const SPathStep& s, CString& errMsg);
 
 BOOL LoadPathCsvPd(LPCTSTR szPath, CArray<SPathStepPd, SPathStepPd const&>& steps, CString& errMsg);

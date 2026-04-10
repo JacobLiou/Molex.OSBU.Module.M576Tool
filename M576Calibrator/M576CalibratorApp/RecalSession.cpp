@@ -84,9 +84,9 @@ BOOL CRecalSession::SendRecal0(int tlsSource, double wavelengthNm, int delayMs, 
 BOOL CRecalSession::SendRecal1(const SPathStep& step, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 1 %d %d %d %d %d %d %d %d %d\r\n",
+	cmd.Format("RECAL 1 %d %d %d %d %d\r\n",
 		step.targetSwitchIndex,
-		step.p1b, step.p1c, step.p2b, step.p2c, step.p3b, step.p3c, step.p4b, step.p4c);
+		step.c1, step.c2, step.c3, step.c4);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
 	{

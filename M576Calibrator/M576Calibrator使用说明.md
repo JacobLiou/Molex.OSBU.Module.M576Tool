@@ -27,7 +27,7 @@
 |------|------|
 | **串口 (429F)** | 下拉选择 COM（COM1～COM32），对应整机 429F 调试口。 |
 | **打开串口** | 打开上述端口；失败时查看下方日志。 |
-| **path CSV** | 校准路径表文件（见下文 CSV 格式），可用「…」浏览选择。功率计模式用 9 列；PD 模式用 5 列（见 §5.1）。 |
+| **path CSV** | 校准路径表文件（见下文 CSV 格式），可用「…」浏览选择。功率计模式用 **5 列**（Z4744 Command B）；PD 模式用 5 列但语义不同（见 §5.1）。 |
 | **Mode** | **PM (RECAL 1)**：功率计方案，Command A + B；**PD (RECAL 2)**：板载 PD 方案，Command A + C（Z4744）。 |
 | **delay ms / DAC range / DAC step** | Command A（`RECAL 0`）扩展参数，与固件约定一致；用于估算每步读超时。 |
 | **Backup BIN** | （可选）已有定标备份文件，用于 **合并** 时保留非低温槽数据。 |
@@ -84,16 +84,23 @@
 
 ---
 
-## 5. 路径 CSV 格式
+## 5. 路径 CSV 格式（功率计 / `RECAL 1`）
 
-每行 **9 个整数**，逗号分隔，含义为：
+与 **Z4744 Command B** 一致：串口 `RECAL 1` 在 `target_switch_index` 之后只有 **四个** 光路参数（四段各一个 **通道号**），无单独的「块」字段。
+
+每行 **5 个整数**，逗号分隔：
 
 ```text
-target_index, p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c
+target_index, ch1, ch2, ch3, ch4
 ```
 
 - **target_index**：目标校准开关索引（PRD：**1～6**，对应 1#1x64 Stage1/2、1#/2# MCS、2#1x64 Stage1/2）。  
-- **p1b,p1c … p4b,p4c**：四段光路的 **块号（1/2）** 与 **通道号**，顺序与 PRD 中「1#1×64 → 1#MCS → 2#MCS → 2#1×64」一致；1×64 通道 **1～64**，MCS 通道 **1～18**。  
+- **ch1**：1#1×64 通道 **1～64**，  
+- **ch2**：1#MCS 通道 **1～18**，  
+- **ch3**：2#MCS 通道 **1～18**，  
+- **ch4**：2#1×64 通道 **1～64**，  
+
+顺序与拓扑 **1#1×64 → 1#MCS → 2#MCS → 2#1×64** 一致。
 
 完整定标需遍历 **1286 步**（与 PRD 一致）：  
 
@@ -108,13 +115,20 @@ target_index, p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c
 | 64 | 64 | `target_index=5`，扫 2#1x64 通道 1…64 |
 | 3 | 3 | `target_index=6`，边界点（ch 1 / 32 / 64） |
 
-上位机默认路径为 **`程序目录\output\standard.csv`**（与「写 BIN」默认 **`程序目录\output\standard.bin`** 一致）；可用 `tools\generate_sample_path_1286.py` 生成 **1286 行** 路径表到该位置。具体四元组与 `target_index` 的对应关系需与 **固件 / 现场 path_0330** 对齐后微调。
+上位机默认路径为 **`程序目录\output\standard.csv`**（与「写 BIN」默认 **`程序目录\output\standard.bin`** 一致）；可用 `tools\generate_sample_path_1286.py` 生成 **1286 行** 路径表到该位置。具体四通道组合与 `target_index` 的对应关系需与 **固件 / 现场 path_0330** 对齐后微调。
 
 **Backup BIN（旧 BIN）**：来自本机已保存的 LUT 定标包文件，用于与本次定标得到的 1310 低温槽合并后写出；**不是**通过串口从设备自动读出，需自行选择磁盘上的 `.bin`（没有旧文件可留空，则仅使用本次会话内存中的 LUT）。
 
 可选：表头行以 **`target_index`** 开头会被自动跳过；以 **`#`** 开头的注释行会被忽略。
 
-程序内会对通道范围做 **粗校验**（1×64 段 1～64、MCS 段 1～18、块号 1～2）。
+程序内会对 **target_index** 与 **ch1/ch4（1～64）、ch2/ch3（1～18）** 做粗校验。
+
+示例表头与一行：
+
+```csv
+target_index,ch1,ch2,ch3,ch4
+1,1,1,1,32
+```
 
 ### 5.1 PD 路径 CSV（`RECAL 2`，5 列）
 
@@ -131,13 +145,6 @@ target_index, p2b, p2c, p3b, p3c
 - **target_index** 与段的一致性：例如 target 1 要求 `p2b=1`，target 3 要求 `p3b=1`，等。
 
 示例见 **`output\standard_pd.csv`**（演示用，步数少于 1286，正式表需按工艺扩展）。
-
-示例表头与一行数据（功率计 9 列）：
-
-```csv
-target_index,p1b,p1c,p2b,p2c,p3b,p3c,p4b,p4c
-1,1,1,1,1,2,1,2,32
-```
 
 ---
 

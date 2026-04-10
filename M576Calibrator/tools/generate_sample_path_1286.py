@@ -1,19 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-Generate path_0330-style CSV (1286 rows) per PRD:
+Generate path CSV (1286 rows) per PRD:
   64 + 3 + 32*18 + 32*18 + 64 + 3 = 1286
 
-Columns: target_index, p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c
-Segments: [1#1x64][1#MCS][2#MCS][2#1x64] — ranges: 1x64 ch 1..64, MCS ch 1..18, block 1..2.
+Wire format (Z4744 Command B): RECAL 1 <target> <c1> <c2> <c3> <c4>
+  c1..c4 = [1#1x64 ch][1#MCS ch][2#MCS ch][2#1x64 ch] — four channel numbers only.
 
-Routing hints from PRD (for 1#1x64 channel c):
-  c in 1..32  -> 1# MCS side; c in 33..64 -> 2# MCS side
+Columns: target_index, ch1, ch2, ch3, ch4
+(Internal helpers still compute legacy 8-tuple p1b,p1c,... then take channel-only fields.)
 """
 from __future__ import print_function
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(SCRIPT_DIR, "..", "output", "standard.csv")
+
+
+def to_recal1_four(path8):
+    """From (p1b,p1c,p2b,p2c,p3b,p3c,p4b,p4c) to (c1,c2,c3,c4) = (p1c,p2c,p3c,p4c)."""
+    p1b, p1c, p2b, p2c, p3b, p3c, p4b, p4c = path8
+    return p1c, p2c, p3c, p4c
 
 
 def path_for_1x64_front(c1):
@@ -71,40 +77,47 @@ def path_mcs_grid(which_mcs, sw, ch):
 
 def main():
     rows = []
-    # Header (skipped by loader if contains 'target')
-    rows.append("target_index,p1b,p1c,p2b,p2c,p3b,p3c,p4b,p4c")
+    rows.append("target_index,ch1,ch2,ch3,ch4")
 
     # 64 — 1#1x64 Stage_1 / Stage_2 style sweep: target 1, sweep 1#1x64 ch 1..64
     for c in range(1, 65):
-        p = path_for_1x64_front(c)
-        rows.append(",".join(str(x) for x in (1,) + p))
+        p8 = path_for_1x64_front(c)
+        c1, c2, c3, c4 = to_recal1_four(p8)
+        rows.append(",".join(str(x) for x in (1, c1, c2, c3, c4)))
 
     # 3 — alignment / boundary (target 2 = 1#1x64 Stage_2 per PRD table)
     for c in (1, 32, 64):
-        p = path_for_1x64_front(c)
-        rows.append(",".join(str(x) for x in (2,) + p))
+        p8 = path_for_1x64_front(c)
+        c1, c2, c3, c4 = to_recal1_four(p8)
+        rows.append(",".join(str(x) for x in (2, c1, c2, c3, c4)))
 
     # 576 — 1# MCS: 32 x 18
     for sw in range(1, 33):
         for ch in range(1, 19):
             row = path_mcs_grid(3, sw, ch)
-            rows.append(",".join(str(x) for x in row))
+            tgt = row[0]
+            c1, c2, c3, c4 = to_recal1_four(row[1:9])
+            rows.append(",".join(str(x) for x in (tgt, c1, c2, c3, c4)))
 
     # 576 — 2# MCS: 32 x 18
     for sw in range(1, 33):
         for ch in range(1, 19):
             row = path_mcs_grid(4, sw, ch)
-            rows.append(",".join(str(x) for x in row))
+            tgt = row[0]
+            c1, c2, c3, c4 = to_recal1_four(row[1:9])
+            rows.append(",".join(str(x) for x in (tgt, c1, c2, c3, c4)))
 
     # 64 — 2#1x64 Stage_1/2 sweep: target 5, sweep 2#1x64 ch 1..64
     for c in range(1, 65):
-        p = path_for_2x64_back(c)
-        rows.append(",".join(str(x) for x in (5,) + p))
+        p8 = path_for_2x64_back(c)
+        c1, c2, c3, c4 = to_recal1_four(p8)
+        rows.append(",".join(str(x) for x in (5, c1, c2, c3, c4)))
 
     # 3 — tail alignment (target 6 = 2#1x64 Stage_2)
     for c in (1, 32, 64):
-        p = path_for_2x64_back(c)
-        rows.append(",".join(str(x) for x in (6,) + p))
+        p8 = path_for_2x64_back(c)
+        c1, c2, c3, c4 = to_recal1_four(p8)
+        rows.append(",".join(str(x) for x in (6, c1, c2, c3, c4)))
 
     data_lines = [r for r in rows if not r.startswith("target_index")]
     assert len(data_lines) == 1286, len(data_lines)
@@ -112,8 +125,8 @@ def main():
     out_abs = os.path.abspath(OUT)
     os.makedirs(os.path.dirname(out_abs), exist_ok=True)
     with open(out_abs, "w", encoding="utf-8-sig", newline="") as f:
-        f.write("# PRD: 1286 steps = 64+3+576+576+64+3; path_0330 style 9-field CSV\n")
-        f.write("# target 1..6 per PRD switch stages; verify with firmware before production\n")
+        f.write("# PRD: 1286 steps; Z4744 RECAL 1 = target + 4 path channels (ch1..ch4)\n")
+        f.write("# ch1=[1#1x64] ch2=[1#MCS] ch3=[2#MCS] ch4=[2#1x64]\n")
         for r in rows:
             f.write(r + "\n")
 
