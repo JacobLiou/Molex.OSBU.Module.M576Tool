@@ -6,7 +6,7 @@
 
 #include "resource.h"
 
-class CM576CalibratorApp : public CWinApp
+class CM576CalibratorApp : public CWinAppEx
 {
 public:
 	CM576CalibratorApp();

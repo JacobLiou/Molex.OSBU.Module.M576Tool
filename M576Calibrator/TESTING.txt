@@ -1,11 +1,16 @@
 M576 Calibrator — build and verification notes
 ===============================================
 
-Build (Visual Studio 2015, v140, Win32, MFC dynamic)
-----------------------------------------------------
-1. Open M576Calibrator\M576Calibrator.sln
-2. Configuration: Debug or Release | Win32
-3. Build Z4671Core, then M576CalibratorApp
+Build (Visual Studio 2019+, v142, Win32, MFC dynamic; Win7 SP1 target)
+-----------------------------------------------------------------------
+1. Open M576Calibrator\M576Calibrator.sln (ToolsVersion 16; v142 in both projects).
+2. Install **MSVC v142** if missing: VS Installer → Individual components →
+   "MSVC v142 - VS 2019 C++ x86/x64 build tools" (or use VS2019).
+3. Configuration: Debug or Release | Win32
+4. Build Z4671Core, then M576CalibratorApp
+
+Optional: MSBuild without v142 installed — pass `/p:PlatformToolset=v143` to verify compile
+on a machine that only has VS2022 default toolset (release builds for Win7 should still use v142).
 
 Character set: **Multi-Byte** (not Unicode). The ported Z4671 sources use ANSI string
 literals with CString::Format; a Unicode project would require wide literals throughout.

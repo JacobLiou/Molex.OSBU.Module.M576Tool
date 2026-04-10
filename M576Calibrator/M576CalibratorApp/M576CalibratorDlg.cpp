@@ -11,14 +11,14 @@
 #endif
 
 CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
-	: CDialog(IDD, pParent)
+	: CDialogEx(IDD, pParent)
 	, m_bStop(FALSE)
 {
 }
 
 void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_COMBO_COM, m_comboCom);
 	DDX_Control(pDX, IDC_EDIT_LOG, m_editLog);
 	DDX_Control(pDX, IDC_PROGRESS_MAIN, m_progress);
@@ -28,7 +28,7 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_EDIT_SN, m_strSn);
 }
 
-BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialog)
+BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_CSV, &CM576CalibratorDlg::OnBnClickedBrowseCsv)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
@@ -41,9 +41,17 @@ END_MESSAGE_MAP()
 
 BOOL CM576CalibratorDlg::OnInitDialog()
 {
-	CDialog::OnInitDialog();
+	CDialogEx::OnInitDialog();
 	SetWindowText(_T("M576 / 1310 Calibrator (429F)"));
 	/// Chinese UI: avoid UTF-8 literals in .rc (RC code page); use Unicode API + \\u escapes.
+	::SetDlgItemTextW(m_hWnd, IDC_GROUP_CONN,
+		L"\u8fde\u63a5");
+	::SetDlgItemTextW(m_hWnd, IDC_GROUP_PATHS,
+		L"\u8def\u5f84\u4e0e\u6587\u4ef6");
+	::SetDlgItemTextW(m_hWnd, IDC_GROUP_ACTIONS,
+		L"\u64cd\u4f5c");
+	::SetDlgItemTextW(m_hWnd, IDC_GROUP_LOG,
+		L"\u65e5\u5fd7");
 	::SetDlgItemTextW(m_hWnd, IDC_STATIC_LABEL_COM,
 		L"\u4e32\u53e3 (429F):");
 	::SetDlgItemTextW(m_hWnd, IDC_BTN_OPEN_PORTS,

@@ -10,7 +10,7 @@
 #include "McsFwTransport.h"
 
 /// Single serial link to 429F: ASCII RECAL + Z4671 binary frames (forwarded to MCS by firmware).
-class CM576CalibratorDlg : public CDialog
+class CM576CalibratorDlg : public CDialogEx
 {
 public:
 	enum { IDD = IDD_M576CALIBRATOR_DIALOG };

@@ -6,7 +6,7 @@
 #define new DEBUG_NEW
 #endif
 
-BEGIN_MESSAGE_MAP(CM576CalibratorApp, CWinApp)
+BEGIN_MESSAGE_MAP(CM576CalibratorApp, CWinAppEx)
 END_MESSAGE_MAP()
 
 CM576CalibratorApp::CM576CalibratorApp()
@@ -17,7 +17,9 @@ CM576CalibratorApp theApp;
 
 BOOL CM576CalibratorApp::InitInstance()
 {
-	CWinApp::InitInstance();
+	CWinAppEx::InitInstance();
+
+	CMFCVisualManager::SetDefaultManager(RUNTIME_CLASS(CMFCVisualManagerWindows));
 
 	CM576CalibratorDlg dlg;
 	m_pMainWnd = &dlg;
