@@ -26,3 +26,12 @@
 #ifndef M576_MCS2_SW_INDEX_OFFSET
 #define M576_MCS2_SW_INDEX_OFFSET 0
 #endif
+
+/// Z4671 GetLogFileData (0xC4): flash file / region type; confirm with firmware.
+#ifndef M576_FLASH_FILE_TYPE
+#define M576_FLASH_FILE_TYPE 0
+#endif
+/// Byte offset in flash for LUT bundle read (0 = start of type region; or e.g. 0x65000 if image-only).
+#ifndef M576_FLASH_LUT_READ_BASE
+#define M576_FLASH_LUT_READ_BASE 0
+#endif

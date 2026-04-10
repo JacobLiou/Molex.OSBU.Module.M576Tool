@@ -46,6 +46,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 		const CString sub = exe + _T("\\output");
 		m_strCsv = sub + _T("\\standard.csv");
 		m_strOutBin = sub + _T("\\standard.bin");
+		m_strBackupBin = sub + _T("\\mcs_lut_backup.bin");
 	}
 }
 
@@ -66,6 +67,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_CSV, &CM576CalibratorDlg::OnBnClickedBrowseCsv)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
+	ON_BN_CLICKED(IDC_BTN_READ_FLASH_BACKUP, &CM576CalibratorDlg::OnBnClickedReadFlashBackup)
 	ON_BN_CLICKED(IDC_BTN_RUN_PATH, &CM576CalibratorDlg::OnBnClickedRunPath)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
@@ -97,6 +99,8 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		L"\u6253\u5f00\u4e32\u53e3");
 	::SetDlgItemTextW(m_hWnd, IDC_BTN_FLASH,
 		L"\u70e7\u5f55\u5b9a\u6807");
+	::SetDlgItemTextW(m_hWnd, IDC_BTN_READ_FLASH_BACKUP,
+		L"\u4ece\u8bbe\u5907\u8bfbFlash\u5907\u4efd");
 	::SetDlgItemTextW(m_hWnd, IDC_STATIC_VERSION,
 		L"\u4ec5\u8fde\u63a5 429F\uff1b\u5b9a\u6807\u70e7\u5f55\u7531\u4e3b\u677f\u900f\u4f20\u81f3 MCS");
 	EnsureOutputFolderUnderExe(GetExeFolder());
@@ -107,7 +111,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	AppendLog(_T("Ready. Select 429F COM port, open port, then run."));
 	AppendLog(_T("Path CSV default: .\\output\\standard.csv (generate with tools if missing)."));
-	AppendLog(_T("Backup BIN: optional LUT file on this PC to merge with calibrated 1310 slot; not read from serial."));
+	AppendLog(_T("Backup BIN: use [Read Flash backup] for device LUT, or pick a local .bin to merge."));
 	return TRUE;
 }
 
@@ -216,6 +220,34 @@ void CM576CalibratorDlg::OnBnClickedBrowseOut()
 		return;
 	SetDlgItemText(IDC_EDIT_OUT_BIN, dlg.GetPathName());
 	UpdateData(TRUE);
+}
+
+void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
+{
+	UpdateData(TRUE);
+	EnsureOutputFolderUnderExe(GetExeFolder());
+	if (m_strBackupBin.IsEmpty())
+		m_strBackupBin = GetExeFolder() + _T("\\output\\mcs_lut_backup.bin");
+	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
+	{
+		if (!OpenPort())
+			return;
+	}
+	CString err;
+	m_progress.SetRange(0, 100);
+	m_progress.SetPos(0);
+	if (!McsReadLutBundleFromDevice(m_dev429f, m_strBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	{
+		CString m;
+		m.Format(_T("Read Flash backup failed: %s"), (LPCTSTR)err);
+		AppendLog(m);
+		return;
+	}
+	UpdateData(FALSE);
+	m_progress.SetPos(100);
+	CString ok;
+	ok.Format(_T("Flash LUT backup saved: %s"), (LPCTSTR)m_strBackupBin);
+	AppendLog(ok);
 }
 
 void CM576CalibratorDlg::OnBnClickedStop()

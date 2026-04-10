@@ -51,6 +51,7 @@ private:
 	afx_msg void OnBnClickedBrowseCsv();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();
+	afx_msg void OnBnClickedReadFlashBackup();
 	afx_msg void OnBnClickedRunPath();
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedFlash();

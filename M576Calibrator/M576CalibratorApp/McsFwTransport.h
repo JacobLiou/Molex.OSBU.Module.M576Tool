@@ -11,3 +11,6 @@
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err);
 typedef void (__cdecl *McsFwProgressCb)(int current, int total, void* user);
 BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user);
+
+/// Read LUT bundle from MCS flash via Z4671 CMD 0xC4 (GetLogFileData), save to path (same layout as CLutBinWriter::Write).
+BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPath, CString& err, McsFwProgressCb cb, void* user);

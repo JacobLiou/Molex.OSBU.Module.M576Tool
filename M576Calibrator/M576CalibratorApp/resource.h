@@ -23,3 +23,4 @@
 #define IDC_GROUP_PATHS                   1019
 #define IDC_GROUP_ACTIONS                 1020
 #define IDC_GROUP_LOG                     1021
+#define IDC_BTN_READ_FLASH_BACKUP         1022

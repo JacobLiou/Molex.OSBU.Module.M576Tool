@@ -23,6 +23,12 @@ size_t CLutBinWriter::LutPayloadOffset()
 	return sizeof(stLutBundleHeader1) + sizeof(stLutBundleHeader2) + sizeof(stImageHeader) * 2;
 }
 
+size_t CLutBinWriter::FullBundleFileSize()
+{
+	return sizeof(stLutBundleHeader1) + sizeof(stLutBundleHeader2) + sizeof(stImageHeader) * 2
+		+ sizeof(stLutSettingZ4671);
+}
+
 BOOL CLutBinWriter::ReadLutFromFile(LPCTSTR szPath, stLutSettingZ4671& lut)
 {
 	FILE* fp = NULL;

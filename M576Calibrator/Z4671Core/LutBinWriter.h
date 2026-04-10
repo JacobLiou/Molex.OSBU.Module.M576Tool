@@ -30,4 +30,7 @@ public:
 
 	/// Read existing BIN and load LUT body (headers skipped).
 	static BOOL ReadLutFromFile(LPCTSTR szPath, stLutSettingZ4671& lut);
+
+	/// Full on-disk bundle size (headers + LUT), same as Write() produces.
+	static size_t FullBundleFileSize();
 };
