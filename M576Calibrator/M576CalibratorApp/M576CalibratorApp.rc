@@ -1,53 +1,137 @@
-#include "afxres.h"
+// Microsoft Visual C++ generated resource script.
+//
 #include "resource.h"
 
-#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
-LANGUAGE 4, 2
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
 
-// Application icon (taskbar / title bar / .exe)
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// 中文(简体，中国) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+#pragma code_page(936)
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
 IDR_MAINFRAME           ICON                    "res\\M576Calibrator.ico"
 
-IDD_M576CALIBRATOR_DIALOG DIALOGEX 0, 0, 400, 458
-STYLE DS_SETFONT | WS_MINIMIZEBOX | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_M576CALIBRATOR_DIALOG DIALOGEX 0, 0, 429, 400
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_MINIMIZEBOX | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
 EXSTYLE WS_EX_APPWINDOW
 CAPTION "M576 / 1310 Calibrator (429F)"
 FONT 9, "MS Shell Dlg", 0, 0, 0x1
 BEGIN
-    GROUPBOX        "",IDC_GROUP_CONN,8,8,384,52
+    GROUPBOX        "",IDC_GROUP_CONN,8,6,412,37
     LTEXT           " ",IDC_STATIC_LABEL_COM,16,24,58,10
     COMBOBOX        IDC_COMBO_COM,70,22,180,120,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     PUSHBUTTON      "Open",IDC_BTN_OPEN_PORTS,258,20,94,14
-
-    GROUPBOX        "",IDC_GROUP_PATHS,8,64,384,148
+    GROUPBOX        "",IDC_GROUP_PATHS,8,50,412,111
     LTEXT           "path CSV:",-1,16,80,50,10
     EDITTEXT        IDC_EDIT_CSV,70,78,250,14,ES_AUTOHSCROLL
     PUSHBUTTON      "...",IDC_BTN_BROWSE_CSV,325,77,22,14
-
-    LTEXT           "Backup BIN:",-1,16,100,50,10
+    LTEXT           "Old BIN:",-1,16,100,50,10
     EDITTEXT        IDC_EDIT_BACKUP_BIN,70,98,250,14,ES_AUTOHSCROLL
     PUSHBUTTON      "...",IDC_BTN_BROWSE_BACKUP,325,97,22,14
-
     LTEXT           "Output BIN:",-1,16,120,50,10
     EDITTEXT        IDC_EDIT_OUT_BIN,70,118,250,14,ES_AUTOHSCROLL
     PUSHBUTTON      "...",IDC_BTN_BROWSE_OUT,325,117,22,14
-
     LTEXT           "Bundle SN:",-1,16,140,50,10
     EDITTEXT        IDC_EDIT_SN,70,138,120,14,ES_AUTOHSCROLL
-
-    PUSHBUTTON      "ReadFlashBk",IDC_BTN_READ_FLASH_BACKUP,70,154,110,14
-
-    GROUPBOX        "",IDC_GROUP_ACTIONS,8,216,384,56
-    CONTROL         "",IDC_PROGRESS_MAIN,"msctls_progress32",WS_BORDER,16,232,368,12
-
-    PUSHBUTTON      "Run path (RECAL)",IDC_BTN_RUN_PATH,16,250,88,16
-    PUSHBUTTON      "Write BIN",IDC_BTN_GEN_BIN,102,250,88,16
-    PUSHBUTTON      "Flash",IDC_BTN_FLASH,196,250,88,16
-    PUSHBUTTON      "Stop",IDC_BTN_STOP,290,250,62,16
-
-    GROUPBOX        "",IDC_GROUP_LOG,8,276,384,164
-    EDITTEXT        IDC_EDIT_LOG,16,292,368,140,ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_BORDER
-
-    CTEXT           " ",IDC_STATIC_VERSION,8,440,384,10,SS_SUNKEN
+    PUSHBUTTON      "ReadFlashBk",IDC_BTN_READ_FLASH_BACKUP,350,97,69,14
+    GROUPBOX        "",IDC_GROUP_ACTIONS,8,169,412,56
+    CONTROL         "",IDC_PROGRESS_MAIN,"msctls_progress32",WS_BORDER,16,185,368,12
+    PUSHBUTTON      "Run path (RECAL)",IDC_BTN_RUN_PATH,16,203,88,16
+    PUSHBUTTON      "Write BIN",IDC_BTN_GEN_BIN,117,203,88,16
+    PUSHBUTTON      "Flash",IDC_BTN_FLASH,218,203,88,16
+    PUSHBUTTON      "Stop",IDC_BTN_STOP,319,203,62,16
+    GROUPBOX        "",IDC_GROUP_LOG,8,229,412,164
+    EDITTEXT        IDC_EDIT_LOG,16,245,368,140,ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL
 END
 
-#endif
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_M576CALIBRATOR_DIALOG, DIALOG
+    BEGIN
+        RIGHTMARGIN, 428
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_M576CALIBRATOR_DIALOG AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+#endif    // 中文(简体，中国) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+
