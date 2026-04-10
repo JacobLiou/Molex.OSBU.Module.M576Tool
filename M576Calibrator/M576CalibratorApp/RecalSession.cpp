@@ -66,10 +66,10 @@ BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 	return !line.IsEmpty();
 }
 
-BOOL CRecalSession::SendRecal0(int tlsSource, double wavelengthNm, CString& err)
+BOOL CRecalSession::SendRecal0(int tlsSource, double wavelengthNm, int delayMs, int dacRange, int dacStep, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 0 %d %.4f\r\n", tlsSource, wavelengthNm);
+	cmd.Format("RECAL 0 %d %.4f %d %d %d\r\n", tlsSource, wavelengthNm, delayMs, dacRange, dacStep);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
 	{
@@ -92,6 +92,23 @@ BOOL CRecalSession::SendRecal1(const SPathStep& step, CString& err)
 	{
 		cmd.ReleaseBuffer();
 		err = _T("Write RECAL 1 failed");
+		return FALSE;
+	}
+	cmd.ReleaseBuffer();
+	return TRUE;
+}
+
+BOOL CRecalSession::SendRecal2(const SPathStepPd& step, CString& err)
+{
+	CStringA cmd;
+	cmd.Format("RECAL 2 %d %d %d %d %d\r\n",
+		step.targetSwitchIndex,
+		step.p2b, step.p2c, step.p3b, step.p3c);
+	int n = cmd.GetLength();
+	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
+	{
+		cmd.ReleaseBuffer();
+		err = _T("Write RECAL 2 failed");
 		return FALSE;
 	}
 	cmd.ReleaseBuffer();

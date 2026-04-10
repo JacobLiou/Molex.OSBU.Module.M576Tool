@@ -13,6 +13,24 @@
 
 namespace {
 
+static DWORD ComputeRecalReadTimeoutMs(int delayMs, int dacRange, int dacStep)
+{
+	if (delayMs < 1)
+		delayMs = 1;
+	if (dacStep < 1)
+		dacStep = 1;
+	int axisPts = (2 * dacRange + dacStep - 1) / dacStep + 1;
+	if (axisPts < 2)
+		axisPts = 2;
+	__int64 grid = (__int64)axisPts * axisPts;
+	__int64 t = grid * delayMs + 10000;
+	if (t > 600000)
+		t = 600000;
+	if (t < 5000)
+		t = 5000;
+	return (DWORD)t;
+}
+
 CString GetExeFolder()
 {
 	TCHAR sz[MAX_PATH];
@@ -39,6 +57,10 @@ void EnsureOutputFolderUnderExe(const CString& exeFolder)
 CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	: CDialogEx(IDD, pParent)
 	, m_bStop(FALSE)
+	, m_nCalMode(0)
+	, m_delayMs(M576_DEFAULT_RECAL_DELAY_MS)
+	, m_dacRange(M576_DEFAULT_DAC_RANGE)
+	, m_dacStep(M576_DEFAULT_DAC_STEP)
 {
 	const CString exe = GetExeFolder();
 	if (!exe.IsEmpty())
@@ -60,6 +82,10 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_EDIT_BACKUP_BIN, m_strBackupBin);
 	DDX_Text(pDX, IDC_EDIT_OUT_BIN, m_strOutBin);
 	DDX_Text(pDX, IDC_EDIT_SN, m_strSn);
+	DDX_Radio(pDX, IDC_RADIO_CAL_PM, m_nCalMode);
+	DDX_Text(pDX, IDC_EDIT_RECAL_DELAY, m_delayMs);
+	DDX_Text(pDX, IDC_EDIT_DAC_RANGE, m_dacRange);
+	DDX_Text(pDX, IDC_EDIT_DAC_STEP, m_dacStep);
 }
 
 BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
@@ -85,13 +111,14 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	}
 	SetWindowText(_T("M576 / 1310 Calibrator (429F)"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_CONN, _T("Connection"));
-	::SetDlgItemText(m_hWnd, IDC_GROUP_PATHS, _T("Paths & Files"));
+	::SetDlgItemText(m_hWnd, IDC_GROUP_PATHS, _T("Config"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_ACTIONS, _T("Actions"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_LOG, _T("Log"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_COM, _T("Port (429F):"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_OPEN_PORTS, _T("Open Port"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Flash"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_READ_FLASH_BACKUP, _T("Read Flash Backup"));
+	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_MODE, _T("Mode:"));
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	UpdateData(FALSE);
 	FillComPorts();
@@ -99,7 +126,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	m_progress.SetPos(0);
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	AppendLog(_T("Ready. Select 429F COM port, open port, then run."));
-	AppendLog(_T("Path CSV default: .\\output\\standard.csv (generate with tools if missing)."));
+	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard.csv (9 cols); PD mode -> e.g. .\\output\\standard_pd.csv (5 cols)."));
 	AppendLog(_T("Backup BIN: use [Read Flash backup] for device LUT, or pick a local .bin to merge."));
 	return TRUE;
 }
@@ -254,6 +281,14 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		if (!OpenPort())
 			return;
 	}
+	if (m_nCalMode == 0)
+		RunPathPowerMeter();
+	else
+		RunPathPd();
+}
+
+void CM576CalibratorDlg::RunPathPowerMeter()
+{
 	CArray<SPathStep, SPathStep const&> steps;
 	CString err;
 	if (!LoadPathCsv(m_strCsv, steps, err))
@@ -267,9 +302,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
-	// PRD: Command A — RECAL 0 (TLS source + wavelength) before RECAL 1 loop.
-	// Full scan parameters (DAC range/step/delay) may be added when firmware contract is fixed.
-	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, err))
+	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, m_delayMs, m_dacRange, m_dacStep, err))
 	{
 		AppendLog(err);
 		return;
@@ -286,6 +319,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		}
 	}
 
+	const DWORD readTimeout = ComputeRecalReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	CStringA line;
 	for (int i = 0; i < total; ++i)
 	{
@@ -310,7 +344,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 			AppendLog(err);
 			break;
 		}
-		if (!m_pRecal->ReadAsciiResponse(line, 5000, err))
+		if (!m_pRecal->ReadAsciiResponse(line, readTimeout, err))
 		{
 			AppendLog(_T("Timeout or empty response."));
 		}
@@ -338,6 +372,93 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		m_progress.SetPos(i + 1);
 	}
 	AppendLog(_T("Path run finished."));
+}
+
+void CM576CalibratorDlg::RunPathPd()
+{
+	CArray<SPathStepPd, SPathStepPd const&> steps;
+	CString err;
+	if (!LoadPathCsvPd(m_strCsv, steps, err))
+	{
+		AppendLog(err);
+		return;
+	}
+	int total = (int)steps.GetSize();
+	m_progress.SetRange(0, total);
+
+	ZeroMemory(&m_lut, sizeof(m_lut));
+	int occT3 = 0, occT4 = 0;
+
+	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, m_delayMs, m_dacRange, m_dacStep, err))
+	{
+		AppendLog(err);
+		return;
+	}
+	{
+		CStringA line0;
+		if (!m_pRecal->ReadAsciiResponse(line0, 3000, err))
+			AppendLog(_T("RECAL 0: timeout waiting for response."));
+		else
+		{
+			CString msg;
+			msg.Format(_T("RECAL 0 -> %s"), CString(line0));
+			AppendLog(msg);
+		}
+	}
+
+	const DWORD readTimeout = ComputeRecalReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
+	CStringA line;
+	for (int i = 0; i < total; ++i)
+	{
+		if (m_bStop)
+			break;
+		SPathStepPd& st = steps[i];
+		const int idxOcc3 = (st.targetSwitchIndex == 3) ? occT3 : -1;
+		const int idxOcc4 = (st.targetSwitchIndex == 4) ? occT4 : -1;
+		if (st.targetSwitchIndex == 3)
+			occT3++;
+		else if (st.targetSwitchIndex == 4)
+			occT4++;
+
+		CString verr;
+		if (!ValidatePathStepPd(st, verr))
+		{
+			AppendLog(verr);
+			continue;
+		}
+		if (!m_pRecal->SendRecal2(st, err))
+		{
+			AppendLog(err);
+			break;
+		}
+		if (!m_pRecal->ReadAsciiResponse(line, readTimeout, err))
+		{
+			AppendLog(_T("Timeout or empty response."));
+		}
+		else
+		{
+			CString msg;
+			msg.Format(_T("PD step %d/%d: %s"), i + 1, total, line.GetString());
+			AppendLog(msg);
+			std::vector<double> powers;
+			if (CRecalSession::ParsePowerDoubles(line, powers) && powers.size() > 4)
+			{
+				int n = (int)sqrt((double)powers.size());
+				if (n > 1 && n * n == (int)powers.size())
+				{
+					int br = 0, bc = 0;
+					if (M576::PeakCross2D(powers, n, n, br, bc))
+					{
+						msg.Format(_T("  -> peak (cross) row=%d col=%d (0-based)"), br, bc);
+						AppendLog(msg);
+						ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, n, br, bc, m_lut);
+					}
+				}
+			}
+		}
+		m_progress.SetPos(i + 1);
+	}
+	AppendLog(_T("Path run finished (PD)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedGenBin()

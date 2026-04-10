@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ 生成的包含文件。
-// 供 M576CalibratorApp.rc 使用
+// Microsoft Visual C++ ?????????????
+// ?? M576CalibratorApp.rc ???
 //
 #define ID_SEPARATOR                    0
 #define VS_VERSION_INFO                 1
@@ -43,6 +43,12 @@
 #define IDC_GROUP_ACTIONS               1020
 #define IDC_GROUP_LOG                   1021
 #define IDC_BTN_READ_FLASH_BACKUP       1022
+#define IDC_RADIO_CAL_PM                1023
+#define IDC_RADIO_CAL_PD                1024
+#define IDC_EDIT_RECAL_DELAY            1025
+#define IDC_EDIT_DAC_RANGE              1026
+#define IDC_EDIT_DAC_STEP               1027
+#define IDC_STATIC_LABEL_MODE           1028
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -551,7 +557,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        102
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1000
+#define _APS_NEXT_CONTROL_VALUE         1029
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

@@ -14,6 +14,17 @@
 #define M576_DEFAULT_WAVELENGTH_NM 1310.0
 #endif
 
+/// RECAL 0 extended: delay (ms), DAC half-range, step — align with 429F firmware / Z4744.
+#ifndef M576_DEFAULT_RECAL_DELAY_MS
+#define M576_DEFAULT_RECAL_DELAY_MS 40
+#endif
+#ifndef M576_DEFAULT_DAC_RANGE
+#define M576_DEFAULT_DAC_RANGE 64
+#endif
+#ifndef M576_DEFAULT_DAC_STEP
+#define M576_DEFAULT_DAC_STEP 5
+#endif
+
 /// Peak grid → DAC: symmetric around mid DAC; PRD often uses base ± range (e.g. ±64). Tune with firmware.
 #ifndef M576_PEAK_GRID_DAC_BASE
 #define M576_PEAK_GRID_DAC_BASE 2048

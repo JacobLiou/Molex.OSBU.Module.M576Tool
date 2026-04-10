@@ -10,11 +10,14 @@ class CRecalSession
 public:
 	explicit CRecalSession(COpComm& comm429f);
 
-	/// `RECAL 0 ...` — parameters per firmware; placeholder builds a minimal line.
-	BOOL SendRecal0(int tlsSource, double wavelengthNm, CString& err);
+	/// Command A: `RECAL 0` — TLS, wavelength, delay (ms), DAC range, DAC step (Z4744 / PRD).
+	BOOL SendRecal0(int tlsSource, double wavelengthNm, int delayMs, int dacRange, int dacStep, CString& err);
 
-	/// `RECAL 1` with nine integers after opcode (target + 8 path numbers).
+	/// Command B: `RECAL 1` — target 1..6 + eight path integers (four block/channel pairs).
 	BOOL SendRecal1(const SPathStep& step, CString& err);
+
+	/// Command C: `RECAL 2` — target 1..4 + 2#1x64 (block, ch) + MCS (block, ch).
+	BOOL SendRecal2(const SPathStepPd& step, CString& err);
 
 	/// Read until \\n (or \\r\\n), up to timeout. Appends to `accumulatedLog`.
 	BOOL ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CString& err);

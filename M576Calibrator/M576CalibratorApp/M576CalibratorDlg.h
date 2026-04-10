@@ -39,7 +39,15 @@ private:
 	stLutSettingZ4671 m_lut;
 	volatile BOOL m_bStop;
 
+	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
+	int m_nCalMode;
+	int m_delayMs;
+	int m_dacRange;
+	int m_dacStep;
+
 	void AppendLog(LPCTSTR sz);
+	void RunPathPowerMeter();
+	void RunPathPd();
 	void FillComPorts();
 	CString GetComboCom();
 	BOOL OpenPort();
