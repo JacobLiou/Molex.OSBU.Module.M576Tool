@@ -101,7 +101,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_dacRange(M576_DEFAULT_DAC_RANGE)
 	, m_dacStep(M576_DEFAULT_DAC_STEP)
 {
-	m_strCsv        = _T("output\\standard.csv");
+	m_strCsv        = _T("output\\standard_pm.csv");
 	m_strOutBin     = _T("output\\standard.bin");
 	m_strBackupBin  = _T("output\\mcs_lut_backup.bin");
 }
@@ -124,10 +124,11 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 
 BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
-	ON_BN_CLICKED(IDC_BTN_BROWSE_CSV, &CM576CalibratorDlg::OnBnClickedBrowseCsv)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
 	ON_BN_CLICKED(IDC_BTN_READ_FLASH_BACKUP, &CM576CalibratorDlg::OnBnClickedReadFlashBackup)
+	ON_BN_CLICKED(IDC_RADIO_CAL_PM, &CM576CalibratorDlg::OnBnClickedCalPm)
+	ON_BN_CLICKED(IDC_RADIO_CAL_PD, &CM576CalibratorDlg::OnBnClickedCalPd)
 	ON_BN_CLICKED(IDC_BTN_RUN_PATH, &CM576CalibratorDlg::OnBnClickedRunPath)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
@@ -150,18 +151,21 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	::SetDlgItemText(m_hWnd, IDC_GROUP_LOG, _T("Log"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_COM, _T("Port (429F):"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_OPEN_PORTS, _T("Open Port"));
-	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Flash"));
+	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Burn Flash"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_READ_FLASH_BACKUP, _T("Read Flash Backup"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_MODE, _T("Mode:"));
 	EnsureOutputFolderUnderExe(GetExeFolder());
+	SyncCsvPathWithMode();
 	UpdateData(FALSE);
+	GetDlgItem(IDC_EDIT_CSV)->EnableWindow(FALSE);
 	FillComPorts();
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	AppendLog(_T("Ready. Select 429F COM port, open port, then run."));
-	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard.csv (9 cols); PD mode -> e.g. .\\output\\standard_pd.csv (5 cols)."));
+	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard_pm.csv (9 cols); PD mode -> .\\output\\standard_pd.csv (5 cols)."));
 	AppendLog(_T("Backup BIN: use [Read Flash backup] for device LUT, or pick a local .bin to merge."));
+	AppendLog(_T("Path CSV is fixed by mode selection and cannot be edited manually."));
 	return TRUE;
 }
 
@@ -195,6 +199,18 @@ CString CM576CalibratorDlg::GetComboCom()
 	if (i >= 0)
 		m_comboCom.GetLBText(i, s);
 	return s;
+}
+
+CString CM576CalibratorDlg::GetDefaultCsvPathForMode() const
+{
+	return (m_nCalMode == 0) ? _T("output\\standard_pm.csv") : _T("output\\standard_pd.csv");
+}
+
+void CM576CalibratorDlg::SyncCsvPathWithMode()
+{
+	m_strCsv = GetDefaultCsvPathForMode();
+	if (m_hWnd)
+		UpdateData(FALSE);
 }
 
 BOOL CM576CalibratorDlg::OpenPort()
@@ -234,18 +250,14 @@ void CM576CalibratorDlg::OnBrowse(UINT idEdit)
 	const CString outDir = exe + _T("\\output");
 	if (GetFileAttributes(outDir) != INVALID_FILE_ATTRIBUTES)
 		initDir = outDir;
-	CFileDialog dlg(TRUE, _T("csv"), _T("standard.csv"), OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
+	const CString defaultName = (idEdit == IDC_EDIT_CSV) ? GetDefaultCsvPathForMode().Mid(GetDefaultCsvPathForMode().ReverseFind(_T('\\')) + 1) : _T("standard.csv");
+	CFileDialog dlg(TRUE, _T("csv"), defaultName, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
 		_T("CSV files (*.csv)|*.csv|All (*.*)|*.*||"), this);
 	dlg.GetOFN().lpstrInitialDir = initDir.GetString();
 	if (dlg.DoModal() != IDOK)
 		return;
 	SetDlgItemText(idEdit, ToRelPath(dlg.GetPathName()));
 	UpdateData(TRUE);
-}
-
-void CM576CalibratorDlg::OnBnClickedBrowseCsv()
-{
-	OnBrowse(IDC_EDIT_CSV);
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseBackup()
@@ -305,6 +317,18 @@ void CM576CalibratorDlg::OnBnClickedStop()
 {
 	m_bStop = TRUE;
 	AppendLog(_T("Stop requested."));
+}
+
+void CM576CalibratorDlg::OnBnClickedCalPm()
+{
+	UpdateData(TRUE);
+	SyncCsvPathWithMode();
+}
+
+void CM576CalibratorDlg::OnBnClickedCalPd()
+{
+	UpdateData(TRUE);
+	SyncCsvPathWithMode();
 }
 
 void CM576CalibratorDlg::OnBnClickedRunPath()

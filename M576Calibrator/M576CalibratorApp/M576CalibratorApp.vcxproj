@@ -75,6 +75,11 @@
       <Culture>0x0804</Culture>
       <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
+    <PostBuildEvent>
+      <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
+copy /Y &quot;$(ProjectDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
+copy /Y &quot;$(ProjectDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -101,6 +106,11 @@
       <Culture>0x0804</Culture>
       <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
+    <PostBuildEvent>
+      <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
+copy /Y &quot;$(ProjectDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
+copy /Y &quot;$(ProjectDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="CalibConstants.h" />

@@ -51,15 +51,18 @@ private:
 	void FillComPorts();
 	CString GetComboCom();
 	BOOL OpenPort();
+	CString GetDefaultCsvPathForMode() const;
+	void SyncCsvPathWithMode();
 	void OnBrowse(UINT idEdit);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	static void ProgressThunk(int cur, int total, void* user);
 
 	afx_msg void OnBnClickedOpenPorts();
-	afx_msg void OnBnClickedBrowseCsv();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();
 	afx_msg void OnBnClickedReadFlashBackup();
+	afx_msg void OnBnClickedCalPm();
+	afx_msg void OnBnClickedCalPd();
 	afx_msg void OnBnClickedRunPath();
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedFlash();

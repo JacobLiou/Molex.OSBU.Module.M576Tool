@@ -54,7 +54,7 @@
 ### 4.3 跑路径（RECAL）
 
 1. 确保串口已打开（若未打开，点击 **Run path** 时会尝试自动打开）。  
-2. 选择 **Mode**：**PM (RECAL 1)** 使用功率计四段光路表；**PD (RECAL 2)** 使用两段光路表（需选用对应格式的 CSV，如 `output\standard_pd.csv`）。  
+2. 选择 **Mode**：**PM (RECAL 1)** 会自动切到 `output\standard_pm.csv`；**PD (RECAL 2)** 会自动切到 `output\standard_pd.csv`。该路径在界面中仅展示，不允许手动修改。  
 3. 点击 **Run path (RECAL)**。  
 4. 程序先发送 **Command A**：`RECAL 0`（TLS、波长、delay、DAC range、step），再对每一行发送 **Command B** `RECAL 1` 或 **Command C** `RECAL 2`，并等待一行 ASCII 响应（读超时按网格点数与 delay 估算，上限约 600 s）。  
 5. 日志中可查看每步回传；若回传为可解析的功率数组且点数为 **完全平方数**，会尝试 **十字寻峰** 并打印峰位置（辅助分析，具体含义以固件为准）。  
@@ -115,7 +115,7 @@ target_index, ch1, ch2, ch3, ch4
 | 64 | 64 | `target_index=5`，扫 2#1x64 通道 1…64 |
 | 3 | 3 | `target_index=6`，边界点（ch 1 / 32 / 64） |
 
-上位机默认路径为 **`程序目录\output\standard.csv`**（与「写 BIN」默认 **`程序目录\output\standard.bin`** 一致）；可用 `tools\generate_sample_path_1286.py` 生成 **1286 行** 路径表到该位置。具体四通道组合与 `target_index` 的对应关系需与 **固件 / 现场 path_0330** 对齐后微调。
+上位机默认路径会随模式自动切换：PM 为 **`程序目录\output\standard_pm.csv`**，PD 为 **`程序目录\output\standard_pd.csv`**；「写 BIN」默认仍为 **`程序目录\output\standard.bin`**。具体四通道组合与 `target_index` 的对应关系需与 **固件 / 现场 path_0330** 对齐后微调。
 
 **Backup BIN（旧 BIN）**：来自本机已保存的 LUT 定标包文件，用于与本次定标得到的 1310 低温槽合并后写出；**不是**通过串口从设备自动读出，需自行选择磁盘上的 `.bin`（没有旧文件可留空，则仅使用本次会话内存中的 LUT）。
 
