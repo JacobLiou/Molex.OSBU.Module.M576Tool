@@ -84,25 +84,14 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		SetIcon(hIcon, FALSE);
 	}
 	SetWindowText(_T("M576 / 1310 Calibrator (429F)"));
-	/// Chinese UI: avoid UTF-8 literals in .rc (RC code page); use Unicode API + \\u escapes.
-	::SetDlgItemTextW(m_hWnd, IDC_GROUP_CONN,
-		L"\u8fde\u63a5");
-	::SetDlgItemTextW(m_hWnd, IDC_GROUP_PATHS,
-		L"\u8def\u5f84\u4e0e\u6587\u4ef6");
-	::SetDlgItemTextW(m_hWnd, IDC_GROUP_ACTIONS,
-		L"\u64cd\u4f5c");
-	::SetDlgItemTextW(m_hWnd, IDC_GROUP_LOG,
-		L"\u65e5\u5fd7");
-	::SetDlgItemTextW(m_hWnd, IDC_STATIC_LABEL_COM,
-		L"\u4e32\u53e3 (429F):");
-	::SetDlgItemTextW(m_hWnd, IDC_BTN_OPEN_PORTS,
-		L"\u6253\u5f00\u4e32\u53e3");
-	::SetDlgItemTextW(m_hWnd, IDC_BTN_FLASH,
-		L"\u70e7\u5f55\u5b9a\u6807");
-	::SetDlgItemTextW(m_hWnd, IDC_BTN_READ_FLASH_BACKUP,
-		L"\u4ece\u8bbe\u5907\u8bfbFlash\u5907\u4efd");
-	::SetDlgItemTextW(m_hWnd, IDC_STATIC_VERSION,
-		L"\u4ec5\u8fde\u63a5 429F\uff1b\u5b9a\u6807\u70e7\u5f55\u7531\u4e3b\u677f\u900f\u4f20\u81f3 MCS");
+	::SetDlgItemText(m_hWnd, IDC_GROUP_CONN, _T("Connection"));
+	::SetDlgItemText(m_hWnd, IDC_GROUP_PATHS, _T("Paths & Files"));
+	::SetDlgItemText(m_hWnd, IDC_GROUP_ACTIONS, _T("Actions"));
+	::SetDlgItemText(m_hWnd, IDC_GROUP_LOG, _T("Log"));
+	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_COM, _T("Port (429F):"));
+	::SetDlgItemText(m_hWnd, IDC_BTN_OPEN_PORTS, _T("Open Port"));
+	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Flash"));
+	::SetDlgItemText(m_hWnd, IDC_BTN_READ_FLASH_BACKUP, _T("Read Flash Backup"));
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	UpdateData(FALSE);
 	FillComPorts();
