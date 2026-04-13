@@ -20,7 +20,10 @@ public:
 	/// Params: Base DAC (0 = FW uses channel DAC), Offset, Step, Delay (ms), per firmware.
 	BOOL SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
 
-	/// Command C: `RECAL 2` — target 1..4 + 2#1x64 (block, ch) + MCS (block, ch).
+	/// PD sweep: `RECAL 5` — same sweep modes / params as `RECAL 3`.
+	BOOL SendRecal5(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
+
+	/// Command C: `RECAL 2` — target 1..4 + two path channel pairs; response line is `OK`.
 	BOOL SendRecal2(const SPathStepPd& step, CString& err);
 
 	/// Read until \\n (or \\r\\n), up to timeout. Appends to `accumulatedLog`.
@@ -29,7 +32,7 @@ public:
 	/// Split payload by comma/space/tab into doubles (best-effort for bring-up).
 	static BOOL ParsePowerDoubles(const CStringA& line, std::vector<double>& out);
 
-	/// `RECAL 3` line: first value = fixed-axis start DAC; rest = power samples along the moving axis.
+	/// `RECAL 3` / `RECAL 5` line: first value = fixed-axis start DAC; rest = samples along the moving axis.
 	static BOOL ParseRecal3SweepLine(const CStringA& line, double& outAxisStart, std::vector<double>& outPowers);
 
 	COpComm& Comm() { return m_comm; }
