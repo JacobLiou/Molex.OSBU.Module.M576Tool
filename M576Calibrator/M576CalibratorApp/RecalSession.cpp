@@ -98,6 +98,22 @@ BOOL CRecalSession::SendRecal1(const SPathStep& step, CString& err)
 	return TRUE;
 }
 
+BOOL CRecalSession::SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err)
+{
+	CStringA cmd;
+	cmd.Format("RECAL 3 %d %d %d %d %d\r\n",
+		sweepMode, baseDac, offsetDac, stepDac, delayMs);
+	int n = cmd.GetLength();
+	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
+	{
+		cmd.ReleaseBuffer();
+		err = _T("Write RECAL 3 failed");
+		return FALSE;
+	}
+	cmd.ReleaseBuffer();
+	return TRUE;
+}
+
 BOOL CRecalSession::SendRecal2(const SPathStepPd& step, CString& err)
 {
 	CStringA cmd;
@@ -140,4 +156,16 @@ BOOL CRecalSession::ParsePowerDoubles(const CStringA& line, std::vector<double>&
 			++p;
 	}
 	return !out.empty();
+}
+
+BOOL CRecalSession::ParseRecal3SweepLine(const CStringA& line, double& outAxisStart, std::vector<double>& outPowers)
+{
+	outPowers.clear();
+	outAxisStart = 0.0;
+	std::vector<double> all;
+	if (!ParsePowerDoubles(line, all) || all.size() < 2)
+		return FALSE;
+	outAxisStart = all[0];
+	outPowers.assign(all.begin() + 1, all.end());
+	return !outPowers.empty();
 }

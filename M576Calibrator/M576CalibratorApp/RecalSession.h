@@ -13,8 +13,12 @@ public:
 	/// Command A: `RECAL 0` — TLS, wavelength, delay (ms), DAC range, DAC step (Z4744 / PRD).
 	BOOL SendRecal0(int tlsSource, double wavelengthNm, int delayMs, int dacRange, int dacStep, CString& err);
 
-	/// Command B: `RECAL 1` — target 1..6 + eight path integers (four block/channel pairs).
+	/// Command B: `RECAL 1` — target 1..6 + four path channel numbers; response line is `OK`.
 	BOOL SendRecal1(const SPathStep& step, CString& err);
+
+	/// PM sweep: `RECAL 3` — sweepMode 0 = X fixed / Y sweep; 1 = Y fixed / X sweep.
+	/// Params: Base DAC (0 = FW uses channel DAC), Offset, Step, Delay (ms), per firmware.
+	BOOL SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
 
 	/// Command C: `RECAL 2` — target 1..4 + 2#1x64 (block, ch) + MCS (block, ch).
 	BOOL SendRecal2(const SPathStepPd& step, CString& err);
@@ -24,6 +28,9 @@ public:
 
 	/// Split payload by comma/space/tab into doubles (best-effort for bring-up).
 	static BOOL ParsePowerDoubles(const CStringA& line, std::vector<double>& out);
+
+	/// `RECAL 3` line: first value = fixed-axis start DAC; rest = power samples along the moving axis.
+	static BOOL ParseRecal3SweepLine(const CStringA& line, double& outAxisStart, std::vector<double>& outPowers);
 
 	COpComm& Comm() { return m_comm; }
 

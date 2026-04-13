@@ -9,4 +9,7 @@ namespace M576
 
 	/// Global maximum.
 	bool PeakMax2D(const std::vector<double>& data, int rows, int cols, int& outRow, int& outCol);
+
+	/// Index of maximum element (ties: first).
+	bool PeakMax1D(const std::vector<double>& data, int& outIdx);
 }

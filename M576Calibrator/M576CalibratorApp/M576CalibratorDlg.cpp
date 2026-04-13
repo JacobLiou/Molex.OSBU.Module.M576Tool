@@ -31,6 +31,34 @@ static DWORD ComputeRecalReadTimeoutMs(int delayMs, int dacRange, int dacStep)
 	return (DWORD)t;
 }
 
+/// One `RECAL 3` axis sweep: one sample per grid step (not full 2D grid).
+static DWORD ComputeRecal1DReadTimeoutMs(int delayMs, int dacRange, int dacStep)
+{
+	if (delayMs < 1)
+		delayMs = 1;
+	if (dacStep < 1)
+		dacStep = 1;
+	int axisPts = (2 * dacRange + dacStep - 1) / dacStep + 1;
+	if (axisPts < 2)
+		axisPts = 2;
+	__int64 t = (__int64)axisPts * delayMs + 10000;
+	if (t > 600000)
+		t = 600000;
+	if (t < 5000)
+		t = 5000;
+	return (DWORD)t;
+}
+
+static int AxisPointCount(int dacRange, int dacStep)
+{
+	if (dacStep < 1)
+		dacStep = 1;
+	int axisPts = (2 * dacRange + dacStep - 1) / dacStep + 1;
+	if (axisPts < 2)
+		axisPts = 2;
+	return axisPts;
+}
+
 CString GetExeFolder()
 {
 	TCHAR sz[MAX_PATH];
@@ -378,8 +406,9 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 	}
 
-	const DWORD readTimeout = ComputeRecalReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
-	CStringA line;
+	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
+	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
+	CStringA lineOk, lineY, lineX;
 	for (int i = 0; i < total; ++i)
 	{
 		if (m_bStop)
@@ -403,31 +432,101 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			AppendLog(err);
 			break;
 		}
-		if (!m_pRecal->ReadAsciiResponse(line, readTimeout, err))
+		if (!m_pRecal->ReadAsciiResponse(lineOk, 3000, err))
 		{
-			AppendLog(_T("Timeout or empty response."));
+			AppendLog(_T("RECAL 1: timeout waiting for OK."));
+			m_progress.SetPos(i + 1);
+			continue;
+		}
+		{
+			CString msg;
+			lineOk.Trim();
+			msg.Format(_T("Step %d/%d RECAL 1 -> %s"), i + 1, total, CString(lineOk));
+			AppendLog(msg);
+			if (lineOk.CompareNoCase("OK") != 0)
+			{
+				msg.Format(_T("  (expected OK; continuing with RECAL 3)"));
+				AppendLog(msg);
+			}
+		}
+
+		const int kBaseDac = 0;
+		if (!m_pRecal->SendRecal3(0, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
+		{
+			AppendLog(err);
+			break;
+		}
+		if (!m_pRecal->ReadAsciiResponse(lineY, readTimeout1d, err))
+		{
+			AppendLog(_T("RECAL 3 0 (Y sweep): timeout or empty."));
+			m_progress.SetPos(i + 1);
+			continue;
+		}
+		double yAxisStart = 0.0;
+		std::vector<double> powY;
+		if (!CRecalSession::ParseRecal3SweepLine(lineY, yAxisStart, powY))
+		{
+			AppendLog(_T("RECAL 3 0: could not parse [X_start] P1..Pn."));
+			m_progress.SetPos(i + 1);
+			continue;
+		}
+		{
+			CString msg;
+			msg.Format(_T("  RECAL 3 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), yAxisStart);
+			AppendLog(msg);
+		}
+
+		if (!m_pRecal->SendRecal3(1, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
+		{
+			AppendLog(err);
+			break;
+		}
+		if (!m_pRecal->ReadAsciiResponse(lineX, readTimeout1d, err))
+		{
+			AppendLog(_T("RECAL 3 1 (X sweep): timeout or empty."));
+			m_progress.SetPos(i + 1);
+			continue;
+		}
+		double xAxisStart = 0.0;
+		std::vector<double> powX;
+		if (!CRecalSession::ParseRecal3SweepLine(lineX, xAxisStart, powX))
+		{
+			AppendLog(_T("RECAL 3 1: could not parse [Y_start] P1..Pn."));
+			m_progress.SetPos(i + 1);
+			continue;
+		}
+		{
+			CString msg;
+			msg.Format(_T("  RECAL 3 1 -> %d samples (Y_start=%.4g)"), (int)powX.size(), xAxisStart);
+			AppendLog(msg);
+		}
+
+		if ((int)powY.size() != gridN || (int)powX.size() != gridN)
+		{
+			CString msg;
+			msg.Format(_T("  warning: sample count (%d, %d) != expected axis points %d"),
+				(int)powY.size(), (int)powX.size(), gridN);
+			AppendLog(msg);
+		}
+
+		int br = 0, bc = 0;
+		if (powY.size() != powX.size() || powY.empty())
+		{
+			AppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
+		}
+		else if (!M576::PeakMax1D(powY, br) || !M576::PeakMax1D(powX, bc))
+		{
+			AppendLog(_T("  peak: empty sweep data."));
 		}
 		else
 		{
 			CString msg;
-			msg.Format(_T("Step %d/%d: %s"), i + 1, total, line.GetString());
+			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 3 0 / 3 1)"), br, bc);
 			AppendLog(msg);
-			std::vector<double> powers;
-			if (CRecalSession::ParsePowerDoubles(line, powers) && powers.size() > 4)
-			{
-				int n = (int)sqrt((double)powers.size());
-				if (n > 1 && n * n == (int)powers.size())
-				{
-					int br = 0, bc = 0;
-					if (M576::PeakCross2D(powers, n, n, br, bc))
-					{
-						msg.Format(_T("  -> peak (cross) row=%d col=%d (0-based)"), br, bc);
-						AppendLog(msg);
-						ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, n, br, bc, m_lut);
-					}
-				}
-			}
+			const int nLut = (int)powY.size();
+			ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lut);
 		}
+
 		m_progress.SetPos(i + 1);
 	}
 	AppendLog(_T("Path run finished."));

@@ -65,4 +65,21 @@ namespace M576
 		}
 		return true;
 	}
+
+	bool PeakMax1D(const std::vector<double>& data, int& outIdx)
+	{
+		if (data.empty())
+			return false;
+		outIdx = 0;
+		double best = data[0];
+		for (size_t i = 1; i < data.size(); ++i)
+		{
+			if (data[i] > best)
+			{
+				best = data[i];
+				outIdx = (int)i;
+			}
+		}
+		return true;
+	}
 }
