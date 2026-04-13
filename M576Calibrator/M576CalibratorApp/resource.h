@@ -49,6 +49,9 @@
 #define IDC_EDIT_DAC_RANGE              1026
 #define IDC_EDIT_DAC_STEP               1027
 #define IDC_STATIC_LABEL_MODE           1028
+#define IDC_STATIC_RECAL_DELAY_HINT     1029
+#define IDC_STATIC_DAC_RANGE_HINT       1030
+#define IDC_STATIC_DAC_STEP_HINT        1031
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102

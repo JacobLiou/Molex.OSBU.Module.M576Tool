@@ -15,11 +15,29 @@
 #endif
 
 /// RECAL 0 extended: delay (ms), DAC half-range, step — align with 429F firmware / Z4744.
+#ifndef M576_MIN_RECAL_DELAY_MS
+#define M576_MIN_RECAL_DELAY_MS 20
+#endif
+#ifndef M576_MAX_RECAL_DELAY_MS
+#define M576_MAX_RECAL_DELAY_MS 100
+#endif
 #ifndef M576_DEFAULT_RECAL_DELAY_MS
 #define M576_DEFAULT_RECAL_DELAY_MS 40
 #endif
+#ifndef M576_MIN_DAC_RANGE
+#define M576_MIN_DAC_RANGE 1
+#endif
+#ifndef M576_MAX_DAC_RANGE
+#define M576_MAX_DAC_RANGE 200
+#endif
 #ifndef M576_DEFAULT_DAC_RANGE
 #define M576_DEFAULT_DAC_RANGE 64
+#endif
+#ifndef M576_MIN_DAC_STEP
+#define M576_MIN_DAC_STEP 1
+#endif
+#ifndef M576_MAX_DAC_STEP
+#define M576_MAX_DAC_STEP 100
 #endif
 #ifndef M576_DEFAULT_DAC_STEP
 #define M576_DEFAULT_DAC_STEP 5

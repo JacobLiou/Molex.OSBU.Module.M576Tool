@@ -77,8 +77,8 @@
     </ResourceCompile>
     <PostBuildEvent>
       <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
-copy /Y &quot;$(ProjectDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
-copy /Y &quot;$(ProjectDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
+  copy /Y &quot;$(SolutionDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -108,8 +108,8 @@ copy /Y &quot;$(ProjectDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\st
     </ResourceCompile>
     <PostBuildEvent>
       <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
-copy /Y &quot;$(ProjectDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
-copy /Y &quot;$(ProjectDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
+  copy /Y &quot;$(SolutionDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

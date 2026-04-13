@@ -128,8 +128,11 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_EDIT_SN, m_strSn);
 	DDX_Radio(pDX, IDC_RADIO_CAL_PM, m_nCalMode);
 	DDX_Text(pDX, IDC_EDIT_RECAL_DELAY, m_delayMs);
+	DDV_MinMaxInt(pDX, m_delayMs, M576_MIN_RECAL_DELAY_MS, M576_MAX_RECAL_DELAY_MS);
 	DDX_Text(pDX, IDC_EDIT_DAC_RANGE, m_dacRange);
+	DDV_MinMaxInt(pDX, m_dacRange, M576_MIN_DAC_RANGE, M576_MAX_DAC_RANGE);
 	DDX_Text(pDX, IDC_EDIT_DAC_STEP, m_dacStep);
+	DDV_MinMaxInt(pDX, m_dacStep, M576_MIN_DAC_STEP, M576_MAX_DAC_STEP);
 }
 
 BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
@@ -164,6 +167,15 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Burn Flash"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_READ_FLASH_BACKUP, _T("Read Flash Backup"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_MODE, _T("Mode:"));
+	{
+		CString hint;
+		hint.Format(_T("%d-%d"), M576_MIN_RECAL_DELAY_MS, M576_MAX_RECAL_DELAY_MS);
+		::SetDlgItemText(m_hWnd, IDC_STATIC_RECAL_DELAY_HINT, hint);
+		hint.Format(_T("%d-%d"), M576_MIN_DAC_RANGE, M576_MAX_DAC_RANGE);
+		::SetDlgItemText(m_hWnd, IDC_STATIC_DAC_RANGE_HINT, hint);
+		hint.Format(_T("%d-%d"), M576_MIN_DAC_STEP, M576_MAX_DAC_STEP);
+		::SetDlgItemText(m_hWnd, IDC_STATIC_DAC_STEP_HINT, hint);
+	}
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	SyncCsvPathWithMode();
 	UpdateData(FALSE);
