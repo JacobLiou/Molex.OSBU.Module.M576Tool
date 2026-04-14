@@ -1,6 +1,7 @@
-#pragma once
+﻿#pragma once
 
 #include "OpComm.h"
+#include "CommLog.h"
 #include "PathCsvDriver.h"
 #include <vector>
 
@@ -8,22 +9,23 @@
 class CRecalSession
 {
 public:
-	explicit CRecalSession(COpComm& comm429f);
+	explicit CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarget = M576CommLogTarget());
+	void SetCommLogTarget(const M576CommLogTarget& logTarget) { m_logTarget = logTarget; }
 
-	/// Command A: `RECAL 0` — TLS, wavelength, delay (ms), DAC range, DAC step (Z4744 / PRD).
+	/// Command A: `RECAL 0` 鈥?TLS, wavelength, delay (ms), DAC range, DAC step (Z4744 / PRD).
 	BOOL SendRecal0(int tlsSource, double wavelengthNm, int delayMs, int dacRange, int dacStep, CString& err);
 
-	/// Command B: `RECAL 1` — target 1..6 + four path channel numbers; response line is `OK`.
+	/// Command B: `RECAL 1` 鈥?target 1..6 + four path channel numbers; response line is `OK`.
 	BOOL SendRecal1(const SPathStep& step, CString& err);
 
-	/// PM sweep: `RECAL 3` — sweepMode 0 = X fixed / Y sweep; 1 = Y fixed / X sweep.
+	/// PM sweep: `RECAL 3` 鈥?sweepMode 0 = X fixed / Y sweep; 1 = Y fixed / X sweep.
 	/// Params: Base DAC (0 = FW uses channel DAC), Offset, Step, Delay (ms), per firmware.
 	BOOL SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
 
-	/// PD sweep: `RECAL 5` — same sweep modes / params as `RECAL 3`.
+	/// PD sweep: `RECAL 5` 鈥?same sweep modes / params as `RECAL 3`.
 	BOOL SendRecal5(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
 
-	/// Command C: `RECAL 2` — target 1..4 + two path channel pairs; response line is `OK`.
+	/// Command C: `RECAL 2` 鈥?target 1..4 + two path channel pairs; response line is `OK`.
 	BOOL SendRecal2(const SPathStepPd& step, CString& err);
 
 	/// Read until \\n (or \\r\\n), up to timeout. Appends to `accumulatedLog`.
@@ -39,9 +41,16 @@ public:
 
 private:
 	COpComm& m_comm;
+	M576CommLogTarget m_logTarget;
+	DWORD m_traceSeq;
+	DWORD m_pendingTraceSeq;
+	DWORD m_pendingTick;
+	CString m_pendingCommand;
 	BOOL ReadLineBlocking(CStringA& line, DWORD timeoutMs);
 	void PushCommTimeouts(DWORD readTotalMs);
 	void PopCommTimeouts();
+	void TraceSend(LPCTSTR commandName, const CStringA& payload);
+	void TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL ok, DWORD timeoutMs);
 
 	COMMTIMEOUTS m_savedTimeouts;
 	BOOL m_haveSaved;

@@ -41,6 +41,34 @@ static int AxisPointCount(int dacRange, int dacStep)
 	return axisPts;
 }
 
+CString FormatLogTimestamp()
+{
+	SYSTEMTIME st = {};
+	GetLocalTime(&st);
+	CString ts;
+	ts.Format(_T("[%04d-%02d-%02d %02d:%02d:%02d.%03d]"),
+		st.wYear,
+		st.wMonth,
+		st.wDay,
+		st.wHour,
+		st.wMinute,
+		st.wSecond,
+		st.wMilliseconds);
+	return ts;
+}
+
+void TrimEditLogText(CString& text)
+{
+	const int kMaxChars = 200000;
+	const int kKeepChars = 120000;
+	if (text.GetLength() <= kMaxChars)
+		return;
+	text = text.Right(kKeepChars);
+	int firstBreak = text.Find(_T("\n"));
+	if (firstBreak >= 0 && firstBreak + 1 < text.GetLength())
+		text = text.Mid(firstBreak + 1);
+}
+
 CString GetExeFolder()
 {
 	TCHAR sz[MAX_PATH];
@@ -114,6 +142,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	m_strCsv        = _T("output\\standard_pm.csv");
 	m_strOutBin     = _T("output\\standard.bin");
 	m_strBackupBin  = _T("output\\mcs_lut_backup.bin");
+	m_strCommLogPath = _T("output\\comm.log");
 }
 
 void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
@@ -206,12 +235,39 @@ void CM576CalibratorDlg::AppendLog(LPCTSTR sz)
 {
 	CString t;
 	m_editLog.GetWindowText(t);
+	TrimEditLogText(t);
 	if (!t.IsEmpty())
 		t += _T("\r\n");
-	t += sz;
+	CString line;
+	line.Format(_T("%s %s"), FormatLogTimestamp().GetString(), sz);
+	t += line;
 	m_editLog.SetWindowText(t);
 	int n = m_editLog.GetWindowTextLength();
 	m_editLog.SetSel(n, n);
+	WriteLogFileLine(line);
+}
+
+void CM576CalibratorDlg::WriteLogFileLine(const CString& line)
+{
+	const CString absPath = ResolveFilePath(m_strCommLogPath);
+	HANDLE h = CreateFile(absPath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (h == INVALID_HANDLE_VALUE)
+		return;
+	LARGE_INTEGER size = {};
+	const BOOL hasSize = GetFileSizeEx(h, &size);
+	if (hasSize && size.QuadPart == 0)
+	{
+		const BYTE bom[] = { 0xEF, 0xBB, 0xBF };
+		DWORD written = 0;
+		WriteFile(h, bom, sizeof(bom), &written, NULL);
+	}
+	CString lineWithBreak = line + _T("\r\n");
+	CStringA encoded(lineWithBreak);
+	const char* raw = encoded.GetString();
+	DWORD len = (DWORD)encoded.GetLength();
+	DWORD written = 0;
+	WriteFile(h, raw, len, &written, NULL);
+	CloseHandle(h);
 }
 
 CString CM576CalibratorDlg::GetComboCom()
@@ -253,9 +309,19 @@ BOOL CM576CalibratorDlg::OpenPort()
 		AppendLog(_T("Serial port open failed."));
 		return FALSE;
 	}
-	m_pRecal.reset(new CRecalSession(m_dev429f));
+	M576CommLogTarget logTarget(&CM576CalibratorDlg::CommLogThunk, this);
+	m_dev429f.SetCommLogTarget(logTarget);
+	m_pRecal.reset(new CRecalSession(m_dev429f, logTarget));
 	AppendLog(_T("Port opened (429F)."));
 	return TRUE;
+}
+
+void __cdecl CM576CalibratorDlg::CommLogThunk(LPCTSTR line, void* user)
+{
+	CM576CalibratorDlg* dlg = (CM576CalibratorDlg*)user;
+	if (!dlg || !::IsWindow(dlg->m_hWnd))
+		return;
+	dlg->AppendLog(line);
 }
 
 void CM576CalibratorDlg::OnBnClickedOpenPorts()

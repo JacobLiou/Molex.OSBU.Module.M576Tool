@@ -2,11 +2,69 @@
 #include "RecalSession.h"
 #include <stdlib.h>
 
-CRecalSession::CRecalSession(COpComm& comm429f)
+CRecalSession::CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarget)
 	: m_comm(comm429f)
+	, m_logTarget(logTarget)
+	, m_traceSeq(0)
+	, m_pendingTraceSeq(0)
+	, m_pendingTick(0)
 	, m_haveSaved(FALSE)
 {
 	ZeroMemory(&m_savedTimeouts, sizeof(m_savedTimeouts));
+}
+
+void CRecalSession::TraceSend(LPCTSTR commandName, const CStringA& payload)
+{
+	if (!m_logTarget.IsEnabled())
+		return;
+	m_pendingTraceSeq = ++m_traceSeq;
+	m_pendingTick = GetTickCount();
+	m_pendingCommand = commandName;
+	CString line;
+	line.Format(_T("[RECAL] #%lu SEND %s | %s"),
+		m_pendingTraceSeq,
+		commandName,
+		M576EscapeAscii(payload).GetString());
+	m_logTarget.Emit(line);
+}
+
+void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL ok, DWORD timeoutMs)
+{
+	if (!m_logTarget.IsEnabled())
+		return;
+	CString line;
+	const DWORD seq = (m_pendingTraceSeq != 0) ? m_pendingTraceSeq : ++m_traceSeq;
+	const CString command = m_pendingCommand.IsEmpty() ? _T("RECAL") : m_pendingCommand;
+	if (ok)
+	{
+		line.Format(_T("[RECAL] #%lu RECV %s | %s | %lums"),
+			seq,
+			command.GetString(),
+			M576EscapeAscii(payload).GetString(),
+			elapsedMs);
+	}
+	else if (!payload.IsEmpty())
+	{
+		line.Format(_T("[ERROR] [RECAL] #%lu TIMEOUT %s | partial=%s | waited=%lums"),
+			seq,
+			command.GetString(),
+			M576EscapeAscii(payload).GetString(),
+			timeoutMs);
+	}
+	else
+	{
+		line.Format(_T("[ERROR] [RECAL] #%lu TIMEOUT %s | waited=%lums"),
+			seq,
+			command.GetString(),
+			timeoutMs);
+	}
+	m_logTarget.Emit(line);
+	if (ok || payload.IsEmpty())
+	{
+		m_pendingTraceSeq = 0;
+		m_pendingTick = 0;
+		m_pendingCommand.Empty();
+	}
 }
 
 void CRecalSession::PushCommTimeouts(DWORD readTotalMs)
@@ -70,11 +128,13 @@ BOOL CRecalSession::SendRecal0(int tlsSource, double wavelengthNm, int delayMs, 
 {
 	CStringA cmd;
 	cmd.Format("RECAL 0 %d %.4f %d %d %d\r\n", tlsSource, wavelengthNm, delayMs, dacRange, dacStep);
+	TraceSend(_T("RECAL 0"), cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
 	{
 		cmd.ReleaseBuffer();
 		err = _T("Write RECAL 0 failed");
+		TraceReceive(CStringA(), 0, FALSE, 0);
 		return FALSE;
 	}
 	cmd.ReleaseBuffer();
@@ -87,11 +147,13 @@ BOOL CRecalSession::SendRecal1(const SPathStep& step, CString& err)
 	cmd.Format("RECAL 1 %d %d %d %d %d\r\n",
 		step.targetSwitchIndex,
 		step.c1, step.c2, step.c3, step.c4);
+	TraceSend(_T("RECAL 1"), cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
 	{
 		cmd.ReleaseBuffer();
 		err = _T("Write RECAL 1 failed");
+		TraceReceive(CStringA(), 0, FALSE, 0);
 		return FALSE;
 	}
 	cmd.ReleaseBuffer();
@@ -103,11 +165,15 @@ BOOL CRecalSession::SendRecal3(int sweepMode, int baseDac, int offsetDac, int st
 	CStringA cmd;
 	cmd.Format("RECAL 3 %d %d %d %d %d\r\n",
 		sweepMode, baseDac, offsetDac, stepDac, delayMs);
+	CString name;
+	name.Format(_T("RECAL 3 %d"), sweepMode);
+	TraceSend(name, cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
 	{
 		cmd.ReleaseBuffer();
 		err = _T("Write RECAL 3 failed");
+		TraceReceive(CStringA(), 0, FALSE, 0);
 		return FALSE;
 	}
 	cmd.ReleaseBuffer();
@@ -119,11 +185,15 @@ BOOL CRecalSession::SendRecal5(int sweepMode, int baseDac, int offsetDac, int st
 	CStringA cmd;
 	cmd.Format("RECAL 5 %d %d %d %d %d\r\n",
 		sweepMode, baseDac, offsetDac, stepDac, delayMs);
+	CString name;
+	name.Format(_T("RECAL 5 %d"), sweepMode);
+	TraceSend(name, cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
 	{
 		cmd.ReleaseBuffer();
 		err = _T("Write RECAL 5 failed");
+		TraceReceive(CStringA(), 0, FALSE, 0);
 		return FALSE;
 	}
 	cmd.ReleaseBuffer();
@@ -136,11 +206,13 @@ BOOL CRecalSession::SendRecal2(const SPathStepPd& step, CString& err)
 	cmd.Format("RECAL 2 %d %d %d %d %d\r\n",
 		step.targetSwitchIndex,
 		step.p2b, step.p2c, step.p3b, step.p3c);
+	TraceSend(_T("RECAL 2"), cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
 	{
 		cmd.ReleaseBuffer();
 		err = _T("Write RECAL 2 failed");
+		TraceReceive(CStringA(), 0, FALSE, 0);
 		return FALSE;
 	}
 	cmd.ReleaseBuffer();
@@ -150,7 +222,10 @@ BOOL CRecalSession::SendRecal2(const SPathStepPd& step, CString& err)
 BOOL CRecalSession::ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CString& err)
 {
 	UNREFERENCED_PARAMETER(err);
-	return ReadLineBlocking(outLine, timeoutMs);
+	const DWORD start = GetTickCount();
+	const BOOL ok = ReadLineBlocking(outLine, timeoutMs);
+	TraceReceive(outLine, GetTickCount() - start, ok, timeoutMs);
+	return ok;
 }
 
 BOOL CRecalSession::ParsePowerDoubles(const CStringA& line, std::vector<double>& out)

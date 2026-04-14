@@ -1,4 +1,4 @@
-// Z4671Command.cpp: implementation of the Z4671Command class.
+ï»¿// Z4671Command.cpp: implementation of the Z4671Command class.
 //
 //////////////////////////////////////////////////////////////////////
 
@@ -19,11 +19,110 @@ static char THIS_FILE[]=__FILE__;
 Z4671Command::Z4671Command()
 {
    m_strLogInfo ="No Error";
+	m_traceSeq = 0;
+	m_pendingTraceSeq = 0;
+	m_pendingTick = 0;
+	m_pendingCmdCode = 0;
 }
 
 Z4671Command::~Z4671Command()
 {
 
+}
+
+CString Z4671Command::LookupCommandName(BYTE cmdCode) const
+{
+	switch (cmdCode)
+	{
+	case CMD_HW_START_FIRMWARE_UPDATE:
+		return _T("FW_START");
+	case CMD_HW_TRANSPORT_FIRMWARE:
+		return _T("FW_CHUNK");
+	case CMD_HW_FIRMWARE_UPDATE_END:
+		return _T("FW_END");
+	case CMD_HW_RD_FILE:
+		return _T("GET_LOG_FILE");
+	case CMD_HW_READ_FILE_LEN:
+		return _T("READ_FILE_LEN");
+	case CMD_HW_RESET_MODULE:
+		return _T("RESET_MODULE");
+	default:
+		{
+			CString name;
+			name.Format(_T("CMD_0x%02X"), cmdCode);
+			return name;
+		}
+	}
+}
+
+void Z4671Command::TraceInfo(LPCTSTR category, LPCTSTR format, ...)
+{
+	if (!m_logTarget.IsEnabled())
+		return;
+	va_list args;
+	va_start(args, format);
+	CString detail;
+	detail.FormatV(format, args);
+	va_end(args);
+	CString line;
+	line.Format(_T("[INFO] [%s] %s"), category, detail.GetString());
+	m_logTarget.Emit(line);
+}
+
+void Z4671Command::TraceError(LPCTSTR category, LPCTSTR format, ...)
+{
+	if (!m_logTarget.IsEnabled())
+		return;
+	va_list args;
+	va_start(args, format);
+	CString detail;
+	detail.FormatV(format, args);
+	va_end(args);
+	CString line;
+	line.Format(_T("[ERROR] [%s] %s"), category, detail.GetString());
+	m_logTarget.Emit(line);
+}
+
+void Z4671Command::TraceFrame(BOOL isSend, BYTE cmdCode, const BYTE* frame, int frameLen, const BYTE* wireData, int wireLen, DWORD elapsedMs)
+{
+	if (!m_logTarget.IsEnabled())
+		return;
+	const DWORD seq = isSend ? ++m_traceSeq : (m_pendingTraceSeq != 0 ? m_pendingTraceSeq : ++m_traceSeq);
+	CString name = LookupCommandName(cmdCode);
+	CString line;
+	if (isSend)
+	{
+		m_pendingTraceSeq = seq;
+		m_pendingTick = GetTickCount();
+		m_pendingCmdCode = cmdCode;
+		m_pendingCmdName = name;
+		line.Format(_T("[Z4671] #%lu SEND %s | frame=%s | wire=%s"),
+			seq,
+			name.GetString(),
+			M576HexDump(frame, frameLen).GetString(),
+			M576HexDump(wireData, wireLen).GetString());
+	}
+	else
+	{
+		if (elapsedMs > 0)
+			line.Format(_T("[Z4671] #%lu RECV %s | wire=%s | frame=%s | %lums"),
+				seq,
+				m_pendingCmdName.IsEmpty() ? name.GetString() : m_pendingCmdName.GetString(),
+				M576HexDump(wireData, wireLen).GetString(),
+				M576HexDump(frame, frameLen).GetString(),
+				elapsedMs);
+		else
+			line.Format(_T("[Z4671] #%lu RECV %s | wire=%s | frame=%s"),
+				seq,
+				m_pendingCmdName.IsEmpty() ? name.GetString() : m_pendingCmdName.GetString(),
+				M576HexDump(wireData, wireLen).GetString(),
+				M576HexDump(frame, frameLen).GetString());
+		m_pendingTraceSeq = 0;
+		m_pendingTick = 0;
+		m_pendingCmdCode = 0;
+		m_pendingCmdName.Empty();
+	}
+	m_logTarget.Emit(line);
 }
 
 BOOL Z4671Command::MasterReset()
@@ -119,20 +218,20 @@ BOOL Z4671Command::GetModulePara()
 	PBYTE pbySendData=NULL;
 	if(!CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength))
 	{
-		m_strLogInfo.Format("CmdSendExchangeº¯ÊıÖ´ĞĞ´íÎó");
+		m_strLogInfo.Format("CmdSendExchangeæ‰§è¡Œé”™è¯¯");
 		return FALSE;
 	}
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo.Format("·¢ËÍModuleParaÖ¸Áî´íÎó");
+		m_strLogInfo.Format("Send GetModulePara command failed");
 		return FALSE;
 	}
 	Sleep(50);
 	BYTE  byGetData[2048];
 	if (!ReadBuffer((char*)byGetData,2048,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo.Format("½ÓÊÕModuleParaÖ¸Áî´íÎó");
+		m_strLogInfo.Format("Read GetModulePara response failed");
 		return FALSE;
 	}
 	PBYTE pbyNewData=NULL;
@@ -149,27 +248,27 @@ BOOL Z4671Command::GetModulePara()
 	
 	if(!CmdReadExchange(byGetData,nCmdLength,&pbyNewData))
 	{
-		m_strLogInfo.Format("CmdReadExchangeº¯ÊıÖ´ĞĞ´íÎó(%s)",strReadData);
+		m_strLogInfo.Format("CmdReadExchangeæ‰§è¡Œé”™è¯¯(%s)",strReadData);
 		return FALSE;
 	}
 	if (pbyNewData[1]!=0X00)
 	{
-		m_strLogInfo.Format("·µ»ØµÚ2¸ö×Ö½ÚÂë:%02X(%s)",pbyNewData[1],strReadData);
+		m_strLogInfo.Format("è¿”å›ç¬¬2å­—èŠ‚é”™è¯¯:%02X(%s)",pbyNewData[1],strReadData);
 		return FALSE;
 	}
 	if (pbyNewData[2]!=byData[2])
 	{
-		m_strLogInfo.Format("·µ»ØµÚ3¸ö×Ö½ÚÂë:%02X(%s)",pbyNewData[2],strReadData);
+		m_strLogInfo.Format("è¿”å›ç¬¬3å­—èŠ‚é”™è¯¯:%02X(%s)",pbyNewData[2],strReadData);
 		return FALSE;
 	}
 	if ((pbyNewData[3]*256+pbyNewData[4])!=646) 
 	{
-		m_strLogInfo.Format("·µ»ØµÚ4¸ö×Ö½ÚÂë:%02X(%s)",pbyNewData[4],strReadData);
+		m_strLogInfo.Format("è¿”å›ç¬¬4å­—èŠ‚é”™è¯¯:%02X(%s)",pbyNewData[4],strReadData);
 		return FALSE;
 	}
 	if (pbyNewData[5]!=0XB2) 
 	{
-		m_strLogInfo.Format("·µ»ØµÚ6¸ö×Ö½ÚÂë:%02X(%s)",pbyNewData[5],strReadData);
+		m_strLogInfo.Format("è¿”å›ç¬¬6å­—èŠ‚é”™è¯¯:%02X(%s)",pbyNewData[5],strReadData);
 		return FALSE;
 	}
 	int nIndex = 0;
@@ -190,11 +289,11 @@ BOOL Z4671Command::CmdSendExchange(PBYTE pbyte, WORD wLength, PBYTE *pReBuff, PW
 	ZeroMemory(m_pNewData,sizeof(m_pNewData));
 	if (wLength>MAX_COUNT)
 	{
-		//LogInfo("Ö¸ÁîÊıÁ¿³¬±ê",(BOOL)FALSE,COLOR_RED);
+		//LogInfo("æŒ‡ä»¤æ•°é‡è¶…é•¿",(BOOL)FALSE,COLOR_RED);
 		return FALSE;
 	}
 	m_pNewData[0] = pbyte[0]; //START_CMD
-	//³ı¿ª¿ªÍ·ºÍ½áÎ²
+	//é™¤å¼€å¼€å¤´å’Œç»“å°¾
 	for (wIndex=1;wIndex<(wLength-1);wIndex++)
 	{
 		wNewIndex++;
@@ -232,6 +331,7 @@ BOOL Z4671Command::CmdSendExchange(PBYTE pbyte, WORD wLength, PBYTE *pReBuff, PW
 	wNewIndex++;
 	*pwReLength = wNewIndex;
 	*pReBuff = m_pNewData;
+	TraceFrame(TRUE, (wLength > 1) ? pbyte[1] : 0, pbyte, wLength, m_pNewData, wNewIndex);
 	return TRUE;
 
 }
@@ -247,18 +347,18 @@ BOOL Z4671Command::CmdReadExchange(PBYTE pbyte, WORD wLength, PBYTE *pReBuff, PW
 	ZeroMemory(m_pNewData,sizeof(m_pNewData));
 	if (wLength>MAX_COUNT)
 	{
-		strMsg.Format("Ö¸ÁîÊıÁ¿Îª%d£¬³¬³ö·¶Î§£¡",wLength);
+		strMsg.Format("æŒ‡ä»¤æ•°é‡ä¸º%dï¼Œè¶…å‡ºèŒƒå›´ï¼",wLength);
 		//LogInfo(strMsg,(BOOL)FALSE,COLOR_RED);
 		return FALSE;
 	}
 	m_pNewData[0] = pbyte[0]; //START_CMD
-	//³ı¿ª¿ªÍ·ºÍ½áÎ²
+	//é™¤å¼€å¼€å¤´å’Œç»“å°¾
 	for (wIndex=1;wIndex<(wLength-1);wIndex++)
 	{
 		wNewIndex++;
 		if (pbyte[wIndex]==START_CMD||pbyte[wIndex]==END_CMD) 
 		{
-			strMsg.Format("»Ø¶ÁÊı¾İ²»ÄÜ³öÏÖ±êÖ¾Î»START_CMD/END_CMD");
+			strMsg.Format("å›è¯»æ•°æ®ä¸èƒ½å‡ºç°æ ‡å¿—ä½START_CMD/END_CMD");
             //LogInfo(strMsg,(BOOL)FALSE,COLOR_RED);
 			strTemp = "";
 			for (i=0;i<(wLength-1);i++)
@@ -290,7 +390,7 @@ BOOL Z4671Command::CmdReadExchange(PBYTE pbyte, WORD wLength, PBYTE *pReBuff, PW
 					strTemp = strTemp + strMsg;
 				}
 				//LogInfo(strTemp,(BOOL)FALSE,COLOR_RED);
-				//LogInfo("»Ø¶ÁÊı¾İ²»ÄÜ³öÏÖ±êÖ¾Î»START_CMD+1",(BOOL)FALSE,COLOR_RED);
+				//LogInfo("å›è¯»æ•°æ®ä¸èƒ½å‡ºç°æ ‡å¿—ä½START_CMD+1",(BOOL)FALSE,COLOR_RED);
 		    //	return FALSE;
 			}
 		}
@@ -314,7 +414,7 @@ BOOL Z4671Command::CmdReadExchange(PBYTE pbyte, WORD wLength, PBYTE *pReBuff, PW
 					strTemp = strTemp + strMsg;
 				}
 				//LogInfo(strTemp,(BOOL)FALSE,COLOR_RED);
-				//LogInfo("»Ø¶ÁÊı¾İ²»ÄÜ³öÏÖ±êÖ¾Î»END_CMD+1",(BOOL)FALSE,COLOR_RED);
+				//LogInfo("å›è¯»æ•°æ®ä¸èƒ½å‡ºç°æ ‡å¿—ä½END_CMD+1",(BOOL)FALSE,COLOR_RED);
 		    	//return FALSE;
 			}
 		}
@@ -326,8 +426,11 @@ BOOL Z4671Command::CmdReadExchange(PBYTE pbyte, WORD wLength, PBYTE *pReBuff, PW
 	wNewIndex++;
 	m_pNewData[wNewIndex] = pbyte[wLength-1];
 	wNewIndex++;
-//	*pwReLength = wNewIndex;
+	if (pwReLength != NULL)
+		*pwReLength = wNewIndex;
 	*pReBuff = &m_pNewData[0];
+	TraceFrame(FALSE, (wNewIndex > 1) ? m_pNewData[1] : m_pendingCmdCode, m_pNewData, wNewIndex, pbyte, wLength,
+		(m_pendingTick != 0) ? (GetTickCount() - m_pendingTick) : 0);
 	return TRUE;
 
 }
@@ -367,14 +470,14 @@ BOOL Z4671Command::ReadModuleVoltage()
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = "´®¿Ú´ò¿ª´íÎó£¡";
+		m_strLogInfo = "ä¸²å£æ‰“å¼€é”™è¯¯ï¼";
 		return FALSE;
 	}
 	Sleep(20);
 	
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = "¶ÁÈ¡Êı¾İ´íÎó£¡";
+		m_strLogInfo = "è¯»å–æ•°æ®é”™è¯¯";
 		return FALSE;
 	}
 
@@ -477,14 +580,14 @@ BOOL Z4671Command::SetEDFAWorkMode(int nEDFA, int nMode, double dblPower)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(20);
 	BYTE  byGetData[256];
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("¶ÁÈ¡Êı¾İ´íÎó£¡");
+		m_strLogInfo = ("è¯»å–æ•°æ®é”™è¯¯");
 		return FALSE;
 	}
 	int   nCmd;
@@ -554,14 +657,14 @@ BOOL Z4671Command::ReadAlarm(int nType)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(20);
 	BYTE  byGetData[256];
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕÊı¾İ´íÎó£¡");
+		m_strLogInfo = ("å‘é€æ•°æ®é”™è¯¯");
 		return FALSE;
 	}
 
@@ -647,14 +750,14 @@ BOOL Z4671Command::GetVOAAtten(int nVOAIndex, double *pdblAtten, int nType)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = "·¢ËÍÊı¾İ´íÎó";
+		m_strLogInfo = "å‘é€æ•°æ®é”™è¯¯";
 		return FALSE;
 	}
 	Sleep(20);
 	BYTE  byGetData[256];
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = "½ÓÊÕÊı¾İ´íÎó";
+		m_strLogInfo = "å‘é€æ•°æ®é”™è¯¯";
 		return FALSE;
 	}
 
@@ -743,7 +846,7 @@ BOOL Z4671Command::GetLogFileData(int nType,int nDataLength,DWORD dwAddress,byte
 	PBYTE  byGetData = new BYTE[MAX_COUNT];
 	if (!ReadBuffer((char*)byGetData,MAX_COUNT,(PDWORD)&nCmdLength))
 	{
-		//LogInfo("»ñÈ¡EDFAÖÆÀäµçÁ÷½ÓÊÕ´íÎó£¡");
+		//LogInfo("è¯»å–EDFAè¿”å›æ¥æ”¶é”™è¯¯");
 		delete []byGetData;
 		return FALSE;
 	}
@@ -803,18 +906,18 @@ BOOL Z4671Command::SendFWTranSportFW(BYTE *byTransData, int nDataLength, int nIn
 	byData[2] = nIndex; //Index
 	byData[3] = (BYTE)(nLength>>8);
 	byData[4] = (BYTE)nLength;
-	byData[5] = (BYTE)(nSum>>24);  //×Ü°üÊı
+	byData[5] = (BYTE)(nSum>>24);  //æ€»åŒ…æ•°
 	byData[6] = (BYTE)(nSum>>16); 
-	byData[7] = (BYTE)(nSum>>8);  //×Ü°üÊı
+	byData[7] = (BYTE)(nSum>>8);  //æ€»åŒ…æ•°
 	byData[8] = (BYTE)nSum; 
 	byData[9] = (BYTE)(nIndex>>24);
-	byData[10] = (BYTE)(nIndex>>16);  //µ±Ç°ĞòºÅ
+	byData[10] = (BYTE)(nIndex>>16);  //å½“å‰åŒ…
 	byData[11] = (BYTE)(nIndex>>8);
-	byData[12] = (BYTE)nIndex;  //µ±Ç°
+	byData[12] = (BYTE)nIndex;  //å½“å‰
 	byData[13] = (BYTE)(nDataLength>>24);
-	byData[14] = (BYTE)(nDataLength>>16);  //µ±Ç°
+	byData[14] = (BYTE)(nDataLength>>16);  //å½“å‰
 	byData[15] = (BYTE)(nDataLength>>8);
-	byData[16] = (BYTE)nDataLength;  //µ±Ç°
+	byData[16] = (BYTE)nDataLength;  //å½“å‰
 	for (i=0;i<nDataLength;i++)
 	{
 		byData[17+i] = byTransData[i];
@@ -855,8 +958,8 @@ CString Z4671Command::GetErrorMsg()
 }
 
 ///////////////////////////////////////////////
-//º¯ÊıËµÃ÷£º
-//    FPGA SPI Í¨ĞÅ²âÊÔ
+//å‡½æ•°è¯´æ˜ï¼š
+//    FPGA SPI é€šè®¯æµ‹è¯•
 //Add by wanxin
 //Time:20160819
 ///////////////////////////////////////////////////
@@ -891,15 +994,15 @@ BOOL Z4671Command::FPGASPIConnect()
 
 	if(!WriteBuffer((char*)byData,23))
 	{
-		m_strLogInfo ="·¢ËÍFPGA SPIÍ¨ĞÅÖ¸Áî´íÎó";
+		m_strLogInfo ="Send FPGA SPI connect command failed";
 		return FALSE;
 	}
 
 	return TRUE;	
 }
 //////////////////////////////////////////////////
-//º¯ÊıËµÃ÷£º
-//    ·¢ËÍEDFA SRESETÄÚÈİµÄµÚÒ»ÌõÖ¸Áî
+//å‡½æ•°è¯´æ˜ï¼š
+//    å‘é€EDFA SRESETå†…å®¹çš„ç¬¬ä¸€æ¡æŒ‡ä»¤
 //Add by wanxin
 //Time:20160819
 ////////////////////////////////////////////////////////
@@ -930,34 +1033,34 @@ BOOL Z4671Command::EDFA_SRESETONECMD()
 	*/
 	if(!WriteBuffer("\r\n",1))
 	{
-		m_strLogInfo = "EDFA_SRESET²âÊÔÖĞ·¢ËÍµÚÒ»ÌõÖ¸Áî´íÎó";
+		m_strLogInfo = "Send EDFA SRESET first command prefix failed";
 		return FALSE;			
 	}
 	Sleep(100);
 	if(!WriteBuffer((char*)bBuffer,strCmd.GetLength()))
 	{
-		m_strLogInfo = "EDFA_SRESET²âÊÔÖĞ·¢ËÍµÚÒ»ÌõÖ¸Áî´íÎó";
+		m_strLogInfo = "Send EDFA SRESET first command failed";
 		return FALSE;			
 	}
 	Sleep(100);
 	ZeroMemory(bBuffer,600);
 	if(!ReadBuffer((char*)bBuffer,600))
 	{
-		m_strLogInfo = "EDFA_SRESET²âÊÔÖĞ½ÓÊÕµÚÒ»ÌõÖ¸Áî·µ»ØÄÚÈİ´íÎó";
+		m_strLogInfo = "EDFA_SRESETæµ‹è¯•ä¸­æ¥æ”¶ç¬¬ä¸€æ¡æŒ‡ä»¤è¿”å›å†…å®¹é”™è¯¯";
 		return FALSE;			
 	}
 	
     if(bBuffer[0]!=0x4F && bBuffer[0]!=0x4B && bBuffer[0]!=0x0D)
 	{
-		m_strLogInfo = "EDFA_SRESET²âÊÔÖĞ½ÓÊÕµÚÒ»ÌõÖ¸Áî·µ»ØÄÚÈİÓëÅäÖÃÄÚÈİ²»·û";
+		m_strLogInfo = "EDFA_SRESETæµ‹è¯•ä¸­æ¥æ”¶ç¬¬ä¸€æ¡æŒ‡ä»¤è¿”å›å†…å®¹ä¸é…ç½®å†…å®¹ä¸ç¬¦";
 		return FALSE;		
 	}
 	return TRUE;
 }
 
 //////////////////////////////////////////////////
-//º¯ÊıËµÃ÷£º
-//    ·¢ËÍEDFA SRESETÄÚÈİµÄµÚ¶şÌõÖ¸Áî
+//å‡½æ•°è¯´æ˜ï¼š
+//    å‘é€EDFA SRESETå†…å®¹çš„ç¬¬äºŒæ¡æŒ‡ä»¤
 //Add by wanxin
 //Time:20160819
 ////////////////////////////////////////////////////////
@@ -1001,21 +1104,21 @@ BOOL Z4671Command::EDFA_SRESETTWOCMD()
 	dwLength = 25;
 	if(!WriteBuffer((char*)bBuffer,dwLength))
 	{
-		m_strLogInfo = "EDFA_SRESET²âÊÔÖĞ·¢ËÍµÚ¶şÌõÖ¸Áî´íÎó";
+		m_strLogInfo = "Send EDFA SRESET second command failed";
 		return FALSE;			
 	}
 	Sleep(50);
 	ZeroMemory(bBuffer,600);
 	if(!ReadBuffer((char*)bBuffer,600))
 	{
-		m_strLogInfo = "EDFA_SRESET²âÊÔÖĞ½ÓÊÕµÚ¶şÌõÖ¸Áî·µ»ØÄÚÈİ´íÎó";
+		m_strLogInfo = "EDFA_SRESETæµ‹è¯•ä¸­æ¥æ”¶ç¬¬äºŒæ¡æŒ‡ä»¤è¿”å›å†…å®¹é”™è¯¯";
 		return FALSE;			
 	}
 	for(int i=0;i<29;i++)
 	{
 		if(bBuffer[i+1] != bResult[i])
 		{
-			m_strLogInfo = "EDFA_SRESET²âÊÔÖĞ½ÓÊÕµÚ¶şÌõÖ¸Áî·µ»ØÄÚÈİÓëÊµ¼ÊÅäÖÃ²»Ïà·û";
+			m_strLogInfo = "EDFA SRESET second response content mismatch";
 			return FALSE;			   
 		} 
 	}
@@ -1024,8 +1127,8 @@ BOOL Z4671Command::EDFA_SRESETTWOCMD()
 }
 
 //////////////////////////////////////////////////
-//º¯ÊıËµÃ÷£º
-//    ·¢ËÍIDX_HARD_RSTÖ¸Áî
+//å‡½æ•°è¯´æ˜ï¼š
+//    å‘é€IDX_HARD_RSTæŒ‡ä»¤
 //Add by wanxin
 //Time:20160819
 ////////////////////////////////////////////////////////
@@ -1056,21 +1159,21 @@ BOOL Z4671Command::IDX_HARD_RST()
 	dwLength = 15;
 	if(!WriteBuffer((char*)bBuffer,dwLength))
 	{
-		m_strLogInfo = "IDX_HARD_RST²âÊÔÖĞ·¢ËÍÖ¸Áî´íÎó";
+		m_strLogInfo = "Send IDX_HARD_RST command failed";
 		return FALSE;			
 	}
 	Sleep(50);
 	ZeroMemory(bBuffer,600);
 	if(!ReadBuffer((char*)bBuffer,600))
 	{
-		m_strLogInfo = "IDX_HARD_RST²âÊÔÖĞ½ÓÊÕÖ¸Áî·µ»ØÄÚÈİ´íÎó";
+		m_strLogInfo = "IDX_HARD_RSTæµ‹è¯•ä¸­æ¥æ”¶æŒ‡ä»¤è¿”å›å†…å®¹é”™è¯¯";
 		return FALSE;			
 	}
 	for(int i=0;i<6;i++)
 	{
 		if(bBuffer[i+1] != bResult[i])
 		{
-			m_strLogInfo = "IDX_HARD_RSTT²âÊÔÖĞ½ÓÊÕÖ¸Áî·µ»ØÄÚÈİÓëÊµ¼ÊÅäÖÃ²»Ïà·û";
+			m_strLogInfo = "IDX_HARD_RST response content mismatch";
 			return FALSE;			   
 		} 
 	}
@@ -1078,8 +1181,8 @@ BOOL Z4671Command::IDX_HARD_RST()
 	return TRUE;
 }
 //////////////////////////////////////////////////
-//º¯ÊıËµÃ÷£º
-//    ·¢ËÍIDX_SOFT_RSTÖ¸Áî
+//å‡½æ•°è¯´æ˜ï¼š
+//    å‘é€IDX_SOFT_RSTæŒ‡ä»¤
 //Add by wanxin
 //Time:20160819
 ////////////////////////////////////////////////////////
@@ -1124,14 +1227,14 @@ BOOL Z4671Command::IDX_SOFT_RST()
 	dwLength = 25;
 	if(!WriteBuffer((char*)bBuffer,dwLength))
 	{
-		m_strLogInfo = "IDX_SOFT_RST²âÊÔÖĞ·¢ËÍÖ¸Áî´íÎó";
+		m_strLogInfo = "Send IDX_SOFT_RST first command failed";
 		return FALSE;			
 	}
 	Sleep(50);
 	ZeroMemory(bBuffer,600);
 	if(!ReadBuffer((char*)bBuffer,600))
 	{
-		m_strLogInfo = "IDX_SOFT_RST²âÊÔÖĞ½ÓÊÕÖ¸Áî·µ»ØÄÚÈİ´íÎó";
+		m_strLogInfo = "IDX_SOFT_RSTæµ‹è¯•ä¸­æ¥æ”¶æŒ‡ä»¤è¿”å›å†…å®¹é”™è¯¯";
 		return FALSE;			
 	}
     Sleep(2000);
@@ -1166,21 +1269,21 @@ BOOL Z4671Command::IDX_SOFT_RST()
 	dwLength = 25;
 	if(!WriteBuffer((char*)bBuffer,dwLength))
 	{
-		m_strLogInfo = "IDX_SOFT_RST²âÊÔÖĞ·¢ËÍÖ¸Áî´íÎó";
+		m_strLogInfo = "Send IDX_SOFT_RST second command failed";
 		return FALSE;			
 	}
 	Sleep(50);
 	ZeroMemory(bBuffer,600);
 	if(!ReadBuffer((char*)bBuffer,600))
 	{
-		m_strLogInfo = "IDX_SOFT_RST²âÊÔÖĞ½ÓÊÕÖ¸Áî·µ»ØÄÚÈİ´íÎó";
+		m_strLogInfo = "IDX_SOFT_RSTæµ‹è¯•ä¸­æ¥æ”¶æŒ‡ä»¤è¿”å›å†…å®¹é”™è¯¯";
 		return FALSE;			
 	}
 	for(int i=0;i<29;i++)
 	{
 		if(bBuffer[i+1] != bResult[i])
 		{
-			m_strLogInfo = "IDX_SOFT_RSTT²âÊÔÖĞ½ÓÊÕÖ¸Áî·µ»ØÄÚÈİÓëÊµ¼ÊÅäÖÃ²»Ïà·û";
+			m_strLogInfo = "IDX_SOFT_RST response content mismatch";
 			return FALSE;			   
 		} 
 	}
@@ -1235,14 +1338,14 @@ BOOL Z4671Command::GetDumpData(char **pReBuff,int *dwSize)
 	dwLength = nIndex;
 	if(!WriteBuffer((char*)bBuffer,dwLength))
 	{
-		m_strLogInfo = "dump data·¢ËÍÖ¸Áî´íÎó";
+		m_strLogInfo = "Send dump data command failed";
 		return FALSE;			
 	}
 	Sleep(50);
 	ZeroMemory(chBuff,600);
 	if(!ReadBuffer(chBuff,600,&dwLeng))
 	{
-		m_strLogInfo = "dump data½ÓÊÕÖ¸Áî·µ»ØÄÚÈİ´íÎó";
+		m_strLogInfo = "dump dataæ¥æ”¶æŒ‡ä»¤è¿”å›å†…å®¹é”™è¯¯";
 		return FALSE;			
 	}
 	*pReBuff = &chBuff[0];
@@ -1287,14 +1390,14 @@ BOOL Z4671Command::GetModuleState(int *nReady)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = "·¢ËÍÊı¾İ´íÎó";
+		m_strLogInfo = "å‘é€æ•°æ®é”™è¯¯";
 		return FALSE;
 	}
 	Sleep(10);
 	BYTE  byGetData[256];
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = "½ÓÊÕÊı¾İ´íÎó";
+		m_strLogInfo = "å‘é€æ•°æ®é”™è¯¯";
 		return FALSE;
 	}
 	int   nCmd;
@@ -1433,13 +1536,13 @@ BOOL Z4671Command::SendScanDoubleTrig(stSWScanPara *stScanPara)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -1525,13 +1628,13 @@ BOOL Z4671Command::SendCmdToEDFA(CString strCmd,char *pchReStr)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,1024,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -1615,13 +1718,13 @@ BOOL Z4671Command::GetALLSwitch(int nBlock, int *pPos)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(10);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -1703,13 +1806,13 @@ BOOL Z4671Command::GetMONSwitch(int nSwitch, int *pPos)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(10);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -1798,7 +1901,7 @@ BOOL Z4671Command::VOAVerify(int nStartIndex, int nEndIdnex, int nDACRange, int 
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	return TRUE;
@@ -1859,7 +1962,7 @@ BOOL Z4671Command::VOACalibrate(int nStartIndex, int nEndIdnex, int nDACRange, i
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	return TRUE;
@@ -1907,12 +2010,12 @@ BOOL Z4671Command::GetMCSTemp(double *dblTemp)
 	
 	if(!WriteBuffer((char*)pSend,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
-		m_strLogInfo = ("¶ÁÈ¡ÎÂ¶È½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("è¯»å–æ¸©åº¦æ¥æ”¶é”™è¯¯");
 		return FALSE;
 	}
 	int   nCmd;
@@ -1932,12 +2035,12 @@ BOOL Z4671Command::GetMCSTemp(double *dblTemp)
 	}
 	if (pbyNewGetData[1]!=0)
 	{
-		//m_strLogInfo.Format("×´Ì¬Âë´íÎó£º0X%02X",pbyNewGetData[1]);
+		//m_strLogInfo.Format("çŠ¶æ€é”™è¯¯0X%02X",pbyNewGetData[1]);
 		return FALSE;
 	}
 	if (pbyNewGetData[2]!=byData[2])
 	{
-		//m_strLogInfo.Format("ĞòºÅ´íÎó£º0X%02X",pbyNewGetData[2]);
+		//m_strLogInfo.Format("åºå·é”™è¯¯0X%02X",pbyNewGetData[2]);
 		return FALSE;
 	}
 	SHORT sTemp;
@@ -1990,13 +2093,13 @@ BOOL Z4671Command::GetEDFATemp(double *dblTemp)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,50,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("»ñÈ¡EDFAÎÂ¶È½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("è¯»å–EDFAæ¸©åº¦æ¥æ”¶é”™è¯¯");
 		return FALSE;
 	}
 	
@@ -2017,12 +2120,12 @@ BOOL Z4671Command::GetEDFATemp(double *dblTemp)
 	}
 	if (pbyNewData[1]!=0)
 	{
-		//m_strLogInfo.Format("×´Ì¬Âë´íÎó£º0X%02X",pbyNewData[1]);
+		//m_strLogInfo.Format("çŠ¶æ€é”™è¯¯0X%02X",pbyNewData[1]);
 		return FALSE;
 	}
 	if (pbyNewData[2]!=byData[2])
 	{
-		//m_strLogInfo.Format("ĞòºÅ´íÎó£º0X%02X",pbyNewData[2]);
+		//m_strLogInfo.Format("åºå·é”™è¯¯0X%02X",pbyNewData[2]);
 		return FALSE;
 	}
 	
@@ -2067,13 +2170,13 @@ BOOL Z4671Command::GetProductSN(char *pchSN)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(20);
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -2092,10 +2195,10 @@ BOOL Z4671Command::GetProductSN(char *pchSN)
 	}
 	if (pbyNewData[1]!=0)
 	{
-		//m_strLogInfo.Format("×´Ì¬Âë´íÎó£º0X%02X",pbyNewData[1]);
+		//m_strLogInfo.Format("çŠ¶æ€é”™è¯¯0X%02X",pbyNewData[1]);
 		if (pbyNewData[1]==0X09)
 		{
-			strToken = "NULL"; //±íÊ¾²»´æÔÚSNºÅ£¬»¹Î´Ğ´ÈëÊı¾İ
+			strToken = "NULL"; //è¡¨ç¤ºè¯¥äº§å“SNå·è¿˜æœªå†™å…¥è®¾å¤‡
 			strcpy(pchSN,strToken);
 			//*strSN = strToken;
 			return TRUE;
@@ -2104,7 +2207,7 @@ BOOL Z4671Command::GetProductSN(char *pchSN)
 	}
 	if (pbyNewData[2]!=byData[2])
 	{
-		//m_strLogInfo.Format("ĞòºÅ´íÎó£º0X%02X",pbyNewData[2]);
+		//m_strLogInfo.Format("åºå·é”™è¯¯0X%02X",pbyNewData[2]);
 		return FALSE;
 	}
 	BYTE chASCII[32];
@@ -2152,13 +2255,13 @@ BOOL Z4671Command::GetProductPN(char *pchPN)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(20);
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -2177,12 +2280,12 @@ BOOL Z4671Command::GetProductPN(char *pchPN)
 	}
 	if (pbyNewData[1]!=0)
 	{
-		//m_strLogInfo.Format("×´Ì¬Âë´íÎó£º0X%02X",pbyNewData[1]);
+		//m_strLogInfo.Format("çŠ¶æ€é”™è¯¯0X%02X",pbyNewData[1]);
 		return FALSE;
 	}
 	if (pbyNewData[2]!=byData[2])
 	{
-		//m_strLogInfo.Format("ĞòºÅ´íÎó£º0X%02X",pbyNewData[2]);
+		//m_strLogInfo.Format("åºå·é”™è¯¯0X%02X",pbyNewData[2]);
 		return FALSE;
 	}
 	BYTE chASCII[32];
@@ -2225,7 +2328,7 @@ BOOL Z4671Command::CloseSwitchMonitor(int nSwitchIndex)
 	byData[3] = 0X00;
 	byData[4] = 0X02;
 	byData[5] = nIndex;
-	//ÓĞ·ûºÅÊı£¬16bit²¹ÂëĞÎÊ½ µ¥Î»£º0.1dB
+	//å‘é€çš„æ•°æ®æ˜¯16bitæ•´æ•°æ ¼å¼ å•ä½ä¸º0.1dB
 //	sValue = dblAtten*10;
 	byData[6] = 0x00;
 
@@ -2242,13 +2345,13 @@ BOOL Z4671Command::CloseSwitchMonitor(int nSwitchIndex)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(20);
 	if (!ReadBuffer((char*)byGetData,10,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -2274,7 +2377,7 @@ BOOL Z4671Command::CloseSwitchMonitor(int nSwitchIndex)
 	}
 	if (pbyNewData[2]!=byData[2])
 	{
-		//LogInfo("IndexĞòºÅ²»Ò»ÖÂ");
+		//LogInfo("Indexåºå·ä¸ä¸€æ ·");
 		return FALSE;
 	}
 	return TRUE;
@@ -2290,7 +2393,7 @@ BOOL Z4671Command::GetTesterInfo()
 
 	if(!WriteBuffer("\r\n",2))
 	{
-		m_strLogInfo = ("·¢ËÍ»Ø³µ·û´íÎó");
+		m_strLogInfo = ("å‘é€å›è½¦ç¬¦é”™è¯¯");
 		return FALSE;
 	}
 	Sleep(100);
@@ -2298,16 +2401,16 @@ BOOL Z4671Command::GetTesterInfo()
 	ZeroMemory(chGetData,sizeof(chGetData));
 	strCommand.Format("info\r\n");
 	strncpy(chData,strCommand,strCommand.GetLength());
-	//LogInfo("²âÊÔ°åĞÅÏ¢:");
+	//LogInfo("æµ‹è¯•æ¿ä¿¡æ¯:");
 	if(!WriteBuffer(chData,strCommand.GetLength()))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer(chGetData,256,&nLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	m_strLogInfo = (LPCTSTR)chGetData;
@@ -2346,13 +2449,13 @@ BOOL Z4671Command::GetVersion(char *pchVer)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(10);
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -2459,13 +2562,13 @@ BOOL Z4671Command::GetMCSVersion(char *pchMCSVer)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(20);
 	if (!ReadBuffer((char*)byGetData,100,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -2568,13 +2671,13 @@ BOOL Z4671Command::GetEDFAInfo(char *pchEDFAVer)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,4096,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -2588,7 +2691,7 @@ BOOL Z4671Command::GetEDFAInfo(char *pchEDFAVer)
 	}
 	m_strLogInfo = strReadData;
 
-	//ÌØÊâ×Ö½Ú´¦ÀípbyNewData
+	//å°†å­—èŠ‚è½¬å­˜åˆ°pbyNewData
     PBYTE pbyNewData=NULL;
 	if(!CmdReadExchange(byGetData,nCmdLength,&pbyNewData))
 	{
@@ -2737,13 +2840,13 @@ BOOL Z4671Command::SwitchALLSwitch(int nDrop, int *nPort, int nCount)
 				
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(100);
 	if (!ReadBuffer((char*)byGetData,100,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -2768,7 +2871,7 @@ BOOL Z4671Command::SwitchALLSwitch(int nDrop, int *nPort, int nCount)
 	}
 	if (pbyNewData[2]!=byData[2])
 	{
-		//LogInfo("IndexĞòºÅ²»Ò»ÖÂ");
+		//LogInfo("Indexåºå·ä¸ä¸€æ ·");
 		return FALSE;
 	}
 	return TRUE;
@@ -2803,7 +2906,7 @@ BOOL Z4671Command::SendCmd()
 	CmdSendExchange(pbyData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("·¢ËÍÊı¾İ´íÎó£¡");
+		m_strLogInfo = ("å‘é€æ•°æ®é”™è¯¯");
 		return FALSE;
 	}
 	m_stCmd.wCmdIndex++;
@@ -2901,13 +3004,13 @@ BOOL Z4671Command::SwitchSingleSwitch(int nBlock, int nSwitch, int nPort)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,10,(PDWORD)&dwCmd))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -2983,13 +3086,13 @@ BOOL Z4671Command::GetSingleSwitchState(int nBlock, int nSwitch, int *pPos)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(10);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 
@@ -3095,13 +3198,13 @@ BOOL Z4671Command::SendScanTrig(stSWScanPara stScanPara)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&dwCmd))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -3128,7 +3231,7 @@ BOOL Z4671Command::SendScanTrig(stSWScanPara stScanPara)
 	}		
 	return TRUE;
 }
-//0£ºX
+//0ä¸ºX
 BOOL Z4671Command::SetSwitchDAC(int nBlock, int nSwitch, int nDac, int nXY)
 {
 	CString strCommand;
@@ -3193,13 +3296,13 @@ BOOL Z4671Command::SetSwitchDAC(int nBlock, int nSwitch, int nDac, int nXY)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	loop:	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(100);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&dwCmd))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		error++;
 		if (error > 10)
 		{
@@ -3305,13 +3408,13 @@ BOOL Z4671Command::SendHitlessTestCmd(int nBlock, int nSwitch, int nCHNum)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -3383,13 +3486,13 @@ BOOL Z4671Command::StartFWUpdate()
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,200,(PDWORD)&dwCmd))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -3432,7 +3535,7 @@ BOOL Z4671Command::FWTranSportFW(BYTE *byTransData, int nDataLength, int nIndex,
 	ZeroMemory(chData,sizeof(chData));
 	if (nDataLength>403)
 	{
-		m_strLogInfo = ("Êı¾İ³¤¶È³¬±ê");
+		m_strLogInfo = ("æ•°æ®é•¿åº¦è¶…é•¿");
 		return FALSE;
 	}
 	
@@ -3442,18 +3545,18 @@ BOOL Z4671Command::FWTranSportFW(BYTE *byTransData, int nDataLength, int nIndex,
 	byData[2] = nIndex; //Index
 	byData[3] = (BYTE)(nLength>>8);
 	byData[4] = (BYTE)nLength;
-	byData[5] = (BYTE)(nSum>>24);  //×Ü°üÊı
+	byData[5] = (BYTE)(nSum>>24);  //æ€»åŒ…æ•°
 	byData[6] = (BYTE)(nSum>>16); 
-	byData[7] = (BYTE)(nSum>>8);  //×Ü°üÊı
+	byData[7] = (BYTE)(nSum>>8);  //æ€»åŒ…æ•°
 	byData[8] = (BYTE)nSum; 
 	byData[9] = (BYTE)(nIndex>>24);
-	byData[10] = (BYTE)(nIndex>>16);  //µ±Ç°ĞòºÅ
+	byData[10] = (BYTE)(nIndex>>16);  //å½“å‰åŒ…
 	byData[11] = (BYTE)(nIndex>>8);
-	byData[12] = (BYTE)nIndex;  //µ±Ç°
+	byData[12] = (BYTE)nIndex;  //å½“å‰
 	byData[13] = (BYTE)(nDataLength>>24);
-	byData[14] = (BYTE)(nDataLength>>16);  //µ±Ç°
+	byData[14] = (BYTE)(nDataLength>>16);  //å½“å‰
 	byData[15] = (BYTE)(nDataLength>>8);
-	byData[16] = (BYTE)nDataLength;  //µ±Ç°
+	byData[16] = (BYTE)nDataLength;  //å½“å‰
 	for (i=0;i<nDataLength;i++)
 	{
 		byData[17+i] = byTransData[i];
@@ -3478,13 +3581,13 @@ BOOL Z4671Command::FWTranSportFW(BYTE *byTransData, int nDataLength, int nIndex,
 		bBreak = TRUE;
 loopl:	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 		{
-			m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó");
+			m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 			return FALSE;
 		}
  
 		if (!ReadBuffer((char*)byGetData,20,(PDWORD)&dwCmd))
 		{
-			m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+			m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 			error++;
 			if (error > 50)
 			{
@@ -3501,7 +3604,7 @@ loopl:	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 		nCount++;
 		if (nCount>2)
 		{
-			m_strLogInfo = "·¢ËÍÁ½´ÎÊı¾İ°üÊ§°Ü";
+			m_strLogInfo = "ä¼ é€å‡çº§æ•°æ®åŒ…å¤±è´¥";
 			return FALSE;
 		}
 	}
@@ -3583,13 +3686,13 @@ BOOL Z4671Command::FWUpdateEnd()
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(1000);
 	if (!ReadBuffer((char*)byGetData,20,(PDWORD)&dwCmd))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -3649,13 +3752,13 @@ BOOL Z4671Command::GetProductID(char *pchID)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -3718,13 +3821,13 @@ BOOL Z4671Command::GetProductSupplier(char *pchSupplier)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -3803,13 +3906,13 @@ BOOL Z4671Command::GetMCSAlarm()
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -4017,13 +4120,13 @@ BOOL Z4671Command::GetProductPDADC(int nPD, int *PDADC)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -4095,13 +4198,13 @@ BOOL Z4671Command::GetProductPDPower(int nPDIndex, double *pdblPDPower)
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -4199,13 +4302,13 @@ BOOL Z4671Command::GetCurrentDAC(int nBlock, int nSwitch, SHORT *psDACX, SHORT *
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&dwLength))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;
@@ -4289,14 +4392,14 @@ BOOL Z4671Command::SetVOAAtten(int nType, int nVOAIndex, double dblAtten)
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	BYTE  byGetData[256];
 	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
 	{
-		m_strLogInfo = ("¶ÁÈ¡Êı¾İ´íÎó£¡");
+		m_strLogInfo = ("è¯»å–æ•°æ®é”™è¯¯");
 		return FALSE;
 	}
 	int   nCmd;
@@ -4377,13 +4480,13 @@ bool Z4671Command::SetScanDelayTime(int nDelayus)
 	CmdSendExchange(byData, nCmdLength, &pbySendData, &nCmdLength);
 	if (!WriteBuffer((char*)pbySendData, nCmdLength))
 	{
-		m_strLogInfo = ("´®¿Ú´ò¿ª´íÎó£¡");
+		m_strLogInfo = ("ä¸²å£æ‰“å¼€é”™è¯¯ï¼");
 		return FALSE;
 	}
 	Sleep(50);
 	if (!ReadBuffer((char*)byGetData, 30, (PDWORD)&dwCmd))
 	{
-		m_strLogInfo = ("½ÓÊÕ´íÎó£¡");
+		m_strLogInfo = ("æ¥æ”¶é”™è¯¯ï¼");
 		return FALSE;
 	}
 	int   nCmd;

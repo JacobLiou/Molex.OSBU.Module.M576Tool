@@ -31,6 +31,7 @@ private:
 	CString m_strBackupBin;
 	CString m_strOutBin;
 	CString m_strSn;
+	CString m_strCommLogPath;
 
 	/// One port: 429F board (RECAL ASCII + MCS LUT transport via firmware forwarding).
 	Z4671Command m_dev429f;
@@ -46,6 +47,7 @@ private:
 	int m_dacStep;
 
 	void AppendLog(LPCTSTR sz);
+	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
 	void FillComPorts();
@@ -56,6 +58,7 @@ private:
 	void OnBrowse(UINT idEdit);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	static void ProgressThunk(int cur, int total, void* user);
+	static void __cdecl CommLogThunk(LPCTSTR line, void* user);
 
 	afx_msg void OnBnClickedOpenPorts();
 	afx_msg void OnBnClickedBrowseBackup();
