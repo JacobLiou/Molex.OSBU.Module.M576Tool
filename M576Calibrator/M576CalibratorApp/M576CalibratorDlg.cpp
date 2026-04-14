@@ -13,6 +13,11 @@
 
 namespace {
 
+constexpr UINT WM_M576_PATH_LOG = WM_APP + 100;
+constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
+constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
+constexpr UINT WM_M576_PATH_FINISHED = WM_APP + 103;
+
 /// One `RECAL 3` / `RECAL 5` axis sweep: one sample per grid step (not full 2D grid).
 static DWORD ComputeRecal1DReadTimeoutMs(int delayMs, int dacRange, int dacStep)
 {
@@ -175,6 +180,11 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
+	ON_WM_DESTROY()
+	ON_MESSAGE(WM_M576_PATH_LOG, &CM576CalibratorDlg::OnPathLog)
+	ON_MESSAGE(WM_M576_PATH_PROGRESS_RANGE, &CM576CalibratorDlg::OnPathProgressRange)
+	ON_MESSAGE(WM_M576_PATH_PROGRESS_POS, &CM576CalibratorDlg::OnPathProgressPos)
+	ON_MESSAGE(WM_M576_PATH_FINISHED, &CM576CalibratorDlg::OnPathFinished)
 END_MESSAGE_MAP()
 
 BOOL CM576CalibratorDlg::OnInitDialog()
@@ -245,6 +255,106 @@ void CM576CalibratorDlg::AppendLog(LPCTSTR sz)
 	int n = m_editLog.GetWindowTextLength();
 	m_editLog.SetSel(n, n);
 	WriteLogFileLine(line);
+}
+
+void CM576CalibratorDlg::SafeAppendLog(LPCTSTR sz)
+{
+	if (!m_hWnd || !::IsWindow(m_hWnd))
+		return;
+	const DWORD tidWnd = GetWindowThreadProcessId(m_hWnd, NULL);
+	if (GetCurrentThreadId() == tidWnd)
+	{
+		AppendLog(sz);
+		return;
+	}
+	CString* p = new CString(sz);
+	if (!::PostMessage(m_hWnd, WM_M576_PATH_LOG, 0, reinterpret_cast<LPARAM>(p)))
+		delete p;
+}
+
+void CM576CalibratorDlg::SafeSetProgressRange(int minVal, int maxVal)
+{
+	if (!m_hWnd || !::IsWindow(m_hWnd))
+		return;
+	const DWORD tidWnd = GetWindowThreadProcessId(m_hWnd, NULL);
+	if (GetCurrentThreadId() != tidWnd && m_suppressPathProgress.load())
+		return;
+	if (GetCurrentThreadId() == tidWnd)
+	{
+		m_progress.SetRange(minVal, maxVal);
+		return;
+	}
+	::PostMessage(m_hWnd, WM_M576_PATH_PROGRESS_RANGE, static_cast<WPARAM>(minVal), static_cast<LPARAM>(maxVal));
+}
+
+void CM576CalibratorDlg::SafeSetProgressPos(int pos)
+{
+	if (!m_hWnd || !::IsWindow(m_hWnd))
+		return;
+	const DWORD tidWnd = GetWindowThreadProcessId(m_hWnd, NULL);
+	if (GetCurrentThreadId() != tidWnd && m_suppressPathProgress.load())
+		return;
+	if (GetCurrentThreadId() == tidWnd)
+	{
+		m_progress.SetPos(pos);
+		return;
+	}
+	::PostMessage(m_hWnd, WM_M576_PATH_PROGRESS_POS, static_cast<WPARAM>(pos), 0);
+}
+
+void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
+{
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_PATH))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_GEN_BIN))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_FLASH))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP))
+		p->EnableWindow(enable);
+}
+
+LRESULT CM576CalibratorDlg::OnPathLog(WPARAM, LPARAM lParam)
+{
+	CString* p = reinterpret_cast<CString*>(lParam);
+	if (p)
+	{
+		AppendLog(p->GetString());
+		delete p;
+	}
+	return 0;
+}
+
+LRESULT CM576CalibratorDlg::OnPathProgressRange(WPARAM wParam, LPARAM lParam)
+{
+	m_progress.SetRange(static_cast<int>(wParam), static_cast<int>(lParam));
+	return 0;
+}
+
+LRESULT CM576CalibratorDlg::OnPathProgressPos(WPARAM wParam, LPARAM)
+{
+	m_progress.SetPos(static_cast<int>(wParam));
+	return 0;
+}
+
+LRESULT CM576CalibratorDlg::OnPathFinished(WPARAM, LPARAM)
+{
+	if (m_pathThread.joinable())
+		m_pathThread.join();
+	m_pathRunning = false;
+	m_suppressPathProgress = false;
+	SetPathActionButtonsEnabled(TRUE);
+	return 0;
+}
+
+void CM576CalibratorDlg::PathWorkerEntry()
+{
+	if (m_nCalMode == 0)
+		RunPathPowerMeter();
+	else
+		RunPathPd();
+	if (m_hWnd && ::IsWindow(m_hWnd))
+		::PostMessage(m_hWnd, WM_M576_PATH_FINISHED, 0, 0);
 }
 
 void CM576CalibratorDlg::WriteLogFileLine(const CString& line)
@@ -321,7 +431,7 @@ void __cdecl CM576CalibratorDlg::CommLogThunk(LPCTSTR line, void* user)
 	CM576CalibratorDlg* dlg = (CM576CalibratorDlg*)user;
 	if (!dlg || !::IsWindow(dlg->m_hWnd))
 		return;
-	dlg->AppendLog(line);
+	dlg->SafeAppendLog(line);
 }
 
 void CM576CalibratorDlg::OnBnClickedOpenPorts()
@@ -405,6 +515,13 @@ void CM576CalibratorDlg::OnBnClickedStop()
 {
 	m_bStop = TRUE;
 	AppendLog(_T("Stop requested."));
+	if (m_pathRunning.load())
+	{
+		m_suppressPathProgress = true;
+		m_progress.SetRange(0, 100);
+		m_progress.SetPos(0);
+		AfxMessageBox(_T("User Stopped"), MB_OK | MB_ICONINFORMATION);
+	}
 }
 
 void CM576CalibratorDlg::OnBnClickedCalPm()
@@ -421,6 +538,8 @@ void CM576CalibratorDlg::OnBnClickedCalPd()
 
 void CM576CalibratorDlg::OnBnClickedRunPath()
 {
+	if (m_pathRunning.load())
+		return;
 	UpdateData(TRUE);
 	m_bStop = FALSE;
 	if (!m_pRecal.get())
@@ -428,10 +547,42 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		if (!OpenPort())
 			return;
 	}
-	if (m_nCalMode == 0)
-		RunPathPowerMeter();
-	else
-		RunPathPd();
+	if (m_pathThread.joinable())
+		m_pathThread.join();
+	m_pathRunning = true;
+	m_suppressPathProgress = false;
+	SetPathActionButtonsEnabled(FALSE);
+	if (CWnd* pStop = GetDlgItem(IDC_BTN_STOP))
+		pStop->EnableWindow(TRUE);
+	m_pathThread = std::thread([this]() { PathWorkerEntry(); });
+}
+
+void CM576CalibratorDlg::OnDestroy()
+{
+	m_bStop = TRUE;
+	if (m_pathThread.joinable())
+	{
+		HANDLE h = (HANDLE)m_pathThread.native_handle();
+		for (;;)
+		{
+			const DWORD w = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+			if (w == WAIT_OBJECT_0)
+				break;
+			MSG msg;
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				if (!IsDialogMessage(&msg))
+				{
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
+			}
+		}
+		m_pathThread.join();
+	}
+	m_pathRunning = false;
+	m_suppressPathProgress = false;
+	CDialogEx::OnDestroy();
 }
 
 void CM576CalibratorDlg::RunPathPowerMeter()
@@ -440,29 +591,29 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	CString err;
 	if (!LoadPathCsv(ResolveFilePath(m_strCsv), steps, err))
 	{
-		AppendLog(err);
+		SafeAppendLog(err);
 		return;
 	}
 	int total = (int)steps.GetSize();
-	m_progress.SetRange(0, total);
+	SafeSetProgressRange(0, total);
 
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
 	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, m_delayMs, m_dacRange, m_dacStep, err))
 	{
-		AppendLog(err);
+		SafeAppendLog(err);
 		return;
 	}
 	{
 		CStringA line0;
 		if (!m_pRecal->ReadAsciiResponse(line0, 3000, err))
-			AppendLog(_T("RECAL 0: timeout waiting for response."));
+			SafeAppendLog(_T("RECAL 0: timeout waiting for response."));
 		else
 		{
 			CString msg;
 			msg.Format(_T("RECAL 0 -> %s"), CString(line0));
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 	}
 
@@ -484,81 +635,81 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		CString verr;
 		if (!ValidatePathStep(st, verr))
 		{
-			AppendLog(verr);
+			SafeAppendLog(verr);
 			continue;
 		}
 		if (!m_pRecal->SendRecal1(st, err))
 		{
-			AppendLog(err);
+			SafeAppendLog(err);
 			break;
 		}
 		if (!m_pRecal->ReadAsciiResponse(lineOk, 3000, err))
 		{
-			AppendLog(_T("RECAL 1: timeout waiting for OK."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 1: timeout waiting for OK."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		{
 			CString msg;
 			lineOk.Trim();
 			msg.Format(_T("Step %d/%d RECAL 1 -> %s"), i + 1, total, CString(lineOk));
-			AppendLog(msg);
+			SafeAppendLog(msg);
 			if (lineOk.CompareNoCase("OK") != 0)
 			{
 				msg.Format(_T("  (expected OK; continuing with RECAL 3)"));
-				AppendLog(msg);
+				SafeAppendLog(msg);
 			}
 		}
 
 		const int kBaseDac = 0;
 		if (!m_pRecal->SendRecal3(0, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
 		{
-			AppendLog(err);
+			SafeAppendLog(err);
 			break;
 		}
 		if (!m_pRecal->ReadAsciiResponse(lineY, readTimeout1d, err))
 		{
-			AppendLog(_T("RECAL 3 0 (Y sweep): timeout or empty."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 3 0 (Y sweep): timeout or empty."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		double yAxisStart = 0.0;
 		std::vector<double> powY;
 		if (!CRecalSession::ParseRecal3SweepLine(lineY, yAxisStart, powY))
 		{
-			AppendLog(_T("RECAL 3 0: could not parse [X_start] P1..Pn."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 3 0: could not parse [X_start] P1..Pn."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 3 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), yAxisStart);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 
 		if (!m_pRecal->SendRecal3(1, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
 		{
-			AppendLog(err);
+			SafeAppendLog(err);
 			break;
 		}
 		if (!m_pRecal->ReadAsciiResponse(lineX, readTimeout1d, err))
 		{
-			AppendLog(_T("RECAL 3 1 (X sweep): timeout or empty."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 3 1 (X sweep): timeout or empty."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		double xAxisStart = 0.0;
 		std::vector<double> powX;
 		if (!CRecalSession::ParseRecal3SweepLine(lineX, xAxisStart, powX))
 		{
-			AppendLog(_T("RECAL 3 1: could not parse [Y_start] P1..Pn."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 3 1: could not parse [Y_start] P1..Pn."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 3 1 -> %d samples (Y_start=%.4g)"), (int)powX.size(), xAxisStart);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 
 		if ((int)powY.size() != gridN || (int)powX.size() != gridN)
@@ -566,30 +717,30 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			CString msg;
 			msg.Format(_T("  warning: sample count (%d, %d) != expected axis points %d"),
 				(int)powY.size(), (int)powX.size(), gridN);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 
 		int br = 0, bc = 0;
 		if (powY.size() != powX.size() || powY.empty())
 		{
-			AppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
+			SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 		}
 		else if (!M576::PeakMax1D(powY, br) || !M576::PeakMax1D(powX, bc))
 		{
-			AppendLog(_T("  peak: empty sweep data."));
+			SafeAppendLog(_T("  peak: empty sweep data."));
 		}
 		else
 		{
 			CString msg;
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 3 0 / 3 1)"), br, bc);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
 			ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lut);
 		}
 
-		m_progress.SetPos(i + 1);
+		SafeSetProgressPos(i + 1);
 	}
-	AppendLog(_T("Path run finished."));
+	SafeAppendLog(_T("Path run finished."));
 }
 
 void CM576CalibratorDlg::RunPathPd()
@@ -598,29 +749,29 @@ void CM576CalibratorDlg::RunPathPd()
 	CString err;
 	if (!LoadPathCsvPd(ResolveFilePath(m_strCsv), steps, err))
 	{
-		AppendLog(err);
+		SafeAppendLog(err);
 		return;
 	}
 	int total = (int)steps.GetSize();
-	m_progress.SetRange(0, total);
+	SafeSetProgressRange(0, total);
 
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
 	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, m_delayMs, m_dacRange, m_dacStep, err))
 	{
-		AppendLog(err);
+		SafeAppendLog(err);
 		return;
 	}
 	{
 		CStringA line0;
 		if (!m_pRecal->ReadAsciiResponse(line0, 3000, err))
-			AppendLog(_T("RECAL 0: timeout waiting for response."));
+			SafeAppendLog(_T("RECAL 0: timeout waiting for response."));
 		else
 		{
 			CString msg;
 			msg.Format(_T("RECAL 0 -> %s"), CString(line0));
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 	}
 
@@ -642,81 +793,81 @@ void CM576CalibratorDlg::RunPathPd()
 		CString verr;
 		if (!ValidatePathStepPd(st, verr))
 		{
-			AppendLog(verr);
+			SafeAppendLog(verr);
 			continue;
 		}
 		if (!m_pRecal->SendRecal2(st, err))
 		{
-			AppendLog(err);
+			SafeAppendLog(err);
 			break;
 		}
 		if (!m_pRecal->ReadAsciiResponse(lineOk, 3000, err))
 		{
-			AppendLog(_T("RECAL 2: timeout waiting for OK."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 2: timeout waiting for OK."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		{
 			CString msg;
 			lineOk.Trim();
 			msg.Format(_T("PD step %d/%d RECAL 2 -> %s"), i + 1, total, CString(lineOk));
-			AppendLog(msg);
+			SafeAppendLog(msg);
 			if (lineOk.CompareNoCase("OK") != 0)
 			{
 				msg.Format(_T("  (expected OK; continuing with RECAL 5)"));
-				AppendLog(msg);
+				SafeAppendLog(msg);
 			}
 		}
 
 		const int kBaseDac = 0;
 		if (!m_pRecal->SendRecal5(0, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
 		{
-			AppendLog(err);
+			SafeAppendLog(err);
 			break;
 		}
 		if (!m_pRecal->ReadAsciiResponse(lineY, readTimeout1d, err))
 		{
-			AppendLog(_T("RECAL 5 0 (Y sweep): timeout or empty."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 5 0 (Y sweep): timeout or empty."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		double yAxisStart = 0.0;
 		std::vector<double> powY;
 		if (!CRecalSession::ParseRecal3SweepLine(lineY, yAxisStart, powY))
 		{
-			AppendLog(_T("RECAL 5 0: could not parse [X_start] P1..Pn."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 5 0: could not parse [X_start] P1..Pn."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 5 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), yAxisStart);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 
 		if (!m_pRecal->SendRecal5(1, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
 		{
-			AppendLog(err);
+			SafeAppendLog(err);
 			break;
 		}
 		if (!m_pRecal->ReadAsciiResponse(lineX, readTimeout1d, err))
 		{
-			AppendLog(_T("RECAL 5 1 (X sweep): timeout or empty."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 5 1 (X sweep): timeout or empty."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		double xAxisStart = 0.0;
 		std::vector<double> powX;
 		if (!CRecalSession::ParseRecal3SweepLine(lineX, xAxisStart, powX))
 		{
-			AppendLog(_T("RECAL 5 1: could not parse [Y_start] P1..Pn."));
-			m_progress.SetPos(i + 1);
+			SafeAppendLog(_T("RECAL 5 1: could not parse [Y_start] P1..Pn."));
+			SafeSetProgressPos(i + 1);
 			continue;
 		}
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 5 1 -> %d samples (Y_start=%.4g)"), (int)powX.size(), xAxisStart);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 
 		if ((int)powY.size() != gridN || (int)powX.size() != gridN)
@@ -724,30 +875,30 @@ void CM576CalibratorDlg::RunPathPd()
 			CString msg;
 			msg.Format(_T("  warning: sample count (%d, %d) != expected axis points %d"),
 				(int)powY.size(), (int)powX.size(), gridN);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 		}
 
 		int br = 0, bc = 0;
 		if (powY.size() != powX.size() || powY.empty())
 		{
-			AppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
+			SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 		}
 		else if (!M576::PeakMax1D(powY, br) || !M576::PeakMax1D(powX, bc))
 		{
-			AppendLog(_T("  peak: empty sweep data."));
+			SafeAppendLog(_T("  peak: empty sweep data."));
 		}
 		else
 		{
 			CString msg;
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 5 0 / 5 1)"), br, bc);
-			AppendLog(msg);
+			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
 			ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, br, bc, m_lut);
 		}
 
-		m_progress.SetPos(i + 1);
+		SafeSetProgressPos(i + 1);
 	}
-	AppendLog(_T("Path run finished (PD)."));
+	SafeAppendLog(_T("Path run finished (PD)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedGenBin()

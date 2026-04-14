@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <thread>
+
 #include "resource.h"
 #include "OpComm.h"
 #include "Z4671Command.h"
@@ -20,6 +23,7 @@ public:
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
 	virtual BOOL OnInitDialog();
+	virtual void OnDestroy();
 
 	DECLARE_MESSAGE_MAP()
 
@@ -40,6 +44,11 @@ private:
 	stLutSettingZ4671 m_lut;
 	volatile BOOL m_bStop;
 
+	std::thread m_pathThread;
+	std::atomic<bool> m_pathRunning{ false };
+	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
+	std::atomic<bool> m_suppressPathProgress{ false };
+
 	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
 	int m_nCalMode;
 	int m_delayMs;
@@ -47,6 +56,11 @@ private:
 	int m_dacStep;
 
 	void AppendLog(LPCTSTR sz);
+	void SafeAppendLog(LPCTSTR sz);
+	void SafeSetProgressRange(int minVal, int maxVal);
+	void SafeSetProgressPos(int pos);
+	void SetPathActionButtonsEnabled(BOOL enable);
+	void PathWorkerEntry();
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -70,4 +84,8 @@ private:
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedStop();
+	afx_msg LRESULT OnPathLog(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnPathProgressRange(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnPathProgressPos(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnPathFinished(WPARAM wParam, LPARAM lParam);
 };
