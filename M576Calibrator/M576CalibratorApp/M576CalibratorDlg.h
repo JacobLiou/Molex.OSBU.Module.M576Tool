@@ -45,7 +45,9 @@ private:
 	volatile BOOL m_bStop;
 
 	std::thread m_pathThread;
+	std::thread m_readBackupThread;
 	std::atomic<bool> m_pathRunning{ false };
+	std::atomic<bool> m_readBackupRunning{ false };
 	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
 	std::atomic<bool> m_suppressPathProgress{ false };
 
@@ -61,6 +63,7 @@ private:
 	void SafeSetProgressPos(int pos);
 	void SetPathActionButtonsEnabled(BOOL enable);
 	void PathWorkerEntry();
+	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -88,4 +91,5 @@ private:
 	afx_msg LRESULT OnPathProgressRange(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathProgressPos(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathFinished(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnReadBackupFinished(WPARAM wParam, LPARAM lParam);
 };

@@ -17,6 +17,7 @@ constexpr UINT WM_M576_PATH_LOG = WM_APP + 100;
 constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
 constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
 constexpr UINT WM_M576_PATH_FINISHED = WM_APP + 103;
+constexpr UINT WM_M576_READ_BACKUP_FINISHED = WM_APP + 104;
 
 /// One `RECAL 3` / `RECAL 5` axis sweep: one sample per grid step (not full 2D grid).
 static DWORD ComputeRecal1DReadTimeoutMs(int delayMs, int dacRange, int dacStep)
@@ -146,7 +147,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 {
 	m_strCsv        = _T("output\\standard_pm.csv");
 	m_strOutBin     = _T("output\\standard.bin");
-	m_strBackupBin  = _T("output\\mcs_lut_backup.bin");
+	m_strBackupBin  = _T("output\\backup.bin");
 	m_strCommLogPath = _T("output\\comm.log");
 }
 
@@ -185,6 +186,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_MESSAGE(WM_M576_PATH_PROGRESS_RANGE, &CM576CalibratorDlg::OnPathProgressRange)
 	ON_MESSAGE(WM_M576_PATH_PROGRESS_POS, &CM576CalibratorDlg::OnPathProgressPos)
 	ON_MESSAGE(WM_M576_PATH_FINISHED, &CM576CalibratorDlg::OnPathFinished)
+	ON_MESSAGE(WM_M576_READ_BACKUP_FINISHED, &CM576CalibratorDlg::OnReadBackupFinished)
 END_MESSAGE_MAP()
 
 BOOL CM576CalibratorDlg::OnInitDialog()
@@ -310,6 +312,8 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_FLASH))
 		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_READ_FLASH_BACKUP))
+		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_STOP))
 		p->EnableWindow(enable);
 }
@@ -347,6 +351,16 @@ LRESULT CM576CalibratorDlg::OnPathFinished(WPARAM, LPARAM)
 	return 0;
 }
 
+LRESULT CM576CalibratorDlg::OnReadBackupFinished(WPARAM, LPARAM)
+{
+	if (m_readBackupThread.joinable())
+		m_readBackupThread.join();
+	m_readBackupRunning = false;
+	SetPathActionButtonsEnabled(TRUE);
+	UpdateData(FALSE);
+	return 0;
+}
+
 void CM576CalibratorDlg::PathWorkerEntry()
 {
 	if (m_nCalMode == 0)
@@ -355,6 +369,28 @@ void CM576CalibratorDlg::PathWorkerEntry()
 		RunPathPd();
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_PATH_FINISHED, 0, 0);
+}
+
+void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
+{
+	SafeSetProgressRange(0, 100);
+	SafeSetProgressPos(0);
+	CString err;
+	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	{
+		CString m;
+		m.Format(_T("Read Flash backup failed: %s"), (LPCTSTR)err);
+		SafeAppendLog(m);
+	}
+	else
+	{
+		SafeSetProgressPos(100);
+		CString ok;
+		ok.Format(_T("Flash LUT backup saved: %s"), (LPCTSTR)absBackupBin);
+		SafeAppendLog(ok);
+	}
+	if (m_hWnd && ::IsWindow(m_hWnd))
+		::PostMessage(m_hWnd, WM_M576_READ_BACKUP_FINISHED, 0, 0);
 }
 
 void CM576CalibratorDlg::WriteLogFileLine(const CString& line)
@@ -484,6 +520,13 @@ void CM576CalibratorDlg::OnBnClickedBrowseOut()
 
 void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 {
+	if (m_readBackupRunning.load())
+		return;
+	if (m_pathRunning.load())
+	{
+		AppendLog(_T("Path run in progress; wait for it to finish before reading Flash backup."));
+		return;
+	}
 	UpdateData(TRUE);
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	if (m_strBackupBin.IsEmpty())
@@ -494,21 +537,14 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 			return;
 	}
 	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
-	CString err;
+	if (m_readBackupThread.joinable())
+		m_readBackupThread.join();
+	m_readBackupRunning = true;
+	m_suppressPathProgress = false;
+	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this))
-	{
-		CString m;
-		m.Format(_T("Read Flash backup failed: %s"), (LPCTSTR)err);
-		AppendLog(m);
-		return;
-	}
-	UpdateData(FALSE);
-	m_progress.SetPos(100);
-	CString ok;
-	ok.Format(_T("Flash LUT backup saved: %s"), (LPCTSTR)absBackupBin);
-	AppendLog(ok);
+	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 
 void CM576CalibratorDlg::OnBnClickedStop()
@@ -540,6 +576,11 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 {
 	if (m_pathRunning.load())
 		return;
+	if (m_readBackupRunning.load())
+	{
+		AppendLog(_T("Read Flash backup in progress; wait for it to finish before running path."));
+		return;
+	}
 	UpdateData(TRUE);
 	m_bStop = FALSE;
 	if (!m_pRecal.get())
@@ -580,7 +621,28 @@ void CM576CalibratorDlg::OnDestroy()
 		}
 		m_pathThread.join();
 	}
+	if (m_readBackupThread.joinable())
+	{
+		HANDLE h = (HANDLE)m_readBackupThread.native_handle();
+		for (;;)
+		{
+			const DWORD w = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+			if (w == WAIT_OBJECT_0)
+				break;
+			MSG msg;
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				if (!IsDialogMessage(&msg))
+				{
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
+			}
+		}
+		m_readBackupThread.join();
+	}
 	m_pathRunning = false;
+	m_readBackupRunning = false;
 	m_suppressPathProgress = false;
 	CDialogEx::OnDestroy();
 }
@@ -950,12 +1012,17 @@ void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)
 	if (!p || !::IsWindow(p->m_hWnd))
 		return;
 	int pct = (total > 0) ? (cur * 100 / total) : 0;
-	p->m_progress.SetPos(pct);
+	p->SafeSetProgressPos(pct);
 }
 
 void CM576CalibratorDlg::OnBnClickedFlash()
 {
 	UpdateData(TRUE);
+	if (m_readBackupRunning.load())
+	{
+		AppendLog(_T("Read Flash backup in progress; wait before burning flash."));
+		return;
+	}
 	if (m_strOutBin.IsEmpty())
 	{
 		AppendLog(_T("Set output BIN path (same file used for flash)."));
