@@ -226,8 +226,9 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	m_progress.SetPos(0);
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	AppendLog(_T("Ready. Select 429F COM port, open port, then run."));
-	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard_pm.csv (9 cols); PD mode -> .\\output\\standard_pd.csv (5 cols)."));
 	AppendLog(_T("Backup BIN: use [Read Flash backup] for device LUT, or pick a local .bin to merge."));
+
+	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard_pm.csv; PD mode -> .\\output\\standard_pd.csv"));
 	AppendLog(_T("Path CSV is fixed by mode selection and cannot be edited manually."));
 	return TRUE;
 }
