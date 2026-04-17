@@ -135,7 +135,9 @@
     <ClCompile Include="M576CalibratorDlg.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />
     <ClCompile Include="PathCsvDriver.cpp" />
-    <ClCompile Include="PeakFinder2D.cpp" />
+    <ClCompile Include="PeakFinder2D.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="RecalSession.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>

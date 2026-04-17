@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include <vector>
 #include "PeakFinder2D.h"
 
 namespace M576
@@ -80,6 +80,18 @@ namespace M576
 				outIdx = (int)i;
 			}
 		}
+		return true;
+	}
+
+	bool PeakCrossFrom1DScans(const std::vector<double>& powY, const std::vector<double>& powX, int& outRow, int& outCol)
+	{
+		if (powY.size() != powX.size() || powY.empty())
+			return false;
+		int br = 0, bc = 0;
+		if (!PeakMax1D(powY, br) || !PeakMax1D(powX, bc))
+			return false;
+		outRow = br;
+		outCol = bc;
 		return true;
 	}
 }

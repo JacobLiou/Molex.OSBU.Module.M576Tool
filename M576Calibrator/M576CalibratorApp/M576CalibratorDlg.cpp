@@ -788,7 +788,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		{
 			SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 		}
-		else if (!M576::PeakMax1D(powY, br) || !M576::PeakMax1D(powX, bc))
+		else if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc))
 		{
 			SafeAppendLog(_T("  peak: empty sweep data."));
 		}
@@ -946,7 +946,7 @@ void CM576CalibratorDlg::RunPathPd()
 		{
 			SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 		}
-		else if (!M576::PeakMax1D(powY, br) || !M576::PeakMax1D(powX, bc))
+		else if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc))
 		{
 			SafeAppendLog(_T("  peak: empty sweep data."));
 		}
