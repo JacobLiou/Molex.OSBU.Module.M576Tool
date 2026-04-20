@@ -29,7 +29,7 @@ public:
 	/// PD sweep: `RECAL 5` 鈥?same sweep modes / params as `RECAL 3`.
 	BOOL SendRecal5(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
 
-	/// Read until \\n (or \\r\\n), up to timeout. Appends to `accumulatedLog`.
+	/// Read until end-of-line: first of \\n or \\r (firmware uses CR-only lines).
 	BOOL ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CString& err);
 
 	/// Split payload by comma/space/tab into doubles (best-effort for bring-up).

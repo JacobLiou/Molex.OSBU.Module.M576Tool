@@ -111,6 +111,8 @@ BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 		buf[nread] = 0;
 		line += buf;
 		int p = line.Find('\n');
+		if (p < 0)
+			p = line.Find('\r');
 		if (p >= 0)
 		{
 			line = line.Left(p);
@@ -134,7 +136,7 @@ BOOL CRecalSession::SendRecal0(int wavelengthNm, CString& err)
 		return FALSE;
 	}
 	CStringA cmd;
-	cmd.Format("RECAL 0 %d\r\n", wavelengthNm);
+	cmd.Format("RECAL 0 %d\r", wavelengthNm);
 	TraceSend(_T("RECAL 0"), cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
@@ -151,7 +153,7 @@ BOOL CRecalSession::SendRecal0(int wavelengthNm, CString& err)
 BOOL CRecalSession::SendRecal1(const SPathStep& step, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 1 %d %d %d %d %d\r\n",
+	cmd.Format("RECAL 1 %d %d %d %d %d\r",
 		step.targetSwitchIndex,
 		step.c1, step.c2, step.c3, step.c4);
 	TraceSend(_T("RECAL 1"), cmd);
@@ -170,7 +172,7 @@ BOOL CRecalSession::SendRecal1(const SPathStep& step, CString& err)
 BOOL CRecalSession::SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 3 %d %d %d %d %d\r\n",
+	cmd.Format("RECAL 3 %d %d %d %d %d\r",
 		sweepMode, baseDac, offsetDac, stepDac, delayMs);
 	CString name;
 	name.Format(_T("RECAL 3 %d"), sweepMode);
@@ -190,7 +192,7 @@ BOOL CRecalSession::SendRecal3(int sweepMode, int baseDac, int offsetDac, int st
 BOOL CRecalSession::SendRecal5(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 5 %d %d %d %d %d\r\n",
+	cmd.Format("RECAL 5 %d %d %d %d %d\r",
 		sweepMode, baseDac, offsetDac, stepDac, delayMs);
 	CString name;
 	name.Format(_T("RECAL 5 %d"), sweepMode);
@@ -210,7 +212,7 @@ BOOL CRecalSession::SendRecal5(int sweepMode, int baseDac, int offsetDac, int st
 BOOL CRecalSession::SendRecal2(const SPathStepPd& step, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 2 %d %d %d\r\n",
+	cmd.Format("RECAL 2 %d %d %d\r",
 		step.targetSwitchIndex,
 		step.ch1, step.ch2);
 	TraceSend(_T("RECAL 2"), cmd);
