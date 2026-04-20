@@ -104,13 +104,15 @@ BOOL LoadPathCsvPd(LPCTSTR szPath, CArray<SPathStepPd, SPathStepPd const&>& step
 		line.Trim();
 		if (line.IsEmpty() || line[0] == _T('#'))
 			continue;
-		if (line.Find(_T("target_index")) >= 0 && line.Find(_T("p2b")) >= 0)
+		/// Skip CSV header row (tolerates UTF-8 BOM on first column) — new PD schema: target_index,ch1,ch2.
+		if (line.Find(_T("target_index")) >= 0
+			&& (line.Find(_T("ch1")) >= 0 || line.Find(_T(",c1,")) >= 0))
 			continue;
 		if (lineNo == 1 && (line.Find(_T("target")) >= 0 || line.Find(_T("Target")) >= 0
 			|| line.Find(_T("TARGET")) >= 0))
 			continue;
 
-		int vals[5] = {};
+		int vals[3] = {};
 		int n = 0;
 		int start = 0;
 		for (;;)
@@ -121,25 +123,23 @@ BOOL LoadPathCsvPd(LPCTSTR szPath, CArray<SPathStepPd, SPathStepPd const&>& step
 			if (!t.IsEmpty())
 			{
 				vals[n++] = _ttoi(t);
-				if (n >= 5)
+				if (n >= 3)
 					break;
 			}
 			if (p < 0)
 				break;
 			start = p + 1;
 		}
-		if (n < 5)
+		if (n < 3)
 		{
-			errMsg.Format(_T("Line %d: PD CSV expected 5 integer fields (target_index,p2b,p2c,p3b,p3c), got %d."), lineNo, n);
+			errMsg.Format(_T("Line %d: PD CSV expected 3 integer fields (target_index,ch1,ch2), got %d."), lineNo, n);
 			return FALSE;
 		}
 
 		SPathStepPd s;
 		s.targetSwitchIndex = vals[0];
-		s.p2b = vals[1];
-		s.p2c = vals[2];
-		s.p3b = vals[3];
-		s.p3c = vals[4];
+		s.ch1 = vals[1];
+		s.ch2 = vals[2];
 		steps.Add(s);
 	}
 	f.Close();
@@ -158,51 +158,26 @@ BOOL ValidatePathStepPd(const SPathStepPd& s, CString& errMsg)
 		errMsg.Format(_T("PD target_index %d out of 1..4"), s.targetSwitchIndex);
 		return FALSE;
 	}
-	if (s.p2b < 1 || s.p2b > 2)
+	if (s.ch1 < 1 || s.ch1 > 64)
 	{
-		errMsg.Format(_T("2#1x64 block %d out of 1..2 (stage)"), s.p2b);
+		errMsg.Format(_T("PD ch1 (2#1x64 ch) %d out of 1..64"), s.ch1);
 		return FALSE;
 	}
-	if (s.p2c < 1 || s.p2c > 64)
+	if (s.ch2 < 1 || s.ch2 > 18)
 	{
-		errMsg.Format(_T("2#1x64 channel %d out of 1..64"), s.p2c);
+		errMsg.Format(_T("PD ch2 (MCS ch) %d out of 1..18"), s.ch2);
 		return FALSE;
 	}
-	if (s.p3b < 1 || s.p3b > 2)
+	/// target=3 (1# MCS) only reachable via 2#1x64 ch 1..32; target=4 (2# MCS) via ch 33..64.
+	/// target=1/2 (2#1x64 Stage_1/2) do not constrain the half — Stage is implied by target alone.
+	if (s.targetSwitchIndex == 3 && s.ch1 > 32)
 	{
-		errMsg.Format(_T("MCS block %d out of 1..2 (1# / 2# MCS)"), s.p3b);
+		errMsg.Format(_T("PD routing: target_index 3 (1# MCS) requires ch1 in 1..32, got %d."), s.ch1);
 		return FALSE;
 	}
-	if (s.p3c < 1 || s.p3c > 18)
+	if (s.targetSwitchIndex == 4 && s.ch1 < 33)
 	{
-		errMsg.Format(_T("MCS channel %d out of 1..18"), s.p3c);
-		return FALSE;
-	}
-	const int mcsSide = (s.p2c <= 32) ? 1 : 2;
-	if (s.p3b != mcsSide)
-	{
-		errMsg.Format(_T("PD routing: 2#1x64 ch %d implies MCS side %d, but p3b=%d."),
-			s.p2c, mcsSide, s.p3b);
-		return FALSE;
-	}
-	if (s.targetSwitchIndex == 1 && s.p2b != 1)
-	{
-		errMsg = _T("target_index 1 (2#1x64 Stage_1) requires p2b=1.");
-		return FALSE;
-	}
-	if (s.targetSwitchIndex == 2 && s.p2b != 2)
-	{
-		errMsg = _T("target_index 2 (2#1x64 Stage_2) requires p2b=2.");
-		return FALSE;
-	}
-	if (s.targetSwitchIndex == 3 && s.p3b != 1)
-	{
-		errMsg = _T("target_index 3 (1# MCS) requires p3b=1.");
-		return FALSE;
-	}
-	if (s.targetSwitchIndex == 4 && s.p3b != 2)
-	{
-		errMsg = _T("target_index 4 (2# MCS) requires p3b=2.");
+		errMsg.Format(_T("PD routing: target_index 4 (2# MCS) requires ch1 in 33..64, got %d."), s.ch1);
 		return FALSE;
 	}
 	return TRUE;

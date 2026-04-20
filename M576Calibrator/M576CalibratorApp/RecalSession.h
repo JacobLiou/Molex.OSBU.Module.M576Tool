@@ -12,8 +12,9 @@ public:
 	explicit CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarget = M576CommLogTarget());
 	void SetCommLogTarget(const M576CommLogTarget& logTarget) { m_logTarget = logTarget; }
 
-	/// Command A: `RECAL 0` 鈥?TLS, wavelength, delay (ms), DAC range, DAC step (Z4744 / PRD).
-	BOOL SendRecal0(int tlsSource, double wavelengthNm, int delayMs, int dacRange, int dacStep, CString& err);
+	/// Command A: `RECAL 0 [wavelength]` — only wavelength (nm, int) per finalized firmware.
+	/// TLS / delay / DAC range / DAC step are NOT part of RECAL 0; sweep params ride with RECAL 3 / RECAL 5.
+	BOOL SendRecal0(int wavelengthNm, CString& err);
 
 	/// Command B: `RECAL 1` 鈥?target 1..6 + four path channel numbers; response line is `OK`.
 	BOOL SendRecal1(const SPathStep& step, CString& err);
@@ -22,11 +23,11 @@ public:
 	/// Params: Base DAC (0 = FW uses channel DAC), Offset, Step, Delay (ms), per firmware.
 	BOOL SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
 
+	/// Command C: `RECAL 2` — target 1..4 + two channel numbers (2#1x64 ch, MCS ch); response line is `OK`.
+	BOOL SendRecal2(const SPathStepPd& step, CString& err);
+
 	/// PD sweep: `RECAL 5` 鈥?same sweep modes / params as `RECAL 3`.
 	BOOL SendRecal5(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
-
-	/// Command C: `RECAL 2` 鈥?target 1..4 + two path channel pairs; response line is `OK`.
-	BOOL SendRecal2(const SPathStepPd& step, CString& err);
 
 	/// Read until \\n (or \\r\\n), up to timeout. Appends to `accumulatedLog`.
 	BOOL ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CString& err);

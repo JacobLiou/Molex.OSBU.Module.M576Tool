@@ -5,16 +5,24 @@
 #define IDX_TEMP_LOW 0
 #endif
 
-/// RECAL 0: TLS source channel 1~8 (2x8 switch channel per PRD).
+/// TLS source channel 1~8 (2x8 switch channel per PRD).
+/// NOTE: since firmware finalized `RECAL 0` to `RECAL 0 <wavelength>` only, this constant is
+/// no longer part of RECAL 0; retained for future 2x8 switch control.
 #ifndef M576_DEFAULT_TLS_SOURCE
 #define M576_DEFAULT_TLS_SOURCE 1
 #endif
-/// RECAL 0: wavelength (nm), PRD 850~1650; 1310 calibrator default.
+/// RECAL 0: wavelength (nm, int), PRD 850~1650; 1310 calibrator default.
+#ifndef M576_MIN_WAVELENGTH_NM
+#define M576_MIN_WAVELENGTH_NM 850
+#endif
+#ifndef M576_MAX_WAVELENGTH_NM
+#define M576_MAX_WAVELENGTH_NM 1650
+#endif
 #ifndef M576_DEFAULT_WAVELENGTH_NM
-#define M576_DEFAULT_WAVELENGTH_NM 1310.0
+#define M576_DEFAULT_WAVELENGTH_NM 1310
 #endif
 
-/// RECAL 0 extended: delay (ms), DAC half-range, step — align with 429F firmware / Z4744.
+/// Per-sweep params ride on `RECAL 3 / RECAL 5` (not on RECAL 0): delay (ms), DAC half-range, step.
 #ifndef M576_MIN_RECAL_DELAY_MS
 #define M576_MIN_RECAL_DELAY_MS 20
 #endif

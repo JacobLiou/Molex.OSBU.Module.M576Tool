@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "RecalSession.h"
+#include "CalibConstants.h"
 #include <stdlib.h>
 
 CRecalSession::CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarget)
@@ -124,10 +125,16 @@ BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 	return !line.IsEmpty();
 }
 
-BOOL CRecalSession::SendRecal0(int tlsSource, double wavelengthNm, int delayMs, int dacRange, int dacStep, CString& err)
+BOOL CRecalSession::SendRecal0(int wavelengthNm, CString& err)
 {
+	if (wavelengthNm < M576_MIN_WAVELENGTH_NM || wavelengthNm > M576_MAX_WAVELENGTH_NM)
+	{
+		err.Format(_T("RECAL 0: wavelength %d out of PRD range %d..%d."),
+			wavelengthNm, M576_MIN_WAVELENGTH_NM, M576_MAX_WAVELENGTH_NM);
+		return FALSE;
+	}
 	CStringA cmd;
-	cmd.Format("RECAL 0 %d %.4f %d %d %d\r\n", tlsSource, wavelengthNm, delayMs, dacRange, dacStep);
+	cmd.Format("RECAL 0 %d\r\n", wavelengthNm);
 	TraceSend(_T("RECAL 0"), cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))
@@ -203,9 +210,9 @@ BOOL CRecalSession::SendRecal5(int sweepMode, int baseDac, int offsetDac, int st
 BOOL CRecalSession::SendRecal2(const SPathStepPd& step, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 2 %d %d %d %d %d\r\n",
+	cmd.Format("RECAL 2 %d %d %d\r\n",
 		step.targetSwitchIndex,
-		step.p2b, step.p2c, step.p3b, step.p3c);
+		step.ch1, step.ch2);
 	TraceSend(_T("RECAL 2"), cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))

@@ -663,7 +663,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
-	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, m_delayMs, m_dacRange, m_dacStep, err))
+	if (!m_pRecal->SendRecal0(M576_DEFAULT_WAVELENGTH_NM, err))
 	{
 		SafeAppendLog(err);
 		return;
@@ -821,7 +821,7 @@ void CM576CalibratorDlg::RunPathPd()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
-	if (!m_pRecal->SendRecal0(M576_DEFAULT_TLS_SOURCE, M576_DEFAULT_WAVELENGTH_NM, m_delayMs, m_dacRange, m_dacStep, err))
+	if (!m_pRecal->SendRecal0(M576_DEFAULT_WAVELENGTH_NM, err))
 	{
 		SafeAppendLog(err);
 		return;
