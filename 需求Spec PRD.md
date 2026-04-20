@@ -194,7 +194,7 @@ M576增加1310波长自校准软件  **仅增加 1310 一条波长/一套表**
 
 **Command A**
 
-"[Command A: 设置校准源、校准范围、校准步数、等待时间]  →(3 parameter)
+[Command A: 设置校准源、校准范围、校准步数、等待时间]  →(3 parameter)
 
 ***********************************************************
 Cmd: RECAL 0 [set tls source] [wavelength]\r
@@ -202,6 +202,7 @@ Resp: OK
 ***********************************************************
 tls  source:  1~8 (2x8 switch channel)
 walength :  850~1650(TBD)
+
 
 
 
@@ -220,7 +221,7 @@ Cmd: RECAL 3 0 [Base DAC] [Offset DAC] [Step DAC] [Delay time]\r
 Resp:[X start] [P1]....[Pn]
 **********************************************************************************************************
 Y轴不动，Y轴描点：
-Cmd: RECAL 4 1 [Base DAC] [Offset DAC] [Step DAC] [Delay time]\r
+Cmd: RECAL 3 1 [Base DAC] [Offset DAC] [Step DAC] [Delay time]\r
 Resp:[Y start] [P1]....[Pn]
 **********************************************************************************************************
 [Base DAC]: 
@@ -249,6 +250,49 @@ optical path: [1#1x64 ch] [1#MCS ch][2#MCS ch][2#1x64 ch]
 delay time: 20~100ms
 dac  range: 1~200 (valid DAC: base_x±range, base_Y±range)
 dac    step : 1~100"
+
+
+
+
+
+**Command C**
+
+"[Command C: 选择PD描点，设置目标开关、定标光路(2 switch)] 
+
+****************************************************************************************************************
+Cmd: RECAL 2 [set target switch index] [optical path(2 data, switch channel)...]\r
+Resp: OK
+****************************************************************************************************************
+X轴不动，Y轴描点：
+Cmd: RECAL 5 0 [Base DAC] [Offset DAC] [Step DAC] [Delay time]\r
+Resp:[X start] [P1]....[Pn]
+****************************************************************************************************************
+Y轴不动，Y轴描点：
+Cmd: RECAL 5 1 [Base DAC] [Offset DAC] [Step DAC] [Delay time]\r
+Resp:[Y start] [P1]....[Pn]
+****************************************************************************************************************
+
+2x8 Switch to'Ext1.Laser',connect to 'OPM' 
+
+target switch index: 1~4 
+1: 2#1x64 Stage_1 switch Index
+2: 2#1x64 Stage_2 switch Index
+3: 1#MCS  Switch   Index(1~32)
+4: 2#MCS  Switch   Index(1~32)
+
+optical path 1: [2#1x64 ch] [1#MCS ch]
+optical path 2: [2#1x64 ch] [2#MCS ch]
+[2#1x64 ch]: 1~64
+[1#MCS ch]: 1~18
+[2#MCS ch]: 1~18
+
+
+2#1x64 ch1  ~ch32 -> 1# MCS
+2#1x64 ch33~ch64 -> 2# MCS"
+
+
+
+
 
 
 
