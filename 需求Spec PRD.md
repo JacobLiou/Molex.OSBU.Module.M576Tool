@@ -194,14 +194,21 @@ M576增加1310波长自校准软件  **仅增加 1310 一条波长/一套表**
 
 **Command A**
 
-[Command A: 设置校准源、校准范围、校准步数、等待时间]  →(3 parameter)
+"[Command A: 设置校准源、校准范围、校准步数、等待时间]  →(4 parameter)
 
 ***********************************************************
-Cmd: RECAL 0 [set tls source] [wavelength]\r
+Cmd: RECAL 0 [set tls source] [wavelength] [pm range]\r
 Resp: OK
 ***********************************************************
 tls  source:  1~8 (2x8 switch channel)
 walength :  850~1650(TBD)
+[pm range]: 
+0->  6   ~ -14 dBm
+1-> -14 ~ -34dBm
+2-> -34 ~ -54dBm
+3-> -54 ~ -75dBm
+4-> auto range
+
 
 
 
@@ -225,8 +232,8 @@ Cmd: RECAL 3 1 [Base DAC] [Offset DAC] [Step DAC] [Delay time]\r
 Resp:[Y start] [P1]....[Pn]
 **********************************************************************************************************
 [Base DAC]: 
-0   - FW读通道DAC为基值
-~0 - FW设置该值  
+9999   - FW读通道DAC为基值
+other - FW设置该值  
 
 target switch index: 1~6 
 1: 1#1x64 Stage_1 switch Index
@@ -289,6 +296,7 @@ optical path 2: [2#1x64 ch] [2#MCS ch]
 
 2#1x64 ch1  ~ch32 -> 1# MCS
 2#1x64 ch33~ch64 -> 2# MCS"
+
 
 
 
