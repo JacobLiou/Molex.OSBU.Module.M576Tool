@@ -144,6 +144,9 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_delayMs(M576_DEFAULT_RECAL_DELAY_MS)
 	, m_dacRange(M576_DEFAULT_DAC_RANGE)
 	, m_dacStep(M576_DEFAULT_DAC_STEP)
+	, m_tlsIndex(M576_DEFAULT_TLS_SOURCE - 1)
+	, m_wavelengthNm(M576_DEFAULT_WAVELENGTH_NM)
+	, m_pmRangeIndex(M576_DEFAULT_PM_RANGE)
 {
 	m_strCsv        = _T("output\\standard_pm.csv");
 	m_strOutBin     = _T("output\\standard.bin");
@@ -155,6 +158,14 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_COMBO_COM, m_comboCom);
+	DDX_Control(pDX, IDC_COMBO_TLS, m_comboTls);
+	DDX_Control(pDX, IDC_COMBO_PM_RANGE, m_comboPmRange);
+	DDX_CBIndex(pDX, IDC_COMBO_TLS, m_tlsIndex);
+	DDV_MinMaxInt(pDX, m_tlsIndex, 0, M576_MAX_TLS_SOURCE - 1);
+	DDX_Text(pDX, IDC_EDIT_WAVELENGTH, m_wavelengthNm);
+	DDV_MinMaxInt(pDX, m_wavelengthNm, M576_MIN_WAVELENGTH_NM, M576_MAX_WAVELENGTH_NM);
+	DDX_CBIndex(pDX, IDC_COMBO_PM_RANGE, m_pmRangeIndex);
+	DDV_MinMaxInt(pDX, m_pmRangeIndex, M576_MIN_PM_RANGE, M576_MAX_PM_RANGE);
 	DDX_Control(pDX, IDC_EDIT_LOG, m_editLog);
 	DDX_Control(pDX, IDC_PROGRESS_MAIN, m_progress);
 	DDX_Text(pDX, IDC_EDIT_CSV, m_strCsv);
@@ -219,6 +230,29 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	}
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	SyncCsvPathWithMode();
+	// RECAL 0 combos: must list items before UpdateData(FALSE) (DDX_CBIndex).
+	if (CComboBox* pTls = (CComboBox*)GetDlgItem(IDC_COMBO_TLS))
+	{
+		pTls->ResetContent();
+		for (int i = M576_MIN_TLS_SOURCE; i <= M576_MAX_TLS_SOURCE; ++i)
+		{
+			CString s;
+			s.Format(_T("%d"), i);
+			pTls->AddString(s);
+		}
+		pTls->SetCurSel(m_tlsIndex);
+	}
+	if (CComboBox* pPm = (CComboBox*)GetDlgItem(IDC_COMBO_PM_RANGE))
+	{
+		pPm->ResetContent();
+		for (int r = M576_MIN_PM_RANGE; r <= M576_MAX_PM_RANGE; ++r)
+		{
+			CString s;
+			s.Format(_T("%d"), r);
+			pPm->AddString(s);
+		}
+		pPm->SetCurSel(m_pmRangeIndex);
+	}
 	UpdateData(FALSE);
 	GetDlgItem(IDC_EDIT_CSV)->EnableWindow(FALSE);
 	FillComPorts();
@@ -663,7 +697,9 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
-	if (!m_pRecal->SendRecal0(M576_DEFAULT_WAVELENGTH_NM, err))
+	const int tlsSource = m_tlsIndex + 1;
+	const int pmRange = m_pmRangeIndex;
+	if (!m_pRecal->SendRecal0(tlsSource, m_wavelengthNm, pmRange, err))
 	{
 		SafeAppendLog(err);
 		return;
@@ -675,7 +711,8 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		else
 		{
 			CString msg;
-			msg.Format(_T("RECAL 0 -> %s"), CString(line0));
+			msg.Format(_T("RECAL 0 (TLS=%d nm=%d PM=%d) -> %s"),
+				tlsSource, m_wavelengthNm, pmRange, CString(line0));
 			SafeAppendLog(msg);
 		}
 	}
@@ -821,7 +858,9 @@ void CM576CalibratorDlg::RunPathPd()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
-	if (!m_pRecal->SendRecal0(M576_DEFAULT_WAVELENGTH_NM, err))
+	const int tlsSourcePd = m_tlsIndex + 1;
+	const int pmRangePd = m_pmRangeIndex;
+	if (!m_pRecal->SendRecal0(tlsSourcePd, m_wavelengthNm, pmRangePd, err))
 	{
 		SafeAppendLog(err);
 		return;
@@ -833,7 +872,8 @@ void CM576CalibratorDlg::RunPathPd()
 		else
 		{
 			CString msg;
-			msg.Format(_T("RECAL 0 -> %s"), CString(line0));
+			msg.Format(_T("RECAL 0 (TLS=%d nm=%d PM=%d) -> %s"),
+				tlsSourcePd, m_wavelengthNm, pmRangePd, CString(line0));
 			SafeAppendLog(msg);
 		}
 	}

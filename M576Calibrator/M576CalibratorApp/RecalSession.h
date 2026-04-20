@@ -12,9 +12,8 @@ public:
 	explicit CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarget = M576CommLogTarget());
 	void SetCommLogTarget(const M576CommLogTarget& logTarget) { m_logTarget = logTarget; }
 
-	/// Command A: `RECAL 0 [wavelength]` — only wavelength (nm, int) per finalized firmware.
-	/// TLS / delay / DAC range / DAC step are NOT part of RECAL 0; sweep params ride with RECAL 3 / RECAL 5.
-	BOOL SendRecal0(int wavelengthNm, CString& err);
+	/// Command A (PRD): `RECAL 0 <tls 1-8> <wavelength nm> <pm_range 0-4>\r`. Delay / DAC range / step use RECAL 3 / RECAL 5.
+	BOOL SendRecal0(int tlsSource, int wavelengthNm, int pmRange, CString& err);
 
 	/// Command B: `RECAL 1` 鈥?target 1..6 + four path channel numbers; response line is `OK`.
 	BOOL SendRecal1(const SPathStep& step, CString& err);

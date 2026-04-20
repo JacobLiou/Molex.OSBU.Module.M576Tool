@@ -127,16 +127,28 @@ BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 	return !line.IsEmpty();
 }
 
-BOOL CRecalSession::SendRecal0(int wavelengthNm, CString& err)
+BOOL CRecalSession::SendRecal0(int tlsSource, int wavelengthNm, int pmRange, CString& err)
 {
+	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
+	{
+		err.Format(_T("RECAL 0: TLS source %d out of range %d..%d."),
+			tlsSource, M576_MIN_TLS_SOURCE, M576_MAX_TLS_SOURCE);
+		return FALSE;
+	}
 	if (wavelengthNm < M576_MIN_WAVELENGTH_NM || wavelengthNm > M576_MAX_WAVELENGTH_NM)
 	{
 		err.Format(_T("RECAL 0: wavelength %d out of PRD range %d..%d."),
 			wavelengthNm, M576_MIN_WAVELENGTH_NM, M576_MAX_WAVELENGTH_NM);
 		return FALSE;
 	}
+	if (pmRange < M576_MIN_PM_RANGE || pmRange > M576_MAX_PM_RANGE)
+	{
+		err.Format(_T("RECAL 0: pm range %d out of range %d..%d."),
+			pmRange, M576_MIN_PM_RANGE, M576_MAX_PM_RANGE);
+		return FALSE;
+	}
 	CStringA cmd;
-	cmd.Format("RECAL 0 %d\r", wavelengthNm);
+	cmd.Format("RECAL 0 %d %d %d\r", tlsSource, wavelengthNm, pmRange);
 	TraceSend(_T("RECAL 0"), cmd);
 	int n = cmd.GetLength();
 	if (!m_comm.WriteBufferNoPurge(cmd.GetBuffer(n), (DWORD)n))

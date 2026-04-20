@@ -29,6 +29,8 @@ protected:
 
 private:
 	CComboBox m_comboCom;
+	CComboBox m_comboTls;
+	CComboBox m_comboPmRange;
 	CEdit m_editLog;
 	CProgressCtrl m_progress;
 	CString m_strCsv;
@@ -56,6 +58,11 @@ private:
 	int m_delayMs;
 	int m_dacRange;
 	int m_dacStep;
+	/// RECAL 0 (Command A): TLS 1-8 -> index 0-7 in `IDC_COMBO_TLS`.
+	int m_tlsIndex;
+	int m_wavelengthNm;
+	/// PM range 0-4 -> combo index.
+	int m_pmRangeIndex;
 
 	void AppendLog(LPCTSTR sz);
 	void SafeAppendLog(LPCTSTR sz);

@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ ?????????????
-// ?? M576CalibratorApp.rc ???
+// Microsoft Visual C++ 生成的包含文件。
+// 供 M576CalibratorApp.rc 使用
 //
 #define ID_SEPARATOR                    0
 #define VS_VERSION_INFO                 1
@@ -37,6 +37,7 @@
 #define IDC_BTN_FLASH                   1014
 #define IDC_BTN_STOP                    1015
 #define IDC_STATIC_VERSION              1016
+#define IDC_BTN_OPEN_PORTS2             1016
 #define IDC_STATIC_LABEL_COM            1017
 #define IDC_GROUP_CONN                  1018
 #define IDC_GROUP_PATHS                 1019
@@ -52,6 +53,12 @@
 #define IDC_STATIC_RECAL_DELAY_HINT     1029
 #define IDC_STATIC_DAC_RANGE_HINT       1030
 #define IDC_STATIC_DAC_STEP_HINT        1031
+#define IDC_COMBO_TLS                   1032
+#define IDC_EDIT_WAVELENGTH             1033
+#define IDC_COMBO_PM_RANGE              1034
+#define IDC_STATIC_LABEL_TLS            1035
+#define IDC_STATIC_LABEL_WL             1036
+#define IDC_STATIC_LABEL_PM             1037
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -552,7 +559,6 @@
 #define AFX_IDP_E_CANTSAVEFILETOTEMP    0xFEC5
 #define AFX_IDP_E_SEARCHTEXTNOTFOUND    0xFEC6
 #define AFX_IDP_E_REPLACEMENTSTOOLONG   0xFEC7
-#define IDC_STATIC                      -1
 
 // Next default values for new objects
 // 

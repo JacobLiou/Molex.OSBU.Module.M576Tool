@@ -5,13 +5,17 @@
 #define IDX_TEMP_LOW 0
 #endif
 
-/// TLS source channel 1~8 (2x8 switch channel per PRD).
-/// NOTE: since firmware finalized `RECAL 0` to `RECAL 0 <wavelength>` only, this constant is
-/// no longer part of RECAL 0; retained for future 2x8 switch control.
+/// TLS source channel 1~8 (2x8 switch). Command A: `RECAL 0 <tls> <nm> <pm_range>`.
+#ifndef M576_MIN_TLS_SOURCE
+#define M576_MIN_TLS_SOURCE 1
+#endif
+#ifndef M576_MAX_TLS_SOURCE
+#define M576_MAX_TLS_SOURCE 8
+#endif
 #ifndef M576_DEFAULT_TLS_SOURCE
 #define M576_DEFAULT_TLS_SOURCE 1
 #endif
-/// RECAL 0: wavelength (nm, int), PRD 850~1650; 1310 calibrator default.
+/// RECAL 0: wavelength (nm, int), PRD 850~1650.
 #ifndef M576_MIN_WAVELENGTH_NM
 #define M576_MIN_WAVELENGTH_NM 850
 #endif
@@ -20,6 +24,16 @@
 #endif
 #ifndef M576_DEFAULT_WAVELENGTH_NM
 #define M576_DEFAULT_WAVELENGTH_NM 1310
+#endif
+/// Power meter range index for Command A (PRD: 0..4, 4 = auto).
+#ifndef M576_MIN_PM_RANGE
+#define M576_MIN_PM_RANGE 0
+#endif
+#ifndef M576_MAX_PM_RANGE
+#define M576_MAX_PM_RANGE 4
+#endif
+#ifndef M576_DEFAULT_PM_RANGE
+#define M576_DEFAULT_PM_RANGE 4
 #endif
 
 /// Per-sweep params ride on `RECAL 3 / RECAL 5` (not on RECAL 0): delay (ms), DAC half-range, step.
