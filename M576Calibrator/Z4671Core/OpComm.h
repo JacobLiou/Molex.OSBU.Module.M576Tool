@@ -27,6 +27,7 @@ public:
 	//BOOL ReadBuffer(char* pInBuffer, DWORD dwBufferSize);
 	
 	// write the data to the transmit buffer of the COM port
+	/// Serial TX is raw bytes (ASCII text and/or binary frames). Never send wchar_t / UTF-16.
 	BOOL WriteBuffer(char* pOutBuffer, DWORD dwBufferSize);
 	BOOL WriteBuffer(BYTE* pOutBuffer, DWORD dwBufferSize);
 	/// Same as WriteBuffer but does not purge RX (required for ASCII request/response).

@@ -292,7 +292,8 @@ public:
 	BOOL GetMONSwitch(int nSwitch,int *pPos);
 	BOOL GetALLSwitch(int nBlock,int *pPos);
 	BOOL ReadFPGA(int nChannel,DWORD dwAddress,char *pchReStr);
-	BOOL SendCmdToEDFA(CString strCmd,char *pchReStr);
+	/// EDFA payload bytes are ASCII; use CStringA so wire format stays 8-bit under any TCHAR mapping.
+	BOOL SendCmdToEDFA(const CStringA& strCmd, char *pchReStr);
 	stSWScanPara m_stScanPara;
 	CString m_strLogInfo;
 	void SetCommLogTarget(const M576CommLogTarget& logTarget) { m_logTarget = logTarget; }

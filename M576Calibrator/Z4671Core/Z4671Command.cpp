@@ -1009,11 +1009,10 @@ BOOL Z4671Command::FPGASPIConnect()
 BOOL Z4671Command::EDFA_SRESETONECMD()
 {
 	BYTE bBuffer[600];
-//	DWORD dwLength;
-	CString strCmd;
-	strCmd.Format("MASTER 3000\r\n");
+	static const char kMaster3000[] = "MASTER 3000\r\n";
+	const DWORD masterLen = (DWORD)strlen(kMaster3000);
 	ZeroMemory(bBuffer,600);
-	memcpy(bBuffer,strCmd.GetBuffer(strCmd.GetLength()),strCmd.GetLength());
+	memcpy(bBuffer, kMaster3000, masterLen);
 
 	/*
 	ZeroMemory(bBuffer,600);
@@ -1037,7 +1036,7 @@ BOOL Z4671Command::EDFA_SRESETONECMD()
 		return FALSE;			
 	}
 	Sleep(100);
-	if(!WriteBuffer((char*)bBuffer,strCmd.GetLength()))
+	if(!WriteBuffer((char*)bBuffer, masterLen))
 	{
 		m_strLogInfo = "Send EDFA SRESET first command failed";
 		return FALSE;			
@@ -1573,10 +1572,9 @@ BOOL Z4671Command::SendScanDoubleTrig(stSWScanPara *stScanPara)
 
 }
 
-BOOL Z4671Command::SendCmdToEDFA(CString strCmd,char *pchReStr)
+BOOL Z4671Command::SendCmdToEDFA(const CStringA& strCmd, char *pchReStr)
 {
-	CString strValue;
-	CString strCommand;
+	CStringA strValue;
 	char    chCommand[256];
 	char    chRead[1024];
 
@@ -1592,8 +1590,8 @@ BOOL Z4671Command::SendCmdToEDFA(CString strCmd,char *pchReStr)
 	CString strMsg;
 	int   nIndex=0;
 	ZeroMemory(chValue,sizeof(chValue));
-	strValue.Format("OPLKMFG");
-	strncpy(chValue,strValue,strValue.GetLength());
+	strValue = "OPLKMFG";
+	strncpy(chValue, strValue.GetString(), strValue.GetLength());
 	
 	byData[nIndex++] = START_CMD;
 	byData[nIndex++] = 0XF0;
@@ -1606,7 +1604,7 @@ BOOL Z4671Command::SendCmdToEDFA(CString strCmd,char *pchReStr)
 	}
 	byData[nIndex++] = 0XF9;
 
-	strncpy(chValue,strCmd,strCmd.GetLength());
+	strncpy(chValue, strCmd.GetString(), strCmd.GetLength());
 
 	int n = 0;
     for ( n=0;n<strCmd.GetLength();n++)
@@ -1668,7 +1666,7 @@ BOOL Z4671Command::SendCmdToEDFA(CString strCmd,char *pchReStr)
 
 BOOL Z4671Command::ReadFPGA(int nChannel, DWORD dwAddress, char *pchReStr)
 {
-	CString strCmd;
+	CStringA strCmd;
 	strCmd.Format("rfpga %d 0x%X",nChannel+1,dwAddress);
 	char   chRead[1024];
 	ZeroMemory(chRead,sizeof(chRead));	
@@ -2386,23 +2384,20 @@ BOOL Z4671Command::CloseSwitchMonitor(int nSwitchIndex)
 
 BOOL Z4671Command::GetTesterInfo()
 {
-	CString strCommand;
-	char   chData[256];
+	static const char s_crlf[] = "\r\n";
+	static const char s_info[] = "info\r\n";
 	DWORD    nLength;
 	char   chGetData[256];
 
-	if(!WriteBuffer("\r\n",2))
+	if(!WriteBuffer((char*)s_crlf,2))
 	{
 		m_strLogInfo = ("发送回车符错误");
 		return FALSE;
 	}
 	Sleep(100);
-	ZeroMemory(chData,sizeof(chData));
 	ZeroMemory(chGetData,sizeof(chGetData));
-	strCommand.Format("info\r\n");
-	strncpy(chData,strCommand,strCommand.GetLength());
 	//LogInfo("测试板信息:");
-	if(!WriteBuffer(chData,strCommand.GetLength()))
+	if(!WriteBuffer((char*)s_info,(DWORD)strlen(s_info)))
 	{
 		m_strLogInfo = ("串口打开错误！");
 		return FALSE;
@@ -2622,38 +2617,35 @@ BOOL Z4671Command::GetMCSVersion(char *pchMCSVer)
 
 BOOL Z4671Command::GetEDFAInfo(char *pchEDFAVer)
 {
+	static const char kOplkHdr[] = "OPLKMFG";
+	static const char kPrivInfo[] = "privinfo\r\n";
+	const int nOplk = (int)strlen(kOplkHdr);
+	const int nPriv = (int)strlen(kPrivInfo);
+
 	BYTE  byData[100];
 	BYTE  byGetData[4096];
 	int   i;
 	int   nLength;
 	int   nCheckSum;
-	CString strValue;
 	char  chValue[4096];
-	char  chEDFACode[10];
 	CString strMsg;
 	WORD nCmdLength;
-	CString strEDFACode;
 	ZeroMemory(chValue,sizeof(chValue));
-	ZeroMemory(chEDFACode,sizeof(chEDFACode));
-
-	strValue.Format("OPLKMFG");
-	strEDFACode.Format("privinfo\r\n");
-	strncpy(chValue,strValue,strValue.GetLength());
-	strncpy(chEDFACode,strEDFACode,strEDFACode.GetLength());
+	memcpy(chValue, kOplkHdr, nOplk);
 	
 	byData[0] = START_CMD;
 	byData[1] = 0XF0;
 	byData[2] = 0X00; //Index
 	byData[3] = 0X00;
-	byData[4] = strEDFACode.GetLength()+8;
+	byData[4] = (BYTE)(nPriv+8);
 	for (i=5;i<12;i++)
 	{
 		byData[i] = chValue[i-5];
 	}
 	byData[12] = 0XF9;
-	for (i=0;i<strEDFACode.GetLength();i++)
+	for (i=0;i<nPriv;i++)
 	{
-		byData[13+i] = chEDFACode[i];
+		byData[13+i] = (BYTE)kPrivInfo[i];
 	}
 
 	nLength = byData[3]*256+byData[4]+4;
@@ -2663,9 +2655,9 @@ BOOL Z4671Command::GetEDFAInfo(char *pchEDFAVer)
 	{
 		nCheckSum = nCheckSum^byData[i];
 	}
-	byData[13+strEDFACode.GetLength()] = nCheckSum-1;
-	byData[13+strEDFACode.GetLength()+1] = END_CMD;
-	nCmdLength = 15+strEDFACode.GetLength();
+	byData[13+nPriv] = nCheckSum-1;
+	byData[13+nPriv+1] = END_CMD;
+	nCmdLength = 15+nPriv;
 
 	PBYTE pbySendData=NULL;
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
@@ -3450,11 +3442,9 @@ BOOL Z4671Command::StartFWUpdate()
 	BYTE byGetData[256];
 	int  i;
 	char chData[20];
-	CString strData;
 
 	ZeroMemory(chData,sizeof(chData));
-	strData.Format("STARTUPDATE");
-	strncpy(chData,strData,strData.GetLength());
+	strcpy_s(chData, "STARTUPDATE");
 
 	byData[0] = START_CMD;
 	byData[1] = 0XE0;
@@ -3651,11 +3641,9 @@ BOOL Z4671Command::FWUpdateEnd()
 	BYTE byGetData[256];
 	int  i;
 	char chData[20];
-	CString strData;
 	
 	ZeroMemory(chData,sizeof(chData));
-	strData.Format("UPDATEEND");
-	strncpy(chData,strData,strData.GetLength());
+	strcpy_s(chData, "UPDATEEND");
 	
 	byData[0] = START_CMD;
 	byData[1] = 0XE2;
