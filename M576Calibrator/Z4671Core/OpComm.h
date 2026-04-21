@@ -39,6 +39,9 @@ public:
 	BOOL ReadBuffer(BYTE* pInBuffer, DWORD dwBufferSize);
 	BOOL ReadBuffer(BYTE* pInBuffer, DWORD dwBufferSize, PDWORD pdwReadLength);
 
+	/// Driver RX queue length (for draining long RECAL 3 ASCII lines efficiently).
+	DWORD RxBytesWaiting() const;
+
 	// Close the COM port
 	void ClosePort();
 

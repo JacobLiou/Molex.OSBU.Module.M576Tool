@@ -31,6 +31,9 @@ public:
 	/// Read until end-of-line: first of \\n or \\r (firmware uses CR-only lines).
 	BOOL ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CString& err);
 
+	/// `RECAL 3` / `RECAL 5` sweep lines: some firmware omits trailing CR/LF; end is detected by RX idle gap.
+	BOOL ReadAsciiSweepResponse(CStringA& outLine, DWORD timeoutMs, CString& err);
+
 	/// Split payload by comma/space/tab into doubles (best-effort for bring-up).
 	static BOOL ParsePowerDoubles(const CStringA& line, std::vector<double>& out);
 
@@ -47,6 +50,7 @@ private:
 	DWORD m_pendingTick;
 	CString m_pendingCommand;
 	BOOL ReadLineBlocking(CStringA& line, DWORD timeoutMs);
+	BOOL ReadSweepLineBlocking(CStringA& line, DWORD timeoutMs);
 	void PushCommTimeouts(DWORD readTotalMs);
 	void PopCommTimeouts();
 	void TraceSend(LPCTSTR commandName, const CStringA& payload);

@@ -2,6 +2,8 @@
 #include "RecalSession.h"
 #include "CalibConstants.h"
 #include <stdlib.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 
 CRecalSession::CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarget)
 	: m_comm(comm429f)
@@ -70,15 +72,20 @@ void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL 
 
 void CRecalSession::PushCommTimeouts(DWORD readTotalMs)
 {
+	(void)readTotalMs;
 	HANDLE h = m_comm.GetPortHandle();
 	if (h == INVALID_HANDLE_VALUE)
 		return;
 	GetCommTimeouts(h, &m_savedTimeouts);
 	m_haveSaved = TRUE;
 	COMMTIMEOUTS t = {};
+	// Non-blocking ReadFile: return immediately with whatever RX bytes are queued.
+	// If we set ReadTotalTimeoutConstant to e.g. 3000ms here, each ReadFile can block ~3s
+	// even when firmware already sent "OK\\r\\n", which matches ~3000ms latency reports.
+	// Overall deadline is enforced in ReadLineBlocking via GetTickCount() + outer loop.
 	t.ReadIntervalTimeout = MAXDWORD;
 	t.ReadTotalTimeoutMultiplier = 0;
-	t.ReadTotalTimeoutConstant = readTotalMs;
+	t.ReadTotalTimeoutConstant = 0;
 	t.WriteTotalTimeoutConstant = 5000;
 	t.WriteTotalTimeoutMultiplier = 0;
 	SetCommTimeouts(h, &t);
@@ -98,16 +105,20 @@ BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 {
 	line.Empty();
 	PushCommTimeouts(timeoutMs);
-	char buf[512];
+	char buf[16384];
 	DWORD start = GetTickCount();
 	while (GetTickCount() - start < timeoutMs + 50)
 	{
 		DWORD nread = 0;
-		if (!m_comm.ReadBuffer(buf, sizeof(buf) - 1, &nread) || nread == 0)
+		const DWORD avail = m_comm.RxBytesWaiting();
+		if (avail == 0)
 		{
-			Sleep(5);
+			Sleep(1);
 			continue;
 		}
+		const DWORD chunk = (avail < (DWORD)(sizeof(buf) - 1)) ? avail : (DWORD)(sizeof(buf) - 1);
+		if (!m_comm.ReadBuffer(buf, chunk, &nread) || nread == 0)
+			continue;
 		buf[nread] = 0;
 		line += buf;
 		int p = line.Find('\n');
@@ -124,6 +135,67 @@ BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 			break;
 	}
 	PopCommTimeouts();
+	return !line.IsEmpty();
+}
+
+BOOL CRecalSession::ReadSweepLineBlocking(CStringA& line, DWORD timeoutMs)
+{
+	line.Empty();
+	// Default timer resolution makes Sleep(1) ~15ms on many PCs; tail-idle uses 150 consecutive Sleeps
+	// -> ~2.3s extra. timeBeginPeriod(1) lets idle polling sleep ~1ms on this thread's scope.
+	struct M576TimeBegin1ms
+	{
+		M576TimeBegin1ms() { (void)timeBeginPeriod(1); }
+		~M576TimeBegin1ms() { (void)timeEndPeriod(1); }
+	} timer1ms;
+	PushCommTimeouts(timeoutMs);
+	char buf[16384];
+	const DWORD kMinCharsForTailDone = 30;
+	const DWORD kTailIdleMs = 150;
+	DWORD start = GetTickCount();
+	DWORD tailStreak = 0;
+	while (GetTickCount() - start < timeoutMs + 50)
+	{
+		DWORD nread = 0;
+		const DWORD avail = m_comm.RxBytesWaiting();
+		if (avail == 0)
+		{
+			if (!line.IsEmpty() && (DWORD)line.GetLength() >= kMinCharsForTailDone)
+			{
+				if (++tailStreak >= kTailIdleMs)
+				{
+					line.Trim();
+					PopCommTimeouts();
+					return TRUE;
+				}
+			}
+			else
+				tailStreak = 0;
+			Sleep(1);
+			continue;
+		}
+		tailStreak = 0;
+		const DWORD chunk = (avail < (DWORD)(sizeof(buf) - 1)) ? avail : (DWORD)(sizeof(buf) - 1);
+		if (!m_comm.ReadBuffer(buf, chunk, &nread) || nread == 0)
+			continue;
+		buf[nread] = 0;
+		line += buf;
+		int p = line.Find('\n');
+		if (p < 0)
+			p = line.Find('\r');
+		if (p >= 0)
+		{
+			line = line.Left(p);
+			line.TrimRight("\r");
+			line.Trim();
+			PopCommTimeouts();
+			return TRUE;
+		}
+		if (line.GetLength() > 8000)
+			break;
+	}
+	PopCommTimeouts();
+	line.Trim();
 	return !line.IsEmpty();
 }
 
@@ -245,6 +317,15 @@ BOOL CRecalSession::ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CStrin
 	UNREFERENCED_PARAMETER(err);
 	const DWORD start = GetTickCount();
 	const BOOL ok = ReadLineBlocking(outLine, timeoutMs);
+	TraceReceive(outLine, GetTickCount() - start, ok, timeoutMs);
+	return ok;
+}
+
+BOOL CRecalSession::ReadAsciiSweepResponse(CStringA& outLine, DWORD timeoutMs, CString& err)
+{
+	UNREFERENCED_PARAMETER(err);
+	const DWORD start = GetTickCount();
+	const BOOL ok = ReadSweepLineBlocking(outLine, timeoutMs);
 	TraceReceive(outLine, GetTickCount() - start, ok, timeoutMs);
 	return ok;
 }

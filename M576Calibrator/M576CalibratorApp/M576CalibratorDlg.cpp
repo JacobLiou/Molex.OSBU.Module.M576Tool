@@ -989,7 +989,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			SafeAppendLog(err);
 			break;
 		}
-		if (!m_pRecal->ReadAsciiResponse(lineY, readTimeout1d, err))
+		if (!m_pRecal->ReadAsciiSweepResponse(lineY, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 3 0 (Y sweep): timeout or empty."));
 			SafeSetProgressPos(i + 1);
@@ -1014,7 +1014,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			SafeAppendLog(err);
 			break;
 		}
-		if (!m_pRecal->ReadAsciiResponse(lineX, readTimeout1d, err))
+		if (!m_pRecal->ReadAsciiSweepResponse(lineX, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 3 1 (X sweep): timeout or empty."));
 			SafeSetProgressPos(i + 1);
@@ -1132,7 +1132,7 @@ void CM576CalibratorDlg::RunPathPd()
 			SafeAppendLog(err);
 			break;
 		}
-		if (!m_pRecal->ReadAsciiResponse(lineY, readTimeout1d, err))
+		if (!m_pRecal->ReadAsciiSweepResponse(lineY, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 5 0 (Y sweep): timeout or empty."));
 			SafeSetProgressPos(i + 1);
@@ -1157,7 +1157,7 @@ void CM576CalibratorDlg::RunPathPd()
 			SafeAppendLog(err);
 			break;
 		}
-		if (!m_pRecal->ReadAsciiResponse(lineX, readTimeout1d, err))
+		if (!m_pRecal->ReadAsciiSweepResponse(lineX, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 5 1 (X sweep): timeout or empty."));
 			SafeSetProgressPos(i + 1);

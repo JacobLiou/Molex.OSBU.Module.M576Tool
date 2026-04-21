@@ -79,7 +79,7 @@ BOOL COpComm::OpenPort(LPTSTR strPortName, DWORD dwBaudRate,
 	if(!bPortReady)
 		return bPortReady;
 
-	bPortReady = SetupComm(m_hCommPort, 1024, 1024);
+	bPortReady = SetupComm(m_hCommPort, 128 * 1024, 128 * 1024);
 	if(!bPortReady)
 		return bPortReady;
 
@@ -155,6 +155,18 @@ BOOL COpComm::ReadBuffer(char* pInBuffer, DWORD dwBufferSize,PDWORD pdwLength)
 
 	return TRUE;
 }
+
+DWORD COpComm::RxBytesWaiting() const
+{
+	if (m_hCommPort == INVALID_HANDLE_VALUE)
+		return 0;
+	COMSTAT st = {};
+	DWORD errs = 0;
+	if (!ClearCommError(m_hCommPort, &errs, &st))
+		return 0;
+	return st.cbInQue;
+}
+
 BOOL COpComm::WriteBuffer(BYTE* pOutBuffer, DWORD dwBufferSize)
 {
 	DWORD dwBytesWritten;
