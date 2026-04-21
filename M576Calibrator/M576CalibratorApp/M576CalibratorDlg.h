@@ -71,6 +71,9 @@ private:
 	void SafeSetProgressRange(int minVal, int maxVal);
 	void SafeSetProgressPos(int pos);
 	void SetPathActionButtonsEnabled(BOOL enable);
+	/// Open vs Close mutual exclusion; Close disabled while path or flash-backup worker running.
+	void SyncSerialPortUi();
+	BOOL IsSerialPortOpen() const;
 	void PathWorkerEntry();
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void WriteLogFileLine(const CString& line);
@@ -84,6 +87,8 @@ private:
 	void SyncCsvPathWithMode();
 	/// PM: show Command A (RECAL 0) controls; PD: hide (PD flow uses Command C only, no RECAL 0).
 	void SyncRecal0ControlsVisibility();
+	/// Before Run path: COM, path CSV file, PM wavelength (if PM). MessageBox and return FALSE when invalid.
+	BOOL ValidateRunPathInputs(CString& errMsg);
 	void OnBrowse(UINT idEdit);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	static void ProgressThunk(int cur, int total, void* user);

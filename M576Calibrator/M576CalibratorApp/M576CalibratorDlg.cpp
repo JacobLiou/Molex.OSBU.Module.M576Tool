@@ -239,6 +239,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	m_strOutBin     = _T("output\\standard.bin");
 	m_strBackupBin  = _T("output\\backup.bin");
 	m_strCommLogPath = _T("output\\comm.log");
+	m_strSn         = _T("429F1 Tester");
 }
 
 void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
@@ -351,6 +352,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	SyncRecal0ControlsVisibility();
 	GetDlgItem(IDC_EDIT_CSV)->EnableWindow(FALSE);
 	FillComPorts();
+	SyncSerialPortUi();
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	ZeroMemory(&m_lut, sizeof(m_lut));
@@ -445,10 +447,29 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_READ_FLASH_BACKUP))
 		p->EnableWindow(enable);
-	if (CWnd* p = GetDlgItem(IDC_BTN_CLOSE_PORT))
-		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_STOP))
 		p->EnableWindow(enable);
+	SyncSerialPortUi();
+}
+
+BOOL CM576CalibratorDlg::IsSerialPortOpen() const
+{
+	const HANDLE h = m_dev429f.GetPortHandle();
+	return h != NULL && h != INVALID_HANDLE_VALUE;
+}
+
+void CM576CalibratorDlg::SyncSerialPortUi()
+{
+	if (!m_hWnd || !::IsWindow(m_hWnd))
+		return;
+	const BOOL open = IsSerialPortOpen();
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load();
+	if (CWnd* p = GetDlgItem(IDC_BTN_OPEN_PORTS))
+		p->EnableWindow(!open && !busy);
+	if (CWnd* p = GetDlgItem(IDC_BTN_CLOSE_PORT))
+		p->EnableWindow(open && !busy);
+	if (CWnd* p = GetDlgItem(IDC_COMBO_COM))
+		p->EnableWindow(!open);
 }
 
 LRESULT CM576CalibratorDlg::OnPathLog(WPARAM, LPARAM lParam)
@@ -642,12 +663,14 @@ void CM576CalibratorDlg::OnBnClickedOpenPorts()
 	}
 	if (OpenPort())
 		AppendLog(_T("Open port OK."));
+	SyncSerialPortUi();
 }
 
 void CM576CalibratorDlg::OnBnClickedClosePort()
 {
 	UpdateData(TRUE);
 	ClosePort();
+	SyncSerialPortUi();
 }
 
 void CM576CalibratorDlg::OnBrowse(UINT idEdit)
@@ -757,6 +780,47 @@ void CM576CalibratorDlg::OnBnClickedCalPd()
 	SyncRecal0ControlsVisibility();
 }
 
+BOOL CM576CalibratorDlg::ValidateRunPathInputs(CString& errMsg)
+{
+	if (!IsSerialPortOpen())
+	{
+		errMsg = _T("Open the serial port (Open Port) before Run path.");
+		return FALSE;
+	}
+	CString com = GetComboCom();
+	com.Trim();
+	if (com.IsEmpty())
+	{
+		errMsg = _T("Select 429F COM port (Port).");
+		return FALSE;
+	}
+	if (com.GetLength() < 4 || _tcsnicmp(com, _T("COM"), 3) != 0)
+	{
+		errMsg = _T("Select a valid COM port (e.g. COM3).");
+		return FALSE;
+	}
+	if (m_nCalMode == 0)
+	{
+		CString wl = m_strWavelength;
+		wl.Trim();
+		if (wl.IsEmpty())
+		{
+			errMsg = _T("PM mode: enter or select wavelength (nm).");
+			return FALSE;
+		}
+		int nm = 0;
+		if (!ParseWavelengthNm(m_strWavelength, nm, errMsg))
+			return FALSE;
+	}
+	const CString absCsv = ResolveFilePath(m_strCsv);
+	if (absCsv.IsEmpty() || GetFileAttributes(absCsv) == INVALID_FILE_ATTRIBUTES)
+	{
+		errMsg.Format(_T("Path CSV not found or not accessible for this mode:\n%s"), (LPCTSTR)m_strCsv);
+		return FALSE;
+	}
+	return TRUE;
+}
+
 void CM576CalibratorDlg::OnBnClickedRunPath()
 {
 	if (m_pathRunning.load())
@@ -766,13 +830,15 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		AppendLog(_T("Read Flash backup in progress; wait for it to finish before running path."));
 		return;
 	}
-	UpdateData(TRUE);
-	m_bStop = FALSE;
-	if (!m_pRecal.get())
+	if (!UpdateData(TRUE))
+		return;
+	CString valErr;
+	if (!ValidateRunPathInputs(valErr))
 	{
-		if (!OpenPort())
-			return;
+		AfxMessageBox(valErr, MB_OK | MB_ICONWARNING);
+		return;
 	}
+	m_bStop = FALSE;
 	if (m_pathThread.joinable())
 		m_pathThread.join();
 	m_pathRunning = true;
@@ -1217,6 +1283,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	{
 		if (!OpenPort())
 			return;
+		SyncSerialPortUi();
 	}
 	CString err;
 	m_progress.SetRange(0, 100);
