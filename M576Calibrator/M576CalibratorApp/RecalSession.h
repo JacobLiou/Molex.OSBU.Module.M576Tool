@@ -18,8 +18,8 @@ public:
 	/// Command B: `RECAL 1` 鈥?target 1..6 + four path channel numbers; response line is `OK`.
 	BOOL SendRecal1(const SPathStep& step, CString& err);
 
-	/// PM sweep: `RECAL 3` 鈥?sweepMode 0 = X fixed / Y sweep; 1 = Y fixed / X sweep.
-	/// Params: Base DAC (0 = FW uses channel DAC), Offset, Step, Delay (ms), per firmware.
+	/// PM sweep: `RECAL 3` — sweepMode 0 = X fixed / Y sweep; 1 = Y fixed / X sweep.
+	/// Params: Base DAC (`M576_RECAL_FW_READ_BASE_DAC` = FW reads channel as base; else host sets), Offset, Step, Delay (ms).
 	BOOL SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
 
 	/// Command C: `RECAL 2` — target 1..4 + two channel numbers (2#1x64 ch, MCS ch); response line is `OK`.

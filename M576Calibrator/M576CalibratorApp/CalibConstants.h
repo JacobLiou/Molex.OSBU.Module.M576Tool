@@ -65,6 +65,22 @@
 #define M576_DEFAULT_DAC_STEP 5
 #endif
 
+/// RECAL 3 / 5 Base DAC: 9999 = firmware uses current channel DAC as sweep center (PRD); any other value = host sets base.
+#ifndef M576_RECAL_FW_READ_BASE_DAC
+#define M576_RECAL_FW_READ_BASE_DAC 9999
+#endif
+
+/// `RECAL 3` / `RECAL 5` sweep line read: `min(n*delay + margin, max)` — one global cap for PM/PD (not per opcode).
+#ifndef M576_RECAL_SWEEP_READ_MARGIN_MS
+#define M576_RECAL_SWEEP_READ_MARGIN_MS 2000
+#endif
+#ifndef M576_MAX_RECAL_SWEEP_READ_MS
+#define M576_MAX_RECAL_SWEEP_READ_MS 5000
+#endif
+#ifndef M576_MIN_RECAL_SWEEP_READ_MS
+#define M576_MIN_RECAL_SWEEP_READ_MS 1500
+#endif
+
 /// Peak grid → DAC: symmetric around mid DAC; PRD often uses base ± range (e.g. ±64). Tune with firmware.
 #ifndef M576_PEAK_GRID_DAC_BASE
 #define M576_PEAK_GRID_DAC_BASE 2048

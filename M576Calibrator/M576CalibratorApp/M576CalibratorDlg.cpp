@@ -79,32 +79,52 @@ constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
 constexpr UINT WM_M576_PATH_FINISHED = WM_APP + 103;
 constexpr UINT WM_M576_READ_BACKUP_FINISHED = WM_APP + 104;
 
-/// One `RECAL 3` / `RECAL 5` axis sweep: one sample per grid step (not full 2D grid).
+/// RECAL 3/5 一行：`[轴上 DAC 或首列][P1..Pn]`。功率个数 N = ceil((2*range)/step)，与固件一致（例 range=64 step=5 → N=26，整行 1+26=27 个数）。
+static int RecalSweepPowerSampleCount(int dacRange, int dacStep)
+{
+	if (dacStep < 1)
+		dacStep = 1;
+	if (dacRange < 1)
+		dacRange = 1;
+	const int n = (2 * dacRange + dacStep - 1) / dacStep;
+	return (n < 1) ? 1 : n;
+}
+
+/// One `RECAL 3` / `RECAL 5` axis sweep: timeout = min(n*delay + margin, M576_MAX_RECAL_SWEEP_READ_MS), clamped by min (CalibConstants.h).
 static DWORD ComputeRecal1DReadTimeoutMs(int delayMs, int dacRange, int dacStep)
 {
 	if (delayMs < 1)
 		delayMs = 1;
-	if (dacStep < 1)
-		dacStep = 1;
-	int axisPts = (2 * dacRange + dacStep - 1) / dacStep + 1;
-	if (axisPts < 2)
-		axisPts = 2;
-	__int64 t = (__int64)axisPts * delayMs + 10000;
-	if (t > 600000)
-		t = 600000;
-	if (t < 5000)
-		t = 5000;
+	int n = RecalSweepPowerSampleCount(dacRange, dacStep);
+	if (n < 2)
+		n = 2;
+	__int64 t = (__int64)n * delayMs + (__int64)M576_RECAL_SWEEP_READ_MARGIN_MS;
+	if (t > (__int64)M576_MAX_RECAL_SWEEP_READ_MS)
+		t = (__int64)M576_MAX_RECAL_SWEEP_READ_MS;
+	if (t < (__int64)M576_MIN_RECAL_SWEEP_READ_MS)
+		t = (__int64)M576_MIN_RECAL_SWEEP_READ_MS;
 	return (DWORD)t;
 }
 
 static int AxisPointCount(int dacRange, int dacStep)
 {
-	if (dacStep < 1)
-		dacStep = 1;
-	int axisPts = (2 * dacRange + dacStep - 1) / dacStep + 1;
-	if (axisPts < 2)
-		axisPts = 2;
-	return axisPts;
+	return RecalSweepPowerSampleCount(dacRange, dacStep);
+}
+
+/// After `RECAL 3 0` / `RECAL 5 0` (moving Y) with Base=FW-read, map peak index to Y-axis DAC for `RECAL 3 1` / `RECAL 5 1` Base.
+/// Same symmetric indexing as `PeakGridToDacWord` / UI half-range, with nominal center `M576_PEAK_GRID_DAC_BASE`.
+static int RecalYBaseDacFromYPeakIndex(int peakRow, int sampleCount, int halfRange)
+{
+	if (sampleCount <= 1)
+		return M576_RECAL_FW_READ_BASE_DAC;
+	const double step = (2.0 * halfRange) / (double)(sampleCount - 1);
+	const double y = (double)M576_PEAK_GRID_DAC_BASE - halfRange + (double)peakRow * step;
+	int iy = (int)floor(y + 0.5);
+	if (iy < 0)
+		iy = 0;
+	if (iy > 65535)
+		iy = 65535;
+	return iy;
 }
 
 CString FormatLogTimestamp()
@@ -983,8 +1003,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			}
 		}
 
-		const int kBaseDac = 0;
-		if (!m_pRecal->SendRecal3(0, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
+		if (!m_pRecal->SendRecal3(0, M576_RECAL_FW_READ_BASE_DAC, m_dacRange, m_dacStep, m_delayMs, err))
 		{
 			SafeAppendLog(err);
 			break;
@@ -995,9 +1014,9 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			SafeSetProgressPos(i + 1);
 			continue;
 		}
-		double yAxisStart = 0.0;
+		double xFixedDac = 0.0;
 		std::vector<double> powY;
-		if (!CRecalSession::ParseRecal3SweepLine(lineY, yAxisStart, powY))
+		if (!CRecalSession::ParseRecal3SweepLine(lineY, xFixedDac, powY))
 		{
 			SafeAppendLog(_T("RECAL 3 0: could not parse [X_start] P1..Pn."));
 			SafeSetProgressPos(i + 1);
@@ -1005,11 +1024,27 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 		{
 			CString msg;
-			msg.Format(_T("  RECAL 3 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), yAxisStart);
+			msg.Format(_T("  RECAL 3 0 -> %d power samples, fixed-X DAC=%.4g (from response col0)"),
+				(int)powY.size(), xFixedDac);
 			SafeAppendLog(msg);
 		}
 
-		if (!m_pRecal->SendRecal3(1, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
+		int brForYBase = 0;
+		if (powY.empty() || !M576::PeakMax1D(powY, brForYBase))
+		{
+			SafeAppendLog(_T("  RECAL 3 1: no Y peak index; skip X sweep."));
+			SafeSetProgressPos(i + 1);
+			continue;
+		}
+		const int yBaseDacForSweep1 =
+			RecalYBaseDacFromYPeakIndex(brForYBase, (int)powY.size(), m_dacRange);
+		{
+			CString msg;
+			msg.Format(_T("  RECAL 3 1 Base DAC (Y@peak, row=%d)=%d"), brForYBase, yBaseDacForSweep1);
+			SafeAppendLog(msg);
+		}
+
+		if (!m_pRecal->SendRecal3(1, yBaseDacForSweep1, m_dacRange, m_dacStep, m_delayMs, err))
 		{
 			SafeAppendLog(err);
 			break;
@@ -1020,9 +1055,9 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			SafeSetProgressPos(i + 1);
 			continue;
 		}
-		double xAxisStart = 0.0;
+		double yFixedDac = 0.0;
 		std::vector<double> powX;
-		if (!CRecalSession::ParseRecal3SweepLine(lineX, xAxisStart, powX))
+		if (!CRecalSession::ParseRecal3SweepLine(lineX, yFixedDac, powX))
 		{
 			SafeAppendLog(_T("RECAL 3 1: could not parse [Y_start] P1..Pn."));
 			SafeSetProgressPos(i + 1);
@@ -1030,15 +1065,22 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 		{
 			CString msg;
-			msg.Format(_T("  RECAL 3 1 -> %d samples (Y_start=%.4g)"), (int)powX.size(), xAxisStart);
+			msg.Format(_T("  RECAL 3 1 -> %d power samples, fixed-Y DAC=%.4g (from response col0)"),
+				(int)powX.size(), yFixedDac);
+			SafeAppendLog(msg);
+		}
+		{
+			CString msg;
+			msg.Format(_T("  -> DAC pair (X,Y)=(%.4g,%.4g) (X from RECAL 3 0 header, Y from RECAL 3 1 header)"),
+				xFixedDac, yFixedDac);
 			SafeAppendLog(msg);
 		}
 
 		if ((int)powY.size() != gridN || (int)powX.size() != gridN)
 		{
 			CString msg;
-			msg.Format(_T("  warning: sample count (%d, %d) != expected axis points %d"),
-				(int)powY.size(), (int)powX.size(), gridN);
+			msg.Format(_T("  warning: firmware power count (%d, %d) vs host AxisPointCount estimate %d (range=%d step=%d); OK if FW grid differs."),
+				(int)powY.size(), (int)powX.size(), gridN, m_dacRange, m_dacStep);
 			SafeAppendLog(msg);
 		}
 
@@ -1126,8 +1168,7 @@ void CM576CalibratorDlg::RunPathPd()
 			}
 		}
 
-		const int kBaseDac = 0;
-		if (!m_pRecal->SendRecal5(0, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
+		if (!m_pRecal->SendRecal5(0, M576_RECAL_FW_READ_BASE_DAC, m_dacRange, m_dacStep, m_delayMs, err))
 		{
 			SafeAppendLog(err);
 			break;
@@ -1138,9 +1179,9 @@ void CM576CalibratorDlg::RunPathPd()
 			SafeSetProgressPos(i + 1);
 			continue;
 		}
-		double yAxisStart = 0.0;
+		double xFixedDacPd = 0.0;
 		std::vector<double> powY;
-		if (!CRecalSession::ParseRecal3SweepLine(lineY, yAxisStart, powY))
+		if (!CRecalSession::ParseRecal3SweepLine(lineY, xFixedDacPd, powY))
 		{
 			SafeAppendLog(_T("RECAL 5 0: could not parse [X_start] P1..Pn."));
 			SafeSetProgressPos(i + 1);
@@ -1148,11 +1189,26 @@ void CM576CalibratorDlg::RunPathPd()
 		}
 		{
 			CString msg;
-			msg.Format(_T("  RECAL 5 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), yAxisStart);
+			msg.Format(_T("  RECAL 5 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), xFixedDacPd);
 			SafeAppendLog(msg);
 		}
 
-		if (!m_pRecal->SendRecal5(1, kBaseDac, m_dacRange, m_dacStep, m_delayMs, err))
+		int brForYBasePd = 0;
+		if (powY.empty() || !M576::PeakMax1D(powY, brForYBasePd))
+		{
+			SafeAppendLog(_T("  RECAL 5 1: no Y peak index; skip X sweep."));
+			SafeSetProgressPos(i + 1);
+			continue;
+		}
+		const int yBaseDacForSweep1Pd =
+			RecalYBaseDacFromYPeakIndex(brForYBasePd, (int)powY.size(), m_dacRange);
+		{
+			CString msg;
+			msg.Format(_T("  RECAL 5 1 Base DAC (Y@peak, row=%d)=%d"), brForYBasePd, yBaseDacForSweep1Pd);
+			SafeAppendLog(msg);
+		}
+
+		if (!m_pRecal->SendRecal5(1, yBaseDacForSweep1Pd, m_dacRange, m_dacStep, m_delayMs, err))
 		{
 			SafeAppendLog(err);
 			break;
@@ -1163,9 +1219,9 @@ void CM576CalibratorDlg::RunPathPd()
 			SafeSetProgressPos(i + 1);
 			continue;
 		}
-		double xAxisStart = 0.0;
+		double yFixedDacPd = 0.0;
 		std::vector<double> powX;
-		if (!CRecalSession::ParseRecal3SweepLine(lineX, xAxisStart, powX))
+		if (!CRecalSession::ParseRecal3SweepLine(lineX, yFixedDacPd, powX))
 		{
 			SafeAppendLog(_T("RECAL 5 1: could not parse [Y_start] P1..Pn."));
 			SafeSetProgressPos(i + 1);
@@ -1173,7 +1229,7 @@ void CM576CalibratorDlg::RunPathPd()
 		}
 		{
 			CString msg;
-			msg.Format(_T("  RECAL 5 1 -> %d samples (Y_start=%.4g)"), (int)powX.size(), xAxisStart);
+			msg.Format(_T("  RECAL 5 1 -> %d samples (Y_start=%.4g)"), (int)powX.size(), yFixedDacPd);
 			SafeAppendLog(msg);
 		}
 
