@@ -13,7 +13,7 @@
 #define M576_MAX_TLS_SOURCE 8
 #endif
 #ifndef M576_DEFAULT_TLS_SOURCE
-#define M576_DEFAULT_TLS_SOURCE 1
+#define M576_DEFAULT_TLS_SOURCE 4
 #endif
 /// RECAL 0: wavelength (nm, int), PRD 850~1650.
 #ifndef M576_MIN_WAVELENGTH_NM
@@ -33,7 +33,7 @@
 #define M576_MAX_PM_RANGE 4
 #endif
 #ifndef M576_DEFAULT_PM_RANGE
-#define M576_DEFAULT_PM_RANGE 4
+#define M576_DEFAULT_PM_RANGE 1
 #endif
 
 /// Per-sweep params ride on `RECAL 3 / RECAL 5` (not on RECAL 0): delay (ms), DAC half-range, step.

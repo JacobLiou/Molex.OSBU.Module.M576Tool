@@ -82,6 +82,8 @@ private:
 	void ClosePort();
 	CString GetDefaultCsvPathForMode() const;
 	void SyncCsvPathWithMode();
+	/// PM: show Command A (RECAL 0) controls; PD: hide (PD flow uses Command C only, no RECAL 0).
+	void SyncRecal0ControlsVisibility();
 	void OnBrowse(UINT idEdit);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	static void ProgressThunk(int cur, int total, void* user);

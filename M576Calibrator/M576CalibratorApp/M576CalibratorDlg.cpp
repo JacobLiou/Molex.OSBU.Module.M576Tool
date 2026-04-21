@@ -348,6 +348,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		pWl->SetWindowText(m_strWavelength);
 	}
 	UpdateData(FALSE);
+	SyncRecal0ControlsVisibility();
 	GetDlgItem(IDC_EDIT_CSV)->EnableWindow(FALSE);
 	FillComPorts();
 	m_progress.SetRange(0, 100);
@@ -358,6 +359,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 
 	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard_pm.csv; PD mode -> .\\output\\standard_pd.csv"));
 	AppendLog(_T("Path CSV is fixed by mode selection and cannot be edited manually."));
+	AppendLog(_T("PM: Command A (RECAL 0) + Command B (RECAL 1) + RECAL 3; PD: Command C (RECAL 2) + RECAL 5 only (no RECAL 0)."));
 	return TRUE;
 }
 
@@ -568,6 +570,24 @@ void CM576CalibratorDlg::SyncCsvPathWithMode()
 		UpdateData(FALSE);
 }
 
+void CM576CalibratorDlg::SyncRecal0ControlsVisibility()
+{
+	const BOOL showCmdA = (m_nCalMode == 0);
+	const int sw = showCmdA ? SW_SHOW : SW_HIDE;
+	if (CWnd* p = GetDlgItem(IDC_STATIC_LABEL_TLS))
+		p->ShowWindow(sw);
+	if (CWnd* p = GetDlgItem(IDC_COMBO_TLS))
+		p->ShowWindow(sw);
+	if (CWnd* p = GetDlgItem(IDC_STATIC_LABEL_WL))
+		p->ShowWindow(sw);
+	if (CWnd* p = GetDlgItem(IDC_COMBO_WAVELENGTH))
+		p->ShowWindow(sw);
+	if (CWnd* p = GetDlgItem(IDC_STATIC_LABEL_PM))
+		p->ShowWindow(sw);
+	if (CWnd* p = GetDlgItem(IDC_COMBO_PM_RANGE))
+		p->ShowWindow(sw);
+}
+
 BOOL CM576CalibratorDlg::OpenPort()
 {
 	m_dev429f.ClosePort();
@@ -716,13 +736,25 @@ void CM576CalibratorDlg::OnBnClickedStop()
 void CM576CalibratorDlg::OnBnClickedCalPm()
 {
 	UpdateData(TRUE);
+	/// PM defaults: TLS=4, 1310 nm, PM range=1 (Command A).
+	m_tlsIndex = M576_DEFAULT_TLS_SOURCE - M576_MIN_TLS_SOURCE;
+	m_strWavelength = _T("1310");
+	m_pmRangeIndex = M576_DEFAULT_PM_RANGE;
+	if (CComboBox* pTls = (CComboBox*)GetDlgItem(IDC_COMBO_TLS))
+		pTls->SetCurSel(m_tlsIndex);
+	if (CComboBox* pWl = (CComboBox*)GetDlgItem(IDC_COMBO_WAVELENGTH))
+		pWl->SetWindowText(m_strWavelength);
+	if (CComboBox* pPm = (CComboBox*)GetDlgItem(IDC_COMBO_PM_RANGE))
+		pPm->SetCurSel(m_pmRangeIndex);
 	SyncCsvPathWithMode();
+	SyncRecal0ControlsVisibility();
 }
 
 void CM576CalibratorDlg::OnBnClickedCalPd()
 {
 	UpdateData(TRUE);
 	SyncCsvPathWithMode();
+	SyncRecal0ControlsVisibility();
 }
 
 void CM576CalibratorDlg::OnBnClickedRunPath()
@@ -982,31 +1014,7 @@ void CM576CalibratorDlg::RunPathPd()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
-	int wavelengthNmPd = 0;
-	if (!ParseWavelengthNm(m_strWavelength, wavelengthNmPd, err))
-	{
-		SafeAppendLog(err);
-		return;
-	}
-	const int tlsSourcePd = m_tlsIndex + 1;
-	const int pmRangePd = m_pmRangeIndex;
-	if (!m_pRecal->SendRecal0(tlsSourcePd, wavelengthNmPd, pmRangePd, err))
-	{
-		SafeAppendLog(err);
-		return;
-	}
-	{
-		CStringA line0;
-		if (!m_pRecal->ReadAsciiResponse(line0, 3000, err))
-			SafeAppendLog(_T("RECAL 0: timeout waiting for response."));
-		else
-		{
-			CString msg;
-			msg.Format(_T("RECAL 0 (TLS=%d nm=%d PM=%d) -> %s"),
-				tlsSourcePd, wavelengthNmPd, pmRangePd, CString(line0));
-			SafeAppendLog(msg);
-		}
-	}
+	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
 
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
