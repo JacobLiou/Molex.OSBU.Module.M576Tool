@@ -30,6 +30,7 @@ protected:
 private:
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;
+	CComboBox m_comboWavelength;
 	CComboBox m_comboPmRange;
 	CEdit m_editLog;
 	CProgressCtrl m_progress;
@@ -60,7 +61,8 @@ private:
 	int m_dacStep;
 	/// RECAL 0 (Command A): TLS 1-8 -> index 0-7 in `IDC_COMBO_TLS`.
 	int m_tlsIndex;
-	int m_wavelengthNm;
+	/// Wavelength (nm as string): combo preset 1310/1550 or user-typed value.
+	CString m_strWavelength;
 	/// PM range 0-4 -> combo index.
 	int m_pmRangeIndex;
 
@@ -77,6 +79,7 @@ private:
 	void FillComPorts();
 	CString GetComboCom();
 	BOOL OpenPort();
+	void ClosePort();
 	CString GetDefaultCsvPathForMode() const;
 	void SyncCsvPathWithMode();
 	void OnBrowse(UINT idEdit);
@@ -85,6 +88,7 @@ private:
 	static void __cdecl CommLogThunk(LPCTSTR line, void* user);
 
 	afx_msg void OnBnClickedOpenPorts();
+	afx_msg void OnBnClickedClosePort();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();
 	afx_msg void OnBnClickedReadFlashBackup();

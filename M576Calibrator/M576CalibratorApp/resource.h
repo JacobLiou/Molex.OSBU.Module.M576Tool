@@ -37,7 +37,6 @@
 #define IDC_BTN_FLASH                   1014
 #define IDC_BTN_STOP                    1015
 #define IDC_STATIC_VERSION              1016
-#define IDC_BTN_OPEN_PORTS2             1016
 #define IDC_STATIC_LABEL_COM            1017
 #define IDC_GROUP_CONN                  1018
 #define IDC_GROUP_PATHS                 1019
@@ -54,11 +53,12 @@
 #define IDC_STATIC_DAC_RANGE_HINT       1030
 #define IDC_STATIC_DAC_STEP_HINT        1031
 #define IDC_COMBO_TLS                   1032
-#define IDC_EDIT_WAVELENGTH             1033
+#define IDC_COMBO_WAVELENGTH            1033
 #define IDC_COMBO_PM_RANGE              1034
 #define IDC_STATIC_LABEL_TLS            1035
 #define IDC_STATIC_LABEL_WL             1036
 #define IDC_STATIC_LABEL_PM             1037
+#define IDC_BTN_CLOSE_PORT              1038
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102

@@ -6,12 +6,72 @@
 #include "PeakFinder2D.h"
 #include "LutPeakApply.h"
 #include <math.h>
+#include <algorithm>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
 namespace {
+
+static int ComPortSortKey(const CString& s)
+{
+	if (s.GetLength() < 4 || _tcsnicmp(s, _T("COM"), 3) != 0)
+		return 999999;
+	return _ttoi(s.GetString() + 3);
+}
+
+/// List present COM ports: QueryDosDevice(COM1..COM256), fallback HARDWARE\\DEVICEMAP\\SERIALCOMM.
+static void EnumPresentComPorts(std::vector<CString>& out)
+{
+	out.clear();
+	std::vector<CString> found;
+	TCHAR target[16384];
+	for (int i = 1; i <= 256; ++i)
+	{
+		CString name;
+		name.Format(_T("COM%d"), i);
+		if (::QueryDosDevice(name, target, _countof(target)) != 0)
+			found.push_back(name);
+	}
+	if (found.empty())
+	{
+		HKEY hKey = NULL;
+		if (::RegOpenKeyEx(HKEY_LOCAL_MACHINE, _T("HARDWARE\\DEVICEMAP\\SERIALCOMM"), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+		{
+			DWORD idx = 0;
+			TCHAR vn[256];
+			BYTE data[256];
+			for (;; ++idx)
+			{
+				DWORD vnLen = _countof(vn);
+				DWORD dataLen = sizeof(data);
+				DWORD typ = 0;
+				LONG e = ::RegEnumValue(hKey, idx, vn, &vnLen, NULL, &typ, data, &dataLen);
+				if (e == ERROR_NO_MORE_ITEMS)
+					break;
+				if (e != ERROR_SUCCESS)
+					continue;
+				if (typ == REG_SZ || typ == REG_EXPAND_SZ)
+				{
+					CString port((LPCTSTR)data);
+					port.Trim();
+					if (port.GetLength() >= 4 && _tcsnicmp(port, _T("COM"), 3) == 0)
+						found.push_back(port);
+				}
+			}
+			::RegCloseKey(hKey);
+		}
+	}
+	std::sort(found.begin(), found.end(), [](const CString& a, const CString& b) {
+		return ComPortSortKey(a) < ComPortSortKey(b);
+	});
+	for (size_t i = 0; i < found.size(); ++i)
+	{
+		if (i == 0 || found[i].CompareNoCase(found[i - 1]) != 0)
+			out.push_back(found[i]);
+	}
+}
 
 constexpr UINT WM_M576_PATH_LOG = WM_APP + 100;
 constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
@@ -135,6 +195,33 @@ CString ResolveFilePath(const CString& path)
 	return combined;
 }
 
+/// Parse wavelength nm from combo edit (presets 1310/1550 or typed value).
+static BOOL ParseWavelengthNm(const CString& raw, int& outNm, CString& err)
+{
+	CString s = raw;
+	s.Trim();
+	if (s.IsEmpty())
+	{
+		err = _T("Wavelength is empty.");
+		return FALSE;
+	}
+	TCHAR* end = NULL;
+	const long v = _tcstol(s, &end, 10);
+	if (!end || end != (LPCTSTR)s + s.GetLength())
+	{
+		err = _T("Invalid wavelength (enter integer nm, e.g. 1310 or 1550).");
+		return FALSE;
+	}
+	if (v < M576_MIN_WAVELENGTH_NM || v > M576_MAX_WAVELENGTH_NM)
+	{
+		err.Format(_T("Wavelength %ld nm out of range %d..%d."),
+			v, M576_MIN_WAVELENGTH_NM, M576_MAX_WAVELENGTH_NM);
+		return FALSE;
+	}
+	outNm = (int)v;
+	return TRUE;
+}
+
 } // namespace
 
 CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
@@ -145,7 +232,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_dacRange(M576_DEFAULT_DAC_RANGE)
 	, m_dacStep(M576_DEFAULT_DAC_STEP)
 	, m_tlsIndex(M576_DEFAULT_TLS_SOURCE - 1)
-	, m_wavelengthNm(M576_DEFAULT_WAVELENGTH_NM)
+	, m_strWavelength(_T("1310"))
 	, m_pmRangeIndex(M576_DEFAULT_PM_RANGE)
 {
 	m_strCsv        = _T("output\\standard_pm.csv");
@@ -159,11 +246,11 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_COMBO_COM, m_comboCom);
 	DDX_Control(pDX, IDC_COMBO_TLS, m_comboTls);
+	DDX_Control(pDX, IDC_COMBO_WAVELENGTH, m_comboWavelength);
 	DDX_Control(pDX, IDC_COMBO_PM_RANGE, m_comboPmRange);
 	DDX_CBIndex(pDX, IDC_COMBO_TLS, m_tlsIndex);
 	DDV_MinMaxInt(pDX, m_tlsIndex, 0, M576_MAX_TLS_SOURCE - 1);
-	DDX_Text(pDX, IDC_EDIT_WAVELENGTH, m_wavelengthNm);
-	DDV_MinMaxInt(pDX, m_wavelengthNm, M576_MIN_WAVELENGTH_NM, M576_MAX_WAVELENGTH_NM);
+	DDX_CBString(pDX, IDC_COMBO_WAVELENGTH, m_strWavelength);
 	DDX_CBIndex(pDX, IDC_COMBO_PM_RANGE, m_pmRangeIndex);
 	DDV_MinMaxInt(pDX, m_pmRangeIndex, M576_MIN_PM_RANGE, M576_MAX_PM_RANGE);
 	DDX_Control(pDX, IDC_EDIT_LOG, m_editLog);
@@ -183,6 +270,7 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 
 BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
+	ON_BN_CLICKED(IDC_BTN_CLOSE_PORT, &CM576CalibratorDlg::OnBnClickedClosePort)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
 	ON_BN_CLICKED(IDC_BTN_READ_FLASH_BACKUP, &CM576CalibratorDlg::OnBnClickedReadFlashBackup)
@@ -215,7 +303,6 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	::SetDlgItemText(m_hWnd, IDC_GROUP_ACTIONS, _T("Actions"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_LOG, _T("Log"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_COM, _T("Port (429F):"));
-	::SetDlgItemText(m_hWnd, IDC_BTN_OPEN_PORTS, _T("Open Port"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Burn Flash"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_READ_FLASH_BACKUP, _T("Read Flash Backup"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_MODE, _T("Mode:"));
@@ -253,6 +340,13 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		}
 		pPm->SetCurSel(m_pmRangeIndex);
 	}
+	if (CComboBox* pWl = (CComboBox*)GetDlgItem(IDC_COMBO_WAVELENGTH))
+	{
+		pWl->ResetContent();
+		pWl->AddString(_T("1310"));
+		pWl->AddString(_T("1550"));
+		pWl->SetWindowText(m_strWavelength);
+	}
 	UpdateData(FALSE);
 	GetDlgItem(IDC_EDIT_CSV)->EnableWindow(FALSE);
 	FillComPorts();
@@ -269,13 +363,13 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 
 void CM576CalibratorDlg::FillComPorts()
 {
-	for (int i = 1; i <= 32; ++i)
-	{
-		CString s;
-		s.Format(_T("COM%d"), i);
-		m_comboCom.AddString(s);
-	}
-	m_comboCom.SetCurSel(0);
+	m_comboCom.ResetContent();
+	std::vector<CString> ports;
+	EnumPresentComPorts(ports);
+	for (const CString& p : ports)
+		m_comboCom.AddString(p);
+	if (m_comboCom.GetCount() > 0)
+		m_comboCom.SetCurSel(0);
 }
 
 void CM576CalibratorDlg::AppendLog(LPCTSTR sz)
@@ -348,6 +442,8 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 	if (CWnd* p = GetDlgItem(IDC_BTN_FLASH))
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_READ_FLASH_BACKUP))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_CLOSE_PORT))
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_STOP))
 		p->EnableWindow(enable);
@@ -477,9 +573,10 @@ BOOL CM576CalibratorDlg::OpenPort()
 	m_dev429f.ClosePort();
 
 	CString sCom = GetComboCom();
-	if (sCom.IsEmpty())
+	sCom.Trim();
+	if (sCom.IsEmpty() || _tcsnicmp(sCom, _T("COM"), 3) != 0)
 	{
-		AppendLog(_T("Select COM port."));
+		AppendLog(_T("Select a valid COM port."));
 		return FALSE;
 	}
 	CString path;
@@ -497,6 +594,13 @@ BOOL CM576CalibratorDlg::OpenPort()
 	return TRUE;
 }
 
+void CM576CalibratorDlg::ClosePort()
+{
+	m_pRecal.reset();
+	m_dev429f.ClosePort();
+	AppendLog(_T("Port closed."));
+}
+
 void __cdecl CM576CalibratorDlg::CommLogThunk(LPCTSTR line, void* user)
 {
 	CM576CalibratorDlg* dlg = (CM576CalibratorDlg*)user;
@@ -508,8 +612,22 @@ void __cdecl CM576CalibratorDlg::CommLogThunk(LPCTSTR line, void* user)
 void CM576CalibratorDlg::OnBnClickedOpenPorts()
 {
 	UpdateData(TRUE);
+	const CString prev = GetComboCom();
+	FillComPorts();
+	if (!prev.IsEmpty())
+	{
+		const int idx = m_comboCom.FindStringExact(-1, prev);
+		if (idx >= 0)
+			m_comboCom.SetCurSel(idx);
+	}
 	if (OpenPort())
 		AppendLog(_T("Open port OK."));
+}
+
+void CM576CalibratorDlg::OnBnClickedClosePort()
+{
+	UpdateData(TRUE);
+	ClosePort();
 }
 
 void CM576CalibratorDlg::OnBrowse(UINT idEdit)
@@ -697,9 +815,15 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
+	int wavelengthNm = 0;
+	if (!ParseWavelengthNm(m_strWavelength, wavelengthNm, err))
+	{
+		SafeAppendLog(err);
+		return;
+	}
 	const int tlsSource = m_tlsIndex + 1;
 	const int pmRange = m_pmRangeIndex;
-	if (!m_pRecal->SendRecal0(tlsSource, m_wavelengthNm, pmRange, err))
+	if (!m_pRecal->SendRecal0(tlsSource, wavelengthNm, pmRange, err))
 	{
 		SafeAppendLog(err);
 		return;
@@ -712,7 +836,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		{
 			CString msg;
 			msg.Format(_T("RECAL 0 (TLS=%d nm=%d PM=%d) -> %s"),
-				tlsSource, m_wavelengthNm, pmRange, CString(line0));
+				tlsSource, wavelengthNm, pmRange, CString(line0));
 			SafeAppendLog(msg);
 		}
 	}
@@ -858,9 +982,15 @@ void CM576CalibratorDlg::RunPathPd()
 	ZeroMemory(&m_lut, sizeof(m_lut));
 	int occT3 = 0, occT4 = 0;
 
+	int wavelengthNmPd = 0;
+	if (!ParseWavelengthNm(m_strWavelength, wavelengthNmPd, err))
+	{
+		SafeAppendLog(err);
+		return;
+	}
 	const int tlsSourcePd = m_tlsIndex + 1;
 	const int pmRangePd = m_pmRangeIndex;
-	if (!m_pRecal->SendRecal0(tlsSourcePd, m_wavelengthNm, pmRangePd, err))
+	if (!m_pRecal->SendRecal0(tlsSourcePd, wavelengthNmPd, pmRangePd, err))
 	{
 		SafeAppendLog(err);
 		return;
@@ -873,7 +1003,7 @@ void CM576CalibratorDlg::RunPathPd()
 		{
 			CString msg;
 			msg.Format(_T("RECAL 0 (TLS=%d nm=%d PM=%d) -> %s"),
-				tlsSourcePd, m_wavelengthNm, pmRangePd, CString(line0));
+				tlsSourcePd, wavelengthNmPd, pmRangePd, CString(line0));
 			SafeAppendLog(msg);
 		}
 	}
