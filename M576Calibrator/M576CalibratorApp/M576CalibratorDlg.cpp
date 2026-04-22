@@ -255,7 +255,11 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_strWavelength(_T("1310"))
 	, m_pmRangeIndex(M576_DEFAULT_PM_RANGE)
 {
-	m_strCsv        = _T("output\\standard_pm.csv");
+	for (int i = 0; i < 4; ++i)
+	{
+		m_strCsvPm[i] = g_m576DefaultPmCsvRel[i];
+		m_strCsvPd[i] = g_m576DefaultPdCsvRel[i];
+	}
 	m_strOutBin     = _T("output\\standard.bin");
 	m_strBackupBin  = _T("output\\backup.bin");
 	m_strCommLogPath = _T("output\\comm.log");
@@ -276,7 +280,6 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	DDV_MinMaxInt(pDX, m_pmRangeIndex, M576_MIN_PM_RANGE, M576_MAX_PM_RANGE);
 	DDX_Control(pDX, IDC_EDIT_LOG, m_editLog);
 	DDX_Control(pDX, IDC_PROGRESS_MAIN, m_progress);
-	DDX_Text(pDX, IDC_EDIT_CSV, m_strCsv);
 	DDX_Text(pDX, IDC_EDIT_BACKUP_BIN, m_strBackupBin);
 	DDX_Text(pDX, IDC_EDIT_OUT_BIN, m_strOutBin);
 	DDX_Text(pDX, IDC_EDIT_SN, m_strSn);
@@ -370,18 +373,16 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	}
 	UpdateData(FALSE);
 	SyncRecal0ControlsVisibility();
-	GetDlgItem(IDC_EDIT_CSV)->EnableWindow(FALSE);
 	FillComPorts();
 	SyncSerialPortUi();
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	ZeroMemory(&m_lut, sizeof(m_lut));
+	for (int li = 0; li < 4; ++li)
+		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
-	AppendLog(_T("Backup BIN: use [Read Flash backup] for device LUT, or pick a local .bin to merge."));
-
-	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard_pm.csv; PD mode -> .\\output\\standard_pd.csv"));
-	AppendLog(_T("Path CSV is fixed by mode selection and cannot be edited manually."));
-	AppendLog(_T("PM: Command A (RECAL 0) + Command B (RECAL 1) + RECAL 3; PD: Command C (RECAL 2) + RECAL 5 only (no RECAL 0)."));
+	AppendLog(_T("Backup BIN: base path -> Read Flash writes *_tN.bin; merge uses per-trans backups."));
+	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
+	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	return TRUE;
 }
 
@@ -600,16 +601,23 @@ CString CM576CalibratorDlg::GetComboCom()
 	return s;
 }
 
-CString CM576CalibratorDlg::GetDefaultCsvPathForMode() const
-{
-	return (m_nCalMode == 0) ? _T("output\\standard_pm.csv") : _T("output\\standard_pd.csv");
-}
-
 void CM576CalibratorDlg::SyncCsvPathWithMode()
 {
-	m_strCsv = GetDefaultCsvPathForMode();
-	if (m_hWnd)
+	for (int i = 0; i < 4; ++i)
+	{
+		m_strCsvPm[i] = g_m576DefaultPmCsvRel[i];
+		m_strCsvPd[i] = g_m576DefaultPdCsvRel[i];
+	}
+	if (m_hWnd && ::IsWindow(m_hWnd))
+	{
+		CString hint;
+		if (m_nCalMode == 0)
+			hint = _T("CSV: output\\pm_mcs1|2, pm_1x64_1|2.csv (built-in)");
+		else
+			hint = _T("CSV: output\\pd_mcs1|2, pd_1x64_1|2.csv (built-in)");
+		::SetDlgItemText(m_hWnd, IDC_STATIC_PATH_CSV_HINT, hint);
 		UpdateData(FALSE);
+	}
 }
 
 void CM576CalibratorDlg::SyncRecal0ControlsVisibility()
@@ -692,23 +700,6 @@ void CM576CalibratorDlg::OnBnClickedClosePort()
 	UpdateData(TRUE);
 	ClosePort();
 	SyncSerialPortUi();
-}
-
-void CM576CalibratorDlg::OnBrowse(UINT idEdit)
-{
-	const CString exe = GetExeFolder();
-	CString initDir = exe;
-	const CString outDir = exe + _T("\\output");
-	if (GetFileAttributes(outDir) != INVALID_FILE_ATTRIBUTES)
-		initDir = outDir;
-	const CString defaultName = (idEdit == IDC_EDIT_CSV) ? GetDefaultCsvPathForMode().Mid(GetDefaultCsvPathForMode().ReverseFind(_T('\\')) + 1) : _T("standard.csv");
-	CFileDialog dlg(TRUE, _T("csv"), defaultName, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
-		_T("CSV files (*.csv)|*.csv|All (*.*)|*.*||"), this);
-	dlg.GetOFN().lpstrInitialDir = initDir.GetString();
-	if (dlg.DoModal() != IDOK)
-		return;
-	SetDlgItemText(idEdit, ToRelPath(dlg.GetPathName()));
-	UpdateData(TRUE);
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseBackup()
@@ -834,11 +825,38 @@ BOOL CM576CalibratorDlg::ValidateRunPathInputs(CString& errMsg)
 		if (!ParseWavelengthNm(m_strWavelength, nm, errMsg))
 			return FALSE;
 	}
-	const CString absCsv = ResolveFilePath(m_strCsv);
-	if (absCsv.IsEmpty() || GetFileAttributes(absCsv) == INVALID_FILE_ATTRIBUTES)
+	int nFound = 0;
+	if (m_nCalMode == 0)
 	{
-		errMsg.Format(_T("Path CSV not found or not accessible for this mode:\n%s"), (LPCTSTR)m_strCsv);
-		return FALSE;
+		for (int i = 0; i < 4; ++i)
+		{
+			const CString p = m_strCsvPm[i].Trim();
+			if (p.IsEmpty())
+				continue;
+			if (GetFileAttributes(ResolveFilePath(p)) != INVALID_FILE_ATTRIBUTES)
+				nFound++;
+		}
+		if (nFound == 0)
+		{
+			errMsg = _T("PM mode: no built-in PM CSV found under exe\\output (e.g. pm_mcs1.csv). Check PostBuild / output folder.");
+			return FALSE;
+		}
+	}
+	else
+	{
+		for (int i = 0; i < 4; ++i)
+		{
+			const CString p = m_strCsvPd[i].Trim();
+			if (p.IsEmpty())
+				continue;
+			if (GetFileAttributes(ResolveFilePath(p)) != INVALID_FILE_ATTRIBUTES)
+				nFound++;
+		}
+		if (nFound == 0)
+		{
+			errMsg = _T("PD mode: no built-in PD CSV found under exe\\output (e.g. pd_mcs1.csv). Check PostBuild / output folder.");
+			return FALSE;
+		}
 	}
 	return TRUE;
 }
@@ -854,6 +872,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	}
 	if (!UpdateData(TRUE))
 		return;
+	SyncCsvPathWithMode();
 	CString valErr;
 	if (!ValidateRunPathInputs(valErr))
 	{
@@ -920,20 +939,59 @@ void CM576CalibratorDlg::OnDestroy()
 	CDialogEx::OnDestroy();
 }
 
+void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
+{
+	CString base = m_strBackupBin;
+	base.Trim();
+	if (base.IsEmpty())
+		return;
+	const CString absBk = ResolveFilePath(base);
+	for (int li = 0; li < 4; ++li)
+	{
+		const CString p = M576TransBackupPathFromBase(absBk, li + 1);
+		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+			continue;
+		if (CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
+		{
+			CString m;
+			m.Format(_T("Run path: preloaded trans %d from %s"), li + 1, p.GetString());
+			SafeAppendLog(m);
+		}
+		else
+		{
+			CString m;
+			m.Format(_T("Run path: read backup failed for %s"), p.GetString());
+			SafeAppendLog(m);
+		}
+	}
+}
+
 void CM576CalibratorDlg::RunPathPowerMeter()
 {
-	CArray<SPathStep, SPathStep const&> steps;
 	CString err;
-	if (!LoadPathCsv(ResolveFilePath(m_strCsv), steps, err))
+	int totalAll = 0;
+	for (int fs = 0; fs < 4; ++fs)
 	{
-		SafeAppendLog(err);
+		const CString rel = m_strCsvPm[fs].Trim();
+		if (rel.IsEmpty())
+			continue;
+		const CString abs = ResolveFilePath(rel);
+		if (GetFileAttributes(abs) == INVALID_FILE_ATTRIBUTES)
+			continue;
+		CArray<SPathStep, SPathStep const&> tmp;
+		if (!LoadPathCsv(abs, tmp, err))
+			continue;
+		totalAll += (int)tmp.GetSize();
+	}
+	if (totalAll == 0)
+	{
+		SafeAppendLog(_T("PM: no CSV rows (missing paths or empty files)."));
 		return;
 	}
-	int total = (int)steps.GetSize();
-	SafeSetProgressRange(0, total);
-
-	ZeroMemory(&m_lut, sizeof(m_lut));
-	int occT3 = 0, occT4 = 0;
+	SafeSetProgressRange(0, totalAll);
+	for (int li = 0; li < 4; ++li)
+		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
+	TryPreloadLutFromPerTransBackup();
 
 	int wavelengthNm = 0;
 	if (!ParseWavelengthNm(m_strWavelength, wavelengthNm, err))
@@ -961,6 +1019,49 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 	}
 
+	int globalProgress = 0;
+	for (int fs = 0; fs < 4; ++fs)
+	{
+		const CString rel = m_strCsvPm[fs].Trim();
+		if (rel.IsEmpty())
+		{
+			CString m;
+			m.Format(_T("PM slot %d: path empty, skip."), fs + 1);
+			SafeAppendLog(m);
+			continue;
+		}
+		const CString abs = ResolveFilePath(rel);
+		if (GetFileAttributes(abs) == INVALID_FILE_ATTRIBUTES)
+		{
+			CString m;
+			m.Format(_T("PM slot %d: file not found, skip: %s"), fs + 1, rel.GetString());
+			SafeAppendLog(m);
+			continue;
+		}
+		CArray<SPathStep, SPathStep const&> steps;
+		if (!LoadPathCsv(abs, steps, err))
+		{
+			SafeAppendLog(err);
+			continue;
+		}
+		if (steps.GetSize() == 0)
+			continue;
+		{
+			CString m;
+			m.Format(_T("PM slot %d (%s): %d rows"), fs + 1, rel.GetString(), (int)steps.GetSize());
+			SafeAppendLog(m);
+		}
+		int occT3 = 0;
+		int occT4 = 0;
+		RunPathPowerMeterFile(fs, steps, globalProgress, totalAll, occT3, occT4);
+	}
+	SafeAppendLog(_T("Path run finished (PM all slots)."));
+}
+
+void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, SPathStep const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4)
+{
+	CString err;
+	const int total = (int)steps.GetSize();
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
 	CStringA lineOk, lineY, lineX;
@@ -969,6 +1070,22 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (m_bStop)
 			break;
 		SPathStep& st = steps[i];
+		CString verr;
+		if (!ValidatePathStep(st, verr))
+		{
+			SafeAppendLog(verr);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
+			continue;
+		}
+		CString wslot;
+		if (!PmStepMatchesFileSlot(st, fileSlot, &wslot))
+		{
+			SafeAppendLog(wslot);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
+			continue;
+		}
 		const int idxOcc3 = (st.targetSwitchIndex == 3) ? occT3 : -1;
 		const int idxOcc4 = (st.targetSwitchIndex == 4) ? occT4 : -1;
 		if (st.targetSwitchIndex == 3)
@@ -976,12 +1093,6 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		else if (st.targetSwitchIndex == 4)
 			occT4++;
 
-		CString verr;
-		if (!ValidatePathStep(st, verr))
-		{
-			SafeAppendLog(verr);
-			continue;
-		}
 		if (!m_pRecal->SendRecal1(st, err))
 		{
 			SafeAppendLog(err);
@@ -990,13 +1101,14 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (!m_pRecal->ReadAsciiResponse(lineOk, 3000, err))
 		{
 			SafeAppendLog(_T("RECAL 1: timeout waiting for OK."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
 			CString msg;
 			lineOk.Trim();
-			msg.Format(_T("Step %d/%d RECAL 1 -> %s"), i + 1, total, CString(lineOk));
+			msg.Format(_T("Step %d/%d (slot %d) RECAL 1 -> %s"), i + 1, total, fileSlot + 1, CString(lineOk));
 			SafeAppendLog(msg);
 			if (lineOk.CompareNoCase("OK") != 0)
 			{
@@ -1013,7 +1125,8 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (!m_pRecal->ReadAsciiSweepResponse(lineY, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 3 0 (Y sweep): timeout or empty."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		double xFixedDac = 0.0;
@@ -1021,7 +1134,8 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (!CRecalSession::ParseRecal3SweepLine(lineY, xFixedDac, powY))
 		{
 			SafeAppendLog(_T("RECAL 3 0: could not parse [X_start] P1..Pn."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
@@ -1035,7 +1149,8 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (powY.empty() || !M576::PeakMax1D(powY, brForYBase))
 		{
 			SafeAppendLog(_T("  RECAL 3 1: no Y peak index; skip X sweep."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		const int yBaseDacForSweep1 =
@@ -1054,7 +1169,8 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (!m_pRecal->ReadAsciiSweepResponse(lineX, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 3 1 (X sweep): timeout or empty."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		double yFixedDac = 0.0;
@@ -1062,7 +1178,8 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (!CRecalSession::ParseRecal3SweepLine(lineX, yFixedDac, powX))
 		{
 			SafeAppendLog(_T("RECAL 3 1: could not parse [Y_start] P1..Pn."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
@@ -1101,31 +1218,87 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 3 0 / 3 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
-			ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lut);
+			ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
 		}
 
-		SafeSetProgressPos(i + 1);
+		++globalProgress;
+		SafeSetProgressPos(globalProgress);
 	}
-	SafeAppendLog(_T("Path run finished."));
+	(void)globalTotal;
 }
 
 void CM576CalibratorDlg::RunPathPd()
 {
-	CArray<SPathStepPd, SPathStepPd const&> steps;
 	CString err;
-	if (!LoadPathCsvPd(ResolveFilePath(m_strCsv), steps, err))
+	int totalAll = 0;
+	for (int fs = 0; fs < 4; ++fs)
 	{
-		SafeAppendLog(err);
+		const CString rel = m_strCsvPd[fs].Trim();
+		if (rel.IsEmpty())
+			continue;
+		const CString abs = ResolveFilePath(rel);
+		if (GetFileAttributes(abs) == INVALID_FILE_ATTRIBUTES)
+			continue;
+		CArray<SPathStepPd, SPathStepPd const&> tmp;
+		if (!LoadPathCsvPd(abs, tmp, err))
+			continue;
+		totalAll += (int)tmp.GetSize();
+	}
+	if (totalAll == 0)
+	{
+		SafeAppendLog(_T("PD: no CSV rows (missing paths or empty files)."));
 		return;
 	}
-	int total = (int)steps.GetSize();
-	SafeSetProgressRange(0, total);
-
-	ZeroMemory(&m_lut, sizeof(m_lut));
-	int occT3 = 0, occT4 = 0;
+	SafeSetProgressRange(0, totalAll);
+	for (int li = 0; li < 4; ++li)
+		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
+	TryPreloadLutFromPerTransBackup();
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
 
+	int globalProgress = 0;
+	for (int fs = 0; fs < 4; ++fs)
+	{
+		const CString rel = m_strCsvPd[fs].Trim();
+		if (rel.IsEmpty())
+		{
+			CString m;
+			m.Format(_T("PD slot %d: path empty, skip."), fs + 1);
+			SafeAppendLog(m);
+			continue;
+		}
+		const CString abs = ResolveFilePath(rel);
+		if (GetFileAttributes(abs) == INVALID_FILE_ATTRIBUTES)
+		{
+			CString m;
+			m.Format(_T("PD slot %d: file not found, skip: %s"), fs + 1, rel.GetString());
+			SafeAppendLog(m);
+			continue;
+		}
+		CArray<SPathStepPd, SPathStepPd const&> steps;
+		if (!LoadPathCsvPd(abs, steps, err))
+		{
+			SafeAppendLog(err);
+			continue;
+		}
+		if (steps.GetSize() == 0)
+			continue;
+		{
+			CString m;
+			m.Format(_T("PD slot %d (%s): %d rows"), fs + 1, rel.GetString(), (int)steps.GetSize());
+			SafeAppendLog(m);
+		}
+		int occT3 = 0;
+		int occT4 = 0;
+		RunPathPdFile(fs, steps, globalProgress, totalAll, occT3, occT4);
+	}
+	SafeAppendLog(_T("Path run finished (PD all slots)."));
+}
+
+void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4)
+{
+	CString err;
+	const int total = (int)steps.GetSize();
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
 	CStringA lineOk, lineY, lineX;
@@ -1134,6 +1307,22 @@ void CM576CalibratorDlg::RunPathPd()
 		if (m_bStop)
 			break;
 		SPathStepPd& st = steps[i];
+		CString verr;
+		if (!ValidatePathStepPd(st, verr))
+		{
+			SafeAppendLog(verr);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
+			continue;
+		}
+		CString wslot;
+		if (!PdStepMatchesFileSlot(st, fileSlot, &wslot))
+		{
+			SafeAppendLog(wslot);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
+			continue;
+		}
 		const int idxOcc3 = (st.targetSwitchIndex == 3) ? occT3 : -1;
 		const int idxOcc4 = (st.targetSwitchIndex == 4) ? occT4 : -1;
 		if (st.targetSwitchIndex == 3)
@@ -1141,12 +1330,6 @@ void CM576CalibratorDlg::RunPathPd()
 		else if (st.targetSwitchIndex == 4)
 			occT4++;
 
-		CString verr;
-		if (!ValidatePathStepPd(st, verr))
-		{
-			SafeAppendLog(verr);
-			continue;
-		}
 		if (!m_pRecal->SendRecal2(st, err))
 		{
 			SafeAppendLog(err);
@@ -1155,13 +1338,14 @@ void CM576CalibratorDlg::RunPathPd()
 		if (!m_pRecal->ReadAsciiResponse(lineOk, 3000, err))
 		{
 			SafeAppendLog(_T("RECAL 2: timeout waiting for OK."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
 			CString msg;
 			lineOk.Trim();
-			msg.Format(_T("PD step %d/%d RECAL 2 -> %s"), i + 1, total, CString(lineOk));
+			msg.Format(_T("PD step %d/%d (slot %d) RECAL 2 -> %s"), i + 1, total, fileSlot + 1, CString(lineOk));
 			SafeAppendLog(msg);
 			if (lineOk.CompareNoCase("OK") != 0)
 			{
@@ -1178,7 +1362,8 @@ void CM576CalibratorDlg::RunPathPd()
 		if (!m_pRecal->ReadAsciiSweepResponse(lineY, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 5 0 (Y sweep): timeout or empty."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		double xFixedDacPd = 0.0;
@@ -1186,7 +1371,8 @@ void CM576CalibratorDlg::RunPathPd()
 		if (!CRecalSession::ParseRecal3SweepLine(lineY, xFixedDacPd, powY))
 		{
 			SafeAppendLog(_T("RECAL 5 0: could not parse [X_start] P1..Pn."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
@@ -1199,7 +1385,8 @@ void CM576CalibratorDlg::RunPathPd()
 		if (powY.empty() || !M576::PeakMax1D(powY, brForYBasePd))
 		{
 			SafeAppendLog(_T("  RECAL 5 1: no Y peak index; skip X sweep."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		const int yBaseDacForSweep1Pd =
@@ -1218,7 +1405,8 @@ void CM576CalibratorDlg::RunPathPd()
 		if (!m_pRecal->ReadAsciiSweepResponse(lineX, readTimeout1d, err))
 		{
 			SafeAppendLog(_T("RECAL 5 1 (X sweep): timeout or empty."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		double yFixedDacPd = 0.0;
@@ -1226,7 +1414,8 @@ void CM576CalibratorDlg::RunPathPd()
 		if (!CRecalSession::ParseRecal3SweepLine(lineX, yFixedDacPd, powX))
 		{
 			SafeAppendLog(_T("RECAL 5 1: could not parse [Y_start] P1..Pn."));
-			SafeSetProgressPos(i + 1);
+			++globalProgress;
+			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
@@ -1258,12 +1447,13 @@ void CM576CalibratorDlg::RunPathPd()
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 5 0 / 5 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
-			ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, br, bc, m_lut);
+			ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
 		}
 
-		SafeSetProgressPos(i + 1);
+		++globalProgress;
+		SafeSetProgressPos(globalProgress);
 	}
-	SafeAppendLog(_T("Path run finished (PD)."));
+	(void)globalTotal;
 }
 
 void CM576CalibratorDlg::OnBnClickedGenBin()
@@ -1271,50 +1461,65 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	UpdateData(TRUE);
 	if (m_strOutBin.IsEmpty())
 	{
-		AppendLog(_T("Set output BIN path."));
+		AppendLog(_T("Set output BIN base path (writes <base>_t1.bin … _t4.bin)."));
 		return;
 	}
-	stLutSettingZ4671 merged;
-	ZeroMemory(&merged, sizeof(merged));
 	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
-	const CString absOutBin = ResolveFilePath(m_strOutBin);
-	if (!m_strBackupBin.IsEmpty() && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
-	{
-		BOOL readOk = CLutBinWriter::ReadLutFromFile(absBackupBin, merged);
-		if (!readOk)
-		{
-			const CString tryMcs1 = M576TransBackupPathFromBase(absBackupBin, 1);
-			if (GetFileAttributes(tryMcs1) != INVALID_FILE_ATTRIBUTES)
-				readOk = CLutBinWriter::ReadLutFromFile(tryMcs1, merged);
-			if (!readOk)
-			{
-				AppendLog(_T("Read backup BIN failed."));
-				return;
-			}
-			AppendLog(_T("Read MCS1# backup (*_t1.bin) for merge."));
-		}
-		MergeLut1310LowTempSlot(merged, m_lut);
-		AppendLog(_T("Merged 1310 low-temp slot from session LUT into backup."));
-	}
-	else
-	{
-		merged = m_lut;
-		AppendLog(_T("No backup BIN (or missing file); using in-memory LUT only."));
-	}
+	const CString absOutBase = ResolveFilePath(m_strOutBin);
+	CString sn = m_strSn;
+	if (sn.IsEmpty())
+		sn = _T("SN000000");
 
-	SLutBinWriteParams p;
-	p.strOutputPath = absOutBin;
-	p.pLut = &merged;
-	p.strBundleSN = m_strSn;
-	if (p.strBundleSN.IsEmpty())
-		p.strBundleSN = _T("SN000000");
-	if (!CLutBinWriter::Write(p))
+	for (int i = 0; i < 4; ++i)
 	{
-		AppendLog(_T("Write BIN failed."));
-		return;
+		stLutSettingZ4671 merged;
+		ZeroMemory(&merged, sizeof(merged));
+		BOOL haveBackup = FALSE;
+		if (!m_strBackupBin.IsEmpty())
+		{
+			const CString perTransBk = M576TransBackupPathFromBase(absBackupBin, i + 1);
+			if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
+				haveBackup = CLutBinWriter::ReadLutFromFile(perTransBk, merged);
+			if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
+			{
+				haveBackup = CLutBinWriter::ReadLutFromFile(absBackupBin, merged);
+				if (haveBackup)
+					AppendLog(_T("Trans1: read legacy single backup file for merge."));
+			}
+		}
+		if (haveBackup)
+		{
+			MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
+			CString m;
+			m.Format(_T("Trans %d: merged session LUT into per-trans backup."), i + 1);
+			AppendLog(m);
+		}
+		else
+		{
+			memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
+			CString m;
+			m.Format(_T("Trans %d: no per-trans backup (*_t%d.bin); writing in-memory LUT only."), i + 1, i + 1);
+			AppendLog(m);
+		}
+
+		const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
+		SLutBinWriteParams p;
+		p.strOutputPath = absOutOne;
+		p.pLut = &merged;
+		p.strBundleSN = sn;
+		if (!CLutBinWriter::Write(p))
+		{
+			CString m;
+			m.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
+			AppendLog(m);
+			return;
+		}
+		memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
+		CString ok;
+		ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
+		AppendLog(ok);
 	}
-	m_lut = merged;
-	AppendLog(_T("BIN written."));
+	AppendLog(_T("All trans BIN files written."));
 }
 
 void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)
@@ -1336,13 +1541,29 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (m_strOutBin.IsEmpty())
 	{
-		AppendLog(_T("Set output BIN path (same file used for flash)."));
+		AppendLog(_T("Set output BIN base path; burn uses <base>_t1.bin … from disk."));
 		return;
 	}
 	const CString absOutBin = ResolveFilePath(m_strOutBin);
-	if (GetFileAttributes(absOutBin) == INVALID_FILE_ATTRIBUTES)
+	BOOL anyBin = FALSE;
+	for (int ti = 1; ti <= 4; ++ti)
 	{
-		AppendLog(_T("BIN not found."));
+		const CString p = M576TransBackupPathFromBase(absOutBin, ti);
+		if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
+		{
+			HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+			if (h != INVALID_HANDLE_VALUE)
+			{
+				const DWORD sz = GetFileSize(h, NULL);
+				CloseHandle(h);
+				if (sz > 0)
+					anyBin = TRUE;
+			}
+		}
+	}
+	if (!anyBin)
+	{
+		AppendLog(_T("No non-empty *_tN.bin found for this base path; run Write BIN first."));
 		return;
 	}
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
@@ -1360,5 +1581,5 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(m);
 		return;
 	}
-	AppendLog(_T("Flash completed (439F trans + Z4671 frames per CalibConstants burn list)."));
+	AppendLog(_T("Flash completed (each trans uses its own *_tN.bin from the output base path)."));
 }

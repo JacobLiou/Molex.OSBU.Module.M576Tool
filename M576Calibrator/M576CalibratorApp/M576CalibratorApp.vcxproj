@@ -79,7 +79,15 @@
     <PostBuildEvent>
       <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
   copy /Y &quot;$(SolutionDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
+  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_mcs1.csv&quot; &quot;$(OutDir)output\pm_mcs1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_mcs2.csv&quot; &quot;$(OutDir)output\pm_mcs2.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_1x64_1.csv&quot; &quot;$(OutDir)output\pm_1x64_1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_1x64_2.csv&quot; &quot;$(OutDir)output\pm_1x64_2.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_mcs1.csv&quot; &quot;$(OutDir)output\pd_mcs1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_mcs2.csv&quot; &quot;$(OutDir)output\pd_mcs2.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_1x64_1.csv&quot; &quot;$(OutDir)output\pd_1x64_1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_1x64_2.csv&quot; &quot;$(OutDir)output\pd_1x64_2.csv&quot;</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -111,7 +119,15 @@
     <PostBuildEvent>
       <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
   copy /Y &quot;$(SolutionDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;</Command>
+  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_mcs1.csv&quot; &quot;$(OutDir)output\pm_mcs1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_mcs2.csv&quot; &quot;$(OutDir)output\pm_mcs2.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_1x64_1.csv&quot; &quot;$(OutDir)output\pm_1x64_1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pm_1x64_2.csv&quot; &quot;$(OutDir)output\pm_1x64_2.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_mcs1.csv&quot; &quot;$(OutDir)output\pd_mcs1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_mcs2.csv&quot; &quot;$(OutDir)output\pd_mcs2.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_1x64_1.csv&quot; &quot;$(OutDir)output\pd_1x64_1.csv&quot;
+  copy /Y &quot;$(SolutionDir)output\pd_1x64_2.csv&quot; &quot;$(OutDir)output\pd_1x64_2.csv&quot;</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -127,6 +143,7 @@
     <ClInclude Include="RecalSession.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="stdafx.h" />
+    <ClInclude Include="TransLutRoute.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
@@ -141,6 +158,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="RecalSession.cpp" />
+    <ClCompile Include="TransLutRoute.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>

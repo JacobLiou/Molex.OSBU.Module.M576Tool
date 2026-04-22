@@ -27,11 +27,11 @@
 |------|------|
 | **串口 (439F)** | 下拉选择 COM（COM1～COM32），对应整机 439F 调试口。 |
 | **打开串口** | 打开上述端口；失败时查看下方日志。 |
-| **path CSV** | 校准路径表文件（见下文 CSV 格式），可用「…」浏览选择。功率计模式用 **5 列**（Z4744 Command B）；PD 模式用 **3 列**（见 §5.1）。 |
-| **Mode** | **PM (RECAL 1)**：功率计方案，Command A + B；**PD (RECAL 2)**：板载 PD 方案，Command A + C（Z4744）。 |
+| **Path CSV** | **固化**为 `CalibConstants.h` 中默认的 `output\pm_*.csv`（PM）或 `output\pd_*.csv`（PD），界面仅 **一行简要说明**；切换 **Mode** 时更新说明；**Run path** 前会再次套用默认路径。 |
+| **Mode** | **PM (RECAL 1)**：功率计方案，Command A + B；**PD (RECAL 2)**：板载 PD 方案，Command C（无 **RECAL 0**）。 |
 | **delay ms / DAC range / DAC step** | 用于 **`RECAL 3` / `RECAL 5`** 扫点及超时估算；**不**随 `RECAL 0` 下发（固件定稿：`RECAL 0` 仅波长，默认 1310 nm）。 |
-| **Backup BIN** | （可选）已有定标备份文件，用于 **合并** 时保留非低温槽数据。多通道读备份后若填写的是 **基路径** `xxx.bin`，合并时可仍指向该路径；若该文件不存在，程序会尝试同目录 **`xxx_t1.bin`**（MCS1#）。 |
-| **Output BIN** | 生成的定标 BIN **输出路径**；「写 BIN」「烧录定标」均依赖此路径。 |
+| **Backup BIN** | （可选）**基路径**（如 `output\mcs_lut_backup.bin`）。读 Flash 后在同目录生成 **`基名_t1.bin` … `基名_t4.bin`**。「写 BIN」时按 **trans 1～4** 分别读取对应的 `*_tN.bin`（若存在）与内存中 **该路** 定标结果合并；仅 trans1 可回退读 **单一旧文件**（无 `_t1` 时）。 |
+| **Output BIN base** | **基路径**（如 `output\standard.bin`）。**写 BIN** 写出 **`基名_t1.bin` … `基名_t4.bin`** 共四个文件；**烧录** 按 `CalibConstants.h` 中的通道列表，对每个 trans 烧录磁盘上对应的 **`_tN.bin`**（缺省或空文件则跳过该路并打日志）。 |
 | **Bundle SN** | 写入 Bundle 头用的序列号；为空时程序内有默认占位，正式使用请填写真实 SN。 |
 | **进度条** | 「跑路径」时按步数更新；「烧录定标」时按分包进度更新。 |
 | **日志窗口** | 显示操作结果、报错及 RECAL 回传摘要。 |
@@ -46,34 +46,32 @@
 2. 在界面 **串口 (439F)** 中选择对应端口。  
 3. 点击 **打开串口**。成功则日志提示端口已打开。
 
-### 4.2 准备路径 CSV
+### 4.2 路径 CSV（程序内置）
 
-- 使用 Excel 导出的 **`path_0330` 等价 CSV**，或按下一节格式自行编辑。  
-- 将完整路径填入 **path CSV**，或用「…」选择文件。
+- 四路 PM / 四路 PD 的文件名与相对目录写死在 **`CalibConstants.h`**（`g_m576DefaultPmCsvRel` / `g_m576DefaultPdCsvRel`），构建时 PostBuild 拷贝到 **`程序目录\output\`**。  
+- 工艺上仍可将 `standard_pm.csv` / `standard_pd.csv` **按 target 拆成四份**覆盖上述文件；也可用 **`tools\split_path_csv_eight.ps1`** 生成。  
+- 某路文件 **缺失** 或 **0 行**：该槽 **跳过**（Warn）。若要改路径或文件名，需改常量并重新编译。
 
 ### 4.3 跑路径（RECAL）
 
 1. 确保串口已打开（若未打开，点击 **Run path** 时会尝试自动打开）。  
-2. 选择 **Mode**：**PM (RECAL 1)** 会自动切到 `output\standard_pm.csv`；**PD (RECAL 2)** 会自动切到 `output\standard_pd.csv`。该路径在界面中仅展示，不允许手动修改。  
+2. 选择 **Mode**，确认当前模式下的 **四路 CSV**。  
 3. 点击 **Run path (RECAL)**。  
-4. 程序先发送 **Command A**：`RECAL 0 <波长(nm)>`（默认 1310），再对每一行发送 **Command B** `RECAL 1` 或 **Command C** `RECAL 2`，并等待一行 ASCII 响应；随后 **`RECAL 3` / `RECAL 5`** 携带 delay 与 DAC 扫参（读超时按网格点数与 delay 估算，上限约 600 s）。  
-5. 日志中可查看每步回传；若回传为可解析的功率数组且点数为 **完全平方数**，会尝试 **十字寻峰** 并打印峰位置（辅助分析，具体含义以固件为准）。  
-6. 需要中断时可点 **Stop**（对当前循环置停止标志）。
+4. **PM**：清零四份内存 LUT；若已填 **Backup BIN** 基路径且磁盘上存在对应 **`基名_tN.bin`**，则先 **预载** 到 `m_lutByTrans`（再跑路径时在之上更新）；随后发 **一次** `RECAL 0`，再按 **trans 1→4** 依次加载 PM 四文件并跑 `RECAL 1` + `RECAL 3`，寻峰结果写入 **`m_lutByTrans[槽位]`**；进度为四文件 **总行数**。  
+5. **PD**：同上（含可选预载），**无 RECAL 0**，顺序为 `RECAL 2` + `RECAL 5`，写入对应 **`m_lutByTrans[槽位]`**。  
+6. 需要中断时点 **Stop**。
 
 **PD 与功率计差异（Z4744）**
 
-- **功率计（A+B）**：`RECAL 1`，目标索引 **1～6**，四段光路 `[1#1x64][1#MCS][2#MCS][2#1x64]`；现场需外接功率计读数由 439F 协调。  
-- **PD（A+C）**：`RECAL 2`，目标索引 **1～4**（依次为 2#1×64 Stage_1、Stage_2、1#MCS、2#MCS），线格式为 **两个通道号**：`<2#1×64 ch> <MCS ch>`（MCS 侧由 ch 半区隐式确定）；硬件上 2×8 开关接 `Ext1.Laser`、连接 `OPM`（以 Z4744 说明为准）。  
-- 两种模式共用 **`RECAL 0` 波长**；扫参在 **`RECAL 3` / `RECAL 5`**；路径表列数：**RECAL 1** 为 5 列，**RECAL 2** 为 3 列。
-
-> **说明**：当前界面侧 **将校准结果写满 `m_lut` 的完整业务链** 需与工艺/固件对接后继续完善；「写 BIN」依赖内存中的 LUT 与备份合并逻辑。
+- **功率计**：`RECAL 1`，目标 **1～6**；四路文件与 **1#MCS / 2#MCS / 1#1×64 / 2#1×64** 对应关系见 **`TransLutRoute.cpp`（PM）**。  
+- **PD**：`RECAL 2`，目标 **1～4**；槽位映射见 **`TransLutRoute.cpp`（PD）**，与 `LutPeakApply` 写 LUT 约定一致。  
+- 扫参在 **`RECAL 3` / `RECAL 5`**；列数：**5** / **3**。
 
 ### 4.4 生成 BIN（写 BIN）
 
-1. 设置 **Output BIN** 保存路径。  
-2. 若需 **保留旧 BIN 中除低温槽外的数据**，填写 **Backup BIN**。  
-3. 点击 **Write BIN**。  
-4. 逻辑概要：若存在有效备份则先读入 LUT，再把内存中 **1310 低温槽** 相关数据合并进去，再按 Z4671 规则写 Bundle 与 CRC；无备份则仅使用当前内存 LUT（全零或未填充时文件无实际定标意义）。
+1. 设置 **Output BIN base**（如 `output\standard.bin`）。  
+2. 可选：**Backup BIN** 基路径；写 BIN 时读取 **`基名_t1.bin`…`基名_t4.bin`**（若存在）与各路内存 LUT 做 **1310 低温槽** 合并。  
+3. 点击 **Write BIN**，生成 **四个** `基名_tN.bin`。无某路备份时该路仅写内存 LUT。
 
 ### 4.4.1 读 Flash 备份（439F `trans`）
 
@@ -83,10 +81,10 @@
 
 ### 4.5 烧录定标（经 439F `trans` 至各下游）
 
-1. 确认 **Output BIN** 已指向要烧录的文件且文件存在。  
+1. 确认已执行 **写 BIN**，且 **Output BIN base** 同目录下存在至少一个 **非空的 `基名_tN.bin`**。  
 2. 确保 **439F 串口** 已打开（未打开时点击烧录会尝试 **打开串口**）。  
 3. 点击 **烧录定标**。  
-4. 程序对每个 **烧录通道**（默认与读备份相同，可在 **`CalibConstants.h`** 中改为仅 MCS 等）依次 `trans` → Z4671 升级帧 → `$$`；进度条为 **所有通道 × 分包** 总进度。烧录结束后程序内 **等待约 5 s**（与既有工具类似），请按现场规范确认模块复位与状态。
+4. 程序对每个 **烧录通道**（默认 trans 1～4，见 **`CalibConstants.h`**）使用 **该通道对应的 `_tN.bin` 全路径** 上传；缺失或 **0 字节** 的文件 **跳过** 该 trans。进度条为各通道分包总和。烧录结束后固件侧等待与既有实现一致。
 
 ---
 
@@ -125,9 +123,9 @@ target_index, ch1, ch2, ch3, ch4
 | 64 | 64 | `target_index=5`，扫 2#1x64 通道 1…64 |
 | 3 | 3 | `target_index=6`，边界点（ch 1 / 32 / 64） |
 
-上位机默认路径会随模式自动切换：PM 为 **`程序目录\output\standard_pm.csv`**，PD 为 **`程序目录\output\standard_pd.csv`**；「写 BIN」默认仍为 **`程序目录\output\standard.bin`**。具体四通道组合与 `target_index` 的对应关系需与 **固件 / 现场 path_0330** 对齐后微调。
+默认八路 CSV 见 **`CalibConstants.h`**（`g_m576DefaultPmCsvRel` / `g_m576DefaultPdCsvRel`）；编译后 PostBuild 会拷贝到 **`程序目录\output\`**。写 BIN / 烧录使用 **同一套基路径** 生成与查找 **`_t1.bin`…`_t4.bin`**。具体 `target_index` 与四路文件的对应以 **`TransLutRoute.cpp`** 为准，需与 **固件 / 现场 path** 对齐。
 
-**Backup BIN（旧 BIN）**：来自本机已保存的 LUT 定标包文件，用于与本次定标得到的 1310 低温槽合并后写出；**不是**通过串口从设备自动读出，需自行选择磁盘上的 `.bin`（没有旧文件可留空，则仅使用本次会话内存中的 LUT）。
+**Backup BIN**：多通道 **Read Flash backup** 后得到各 `*_tN.bin`；写 BIN 时按路读取并与该路内存 LUT 合并。未读备份时可留空，则写出路径仅含本次 Run path 写入的各 `m_lutByTrans`。
 
 可选：表头行以 **`target_index`** 开头会被自动跳过；以 **`#`** 开头的注释行会被忽略。
 

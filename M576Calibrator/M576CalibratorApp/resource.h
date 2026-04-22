@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ 生成的包含文件。
-// 供 M576CalibratorApp.rc 使用
+// Microsoft Visual C++ ?????????????
+// ?? M576CalibratorApp.rc ???
 //
 #define ID_SEPARATOR                    0
 #define VS_VERSION_INFO                 1
@@ -59,6 +59,7 @@
 #define IDC_STATIC_LABEL_WL             1036
 #define IDC_STATIC_LABEL_PM             1037
 #define IDC_BTN_CLOSE_PORT              1038
+#define IDC_STATIC_PATH_CSV_HINT        2116
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -566,7 +567,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        102
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1029
+#define _APS_NEXT_CONTROL_VALUE         2117
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

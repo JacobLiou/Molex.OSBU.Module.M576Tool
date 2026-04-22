@@ -11,6 +11,7 @@
 #include "RecalSession.h"
 #include "PathCsvDriver.h"
 #include "McsFwTransport.h"
+#include "TransLutRoute.h"
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 class CM576CalibratorDlg : public CDialogEx
@@ -34,7 +35,8 @@ private:
 	CComboBox m_comboPmRange;
 	CEdit m_editLog;
 	CProgressCtrl m_progress;
-	CString m_strCsv;
+	CString m_strCsvPm[4];
+	CString m_strCsvPd[4];
 	CString m_strBackupBin;
 	CString m_strOutBin;
 	CString m_strSn;
@@ -44,7 +46,8 @@ private:
 	Z4671Command m_dev429f;
 	std::unique_ptr<CRecalSession> m_pRecal;
 
-	stLutSettingZ4671 m_lut;
+	/// Trans slot 0..3 = trans 1..4 (1#MCS, 2#MCS, 1#1x64, 2#1x64).
+	stLutSettingZ4671 m_lutByTrans[4];
 	volatile BOOL m_bStop;
 
 	std::thread m_pathThread;
@@ -79,17 +82,20 @@ private:
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
+	void RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, SPathStep const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
+	void RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
+	/// If Backup BIN base is set, load existing `*_tN.bin` into `m_lutByTrans` before a path run (optional seed).
+	void TryPreloadLutFromPerTransBackup();
 	void FillComPorts();
 	CString GetComboCom();
 	BOOL OpenPort();
 	void ClosePort();
-	CString GetDefaultCsvPathForMode() const;
+	/// Reset PM/PD path strings to `g_m576Default*` and refresh the brief path hint for current mode.
 	void SyncCsvPathWithMode();
 	/// PM: show Command A (RECAL 0) controls; PD: hide (PD flow uses Command C only, no RECAL 0).
 	void SyncRecal0ControlsVisibility();
-	/// Before Run path: COM, path CSV file, PM wavelength (if PM). MessageBox and return FALSE when invalid.
+	/// Before Run path: COM, PM wavelength (if PM), built-in CSV files exist. MessageBox and return FALSE when invalid.
 	BOOL ValidateRunPathInputs(CString& errMsg);
-	void OnBrowse(UINT idEdit);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	static void ProgressThunk(int cur, int total, void* user);
 	static void __cdecl CommLogThunk(LPCTSTR line, void* user);

@@ -127,4 +127,18 @@ inline constexpr std::size_t g_m576FlashReadTransChannelCount =
 inline constexpr int g_m576FlashBurnTransChannels[] = { 1, 2, 3, 4 };
 inline constexpr std::size_t g_m576FlashBurnTransChannelCount =
 	sizeof(g_m576FlashBurnTransChannels) / sizeof(g_m576FlashBurnTransChannels[0]);
+
+/// Default path CSV per trans slot: 0=1#MCS, 1=2#MCS, 2=1#1x64, 3=2#1x64 (ASCII filenames).
+inline constexpr const TCHAR* const g_m576DefaultPmCsvRel[4] = {
+	_T("output\\pm_mcs1.csv"),
+	_T("output\\pm_mcs2.csv"),
+	_T("output\\pm_1x64_1.csv"),
+	_T("output\\pm_1x64_2.csv"),
+};
+inline constexpr const TCHAR* const g_m576DefaultPdCsvRel[4] = {
+	_T("output\\pd_mcs1.csv"),
+	_T("output\\pd_mcs2.csv"),
+	_T("output\\pd_1x64_1.csv"),
+	_T("output\\pd_1x64_2.csv"),
+};
 #endif

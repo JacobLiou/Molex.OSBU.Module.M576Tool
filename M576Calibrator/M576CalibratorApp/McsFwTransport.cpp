@@ -5,6 +5,10 @@
 #include "CalibConstants.h"
 #include <vector>
 
+#if defined(__cplusplus) && __cplusplus >= 201103L
+#include <cstddef>
+#endif
+
 #ifdef _DEBUG
 #undef THIS_FILE
 static char THIS_FILE[] = __FILE__;
@@ -263,27 +267,47 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	CString discard;
 	(void)Board439fTransTunnel::EndTrans(cmd, discard);
 
-	HANDLE hProbe = CreateFile(szBinPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-	if (hProbe == INVALID_HANDLE_VALUE)
+	std::vector<int> chunksPerChannel;
+	chunksPerChannel.resize(g_m576FlashBurnTransChannelCount);
+	int progressTotal = 0;
+	for (std::size_t pi = 0; pi < g_m576FlashBurnTransChannelCount; ++pi)
 	{
-		err.Format(_T("Open BIN failed: %s"), szBinPath);
+		const int pch = g_m576FlashBurnTransChannels[pi];
+		const CString pathProbe = M576TransBackupPathFromBase(szBinPath, pch);
+		DWORD sz = 0;
+		HANDLE hProbe = CreateFile(pathProbe, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		if (hProbe != INVALID_HANDLE_VALUE)
+		{
+			sz = GetFileSize(hProbe, NULL);
+			CloseHandle(hProbe);
+		}
+		int chunks = 0;
+		if (sz > 0)
+		{
+			const int iCnt = (int)(sz / MAX_DATA_LENGTH);
+			chunks = iCnt + 1;
+		}
+		chunksPerChannel[pi] = chunks;
+		progressTotal += chunks;
+	}
+	if (progressTotal <= 0)
+	{
+		err.Format(_T("No non-empty _tN.bin found from base: %s"), szBinPath);
 		return FALSE;
 	}
-	const DWORD binSize = GetFileSize(hProbe, NULL);
-	CloseHandle(hProbe);
-	if (binSize == 0)
-	{
-		err = _T("BIN file is empty.");
-		return FALSE;
-	}
-	const int iCnt = (int)(binSize / MAX_DATA_LENGTH);
-	const int chunksThisFile = iCnt + 1;
-	const int progressTotal = (int)(g_m576FlashBurnTransChannelCount * (size_t)chunksThisFile);
 
+	int progressBase = 0;
 	for (std::size_t i = 0; i < g_m576FlashBurnTransChannelCount; ++i)
 	{
 		const int ch = g_m576FlashBurnTransChannels[i];
-		cmd.TraceInfo(_T("FW"), _T("Burn: trans=%d bin=%s"), ch, szBinPath);
+		const CString binPath = M576TransBackupPathFromBase(szBinPath, ch);
+		const int chunksThis = chunksPerChannel[i];
+		if (chunksThis <= 0)
+		{
+			cmd.TraceInfo(_T("FW"), _T("Burn skip trans=%d (missing or empty %s)."), ch, binPath.GetString());
+			continue;
+		}
+		cmd.TraceInfo(_T("FW"), _T("Burn: trans=%d bin=%s"), ch, binPath.GetString());
 
 		(void)Board439fTransTunnel::EndTrans(cmd, discard);
 		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
@@ -292,8 +316,7 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			(void)Board439fTransTunnel::EndTrans(cmd, discard);
 			return FALSE;
 		}
-		const int progressBase = (int)(i * (size_t)chunksThisFile);
-		if (!UploadBinOnCurrentTunnel(cmd, szBinPath, err, cb, user, progressBase, progressTotal))
+		if (!UploadBinOnCurrentTunnel(cmd, binPath, err, cb, user, progressBase, progressTotal))
 		{
 			err.Format(_T("trans %d: %s"), ch, err.GetString());
 			(void)Board439fTransTunnel::EndTrans(cmd, discard);
@@ -304,6 +327,7 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			err.Format(_T("trans %d end $$: %s"), ch, err.GetString());
 			return FALSE;
 		}
+		progressBase += chunksThis;
 	}
 	cmd.TraceInfo(_T("FW"), _T("Burn finished all configured trans channels."));
 	return TRUE;
