@@ -318,12 +318,12 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		SetIcon(hIcon, TRUE);
 		SetIcon(hIcon, FALSE);
 	}
-	SetWindowText(_T("M576 / 1310 Calibrator (429F)"));
+	SetWindowText(_T("M576 / 1310 Calibrator (439F)"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_CONN, _T("Connection"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_PATHS, _T("Config"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_ACTIONS, _T("Actions"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_LOG, _T("Log"));
-	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_COM, _T("Port (429F):"));
+	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_COM, _T("Port (439F):"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Burn Flash"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_READ_FLASH_BACKUP, _T("Read Flash Backup"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_MODE, _T("Mode:"));
@@ -376,7 +376,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	ZeroMemory(&m_lut, sizeof(m_lut));
-	AppendLog(_T("Ready. Select 429F COM port, open port, then run."));
+	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
 	AppendLog(_T("Backup BIN: use [Read Flash backup] for device LUT, or pick a local .bin to merge."));
 
 	AppendLog(_T("Path CSV: PM mode -> .\\output\\standard_pm.csv; PD mode -> .\\output\\standard_pd.csv"));
@@ -560,7 +560,8 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	{
 		SafeSetProgressPos(100);
 		CString ok;
-		ok.Format(_T("Flash LUT backup saved: %s"), (LPCTSTR)absBackupBin);
+		ok.Format(_T("Flash LUT backups saved (439F trans per channel): base=%s -> *_t1.bin … (see CalibConstants for channel list)."),
+			(LPCTSTR)absBackupBin);
 		SafeAppendLog(ok);
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
@@ -651,7 +652,7 @@ BOOL CM576CalibratorDlg::OpenPort()
 	M576CommLogTarget logTarget(&CM576CalibratorDlg::CommLogThunk, this);
 	m_dev429f.SetCommLogTarget(logTarget);
 	m_pRecal.reset(new CRecalSession(m_dev429f, logTarget));
-	AppendLog(_T("Port opened (429F)."));
+	AppendLog(_T("Port opened (439F control board)."));
 	return TRUE;
 }
 
@@ -760,6 +761,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
+	AppendLog(_T("Read Flash backup: 439F trans per channel; output files <base>_tN.bin (see CalibConstants)."));
 	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 
@@ -811,7 +813,7 @@ BOOL CM576CalibratorDlg::ValidateRunPathInputs(CString& errMsg)
 	com.Trim();
 	if (com.IsEmpty())
 	{
-		errMsg = _T("Select 429F COM port (Port).");
+		errMsg = _T("Select 439F COM port (Port).");
 		return FALSE;
 	}
 	if (com.GetLength() < 4 || _tcsnicmp(com, _T("COM"), 3) != 0)
@@ -1278,10 +1280,18 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	const CString absOutBin = ResolveFilePath(m_strOutBin);
 	if (!m_strBackupBin.IsEmpty() && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
 	{
-		if (!CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
+		BOOL readOk = CLutBinWriter::ReadLutFromFile(absBackupBin, merged);
+		if (!readOk)
 		{
-			AppendLog(_T("Read backup BIN failed."));
-			return;
+			const CString tryMcs1 = M576TransBackupPathFromBase(absBackupBin, 1);
+			if (GetFileAttributes(tryMcs1) != INVALID_FILE_ATTRIBUTES)
+				readOk = CLutBinWriter::ReadLutFromFile(tryMcs1, merged);
+			if (!readOk)
+			{
+				AppendLog(_T("Read backup BIN failed."));
+				return;
+			}
+			AppendLog(_T("Read MCS1# backup (*_t1.bin) for merge."));
 		}
 		MergeLut1310LowTempSlot(merged, m_lut);
 		AppendLog(_T("Merged 1310 low-temp slot from session LUT into backup."));
@@ -1350,5 +1360,5 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(m);
 		return;
 	}
-	AppendLog(_T("Flash completed (via 429F forward to MCS)."));
+	AppendLog(_T("Flash completed (439F trans + Z4671 frames per CalibConstants burn list)."));
 }

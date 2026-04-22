@@ -102,3 +102,29 @@
 #ifndef M576_FLASH_LUT_READ_BASE
 #define M576_FLASH_LUT_READ_BASE 0
 #endif
+
+/// 439F passthrough: ASCII command / drain timing (tune with firmware).
+#ifndef M576_439F_TRANS_DRAIN_IDLE_MS
+#define M576_439F_TRANS_DRAIN_IDLE_MS 80
+#endif
+#ifndef M576_439F_TRANS_DRAIN_MAX_MS
+#define M576_439F_TRANS_DRAIN_MAX_MS 3000
+#endif
+#ifndef M576_439F_TRANS_END_DRAIN_MAX_MS
+#define M576_439F_TRANS_END_DRAIN_MAX_MS 1500
+#endif
+#ifndef M576_439F_POST_TRANS_MS
+#define M576_439F_POST_TRANS_MS 50
+#endif
+
+#if defined(__cplusplus)
+#include <cstddef>
+/// Flash read-backup: trans channel index order (1=MCS1#, ... 4=1x64 #2 per site doc).
+inline constexpr int g_m576FlashReadTransChannels[] = { 1, 2, 3, 4 };
+inline constexpr std::size_t g_m576FlashReadTransChannelCount =
+	sizeof(g_m576FlashReadTransChannels) / sizeof(g_m576FlashReadTransChannels[0]);
+/// Burn list: default same as read; shrink to {1,2} for MCS-only during bring-up.
+inline constexpr int g_m576FlashBurnTransChannels[] = { 1, 2, 3, 4 };
+inline constexpr std::size_t g_m576FlashBurnTransChannelCount =
+	sizeof(g_m576FlashBurnTransChannels) / sizeof(g_m576FlashBurnTransChannels[0]);
+#endif

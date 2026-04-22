@@ -1,23 +1,29 @@
 #include "stdafx.h"
 #include "McsFwTransport.h"
+#include "Board439fTransTunnel.h"
 #include "LutBinWriter.h"
 #include "CalibConstants.h"
 #include <vector>
 
-BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
-{
-	return McsFwUploadBinEx(cmd, szBinPath, err, NULL, NULL);
-}
+#ifdef _DEBUG
+#undef THIS_FILE
+static char THIS_FILE[] = __FILE__;
+#define new DEBUG_NEW
+#endif
+
+namespace {
 
 static int ChunkCountForRead(size_t total)
 {
 	return (int)((total + 254u) / 255u);
 }
 
-BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPath, CString& err, McsFwProgressCb cb, void* user)
+// Z4671 flash read: caller already opened trans to target.
+static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, CString& err,
+	McsFwProgressCb cb, void* user, int progressBase, int progressTotal)
 {
 	err.Empty();
-	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle start: output=%s"), szOutPath);
+	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle (tunnel): output=%s"), szOutPath);
 	const size_t total = CLutBinWriter::FullBundleFileSize();
 	if (total == 0)
 	{
@@ -63,7 +69,7 @@ BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPath, CString& e
 		nChunkDone++;
 		cmd.TraceInfo(_T("FW"), _T("Read flash chunk %d/%d complete: received=%d total=%Iu/%Iu"), nChunkDone, nChunkTotal, copyLen, offset, total);
 		if (cb)
-			cb(nChunkDone, nChunkTotal, user);
+			cb(progressBase + nChunkDone, progressTotal, user);
 		if ((size_t)copyLen < (size_t)req)
 		{
 			err = _T("Short flash read; check type/base with firmware.");
@@ -93,10 +99,12 @@ BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPath, CString& e
 	return TRUE;
 }
 
-BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user)
+// Z4671 burn: caller already opened trans to target.
+static BOOL UploadBinOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user,
+	int progressBase, int progressTotal)
 {
 	err.Empty();
-	cmd.TraceInfo(_T("FW"), _T("Flash start: bin=%s"), szBinPath);
+	cmd.TraceInfo(_T("FW"), _T("Flash start (tunnel): bin=%s"), szBinPath);
 	if (!cmd.StartFWUpdate())
 	{
 		err = cmd.m_strLogInfo;
@@ -111,6 +119,7 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	{
 		err.Format(_T("Open BIN failed: %s"), szBinPath);
 		cmd.TraceError(_T("FW"), _T("Open BIN failed: %s"), szBinPath);
+		(void)cmd.FWUpdateEnd();
 		return FALSE;
 	}
 	DWORD dwCodeSizeLeft = GetFileSize(hBin, NULL);
@@ -119,6 +128,7 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 		err = _T("BIN file is empty.");
 		cmd.TraceError(_T("FW"), _T("BIN file is empty: %s"), szBinPath);
 		CloseHandle(hBin);
+		(void)cmd.FWUpdateEnd();
 		return FALSE;
 	}
 	int iCnt = (int)(dwCodeSizeLeft / MAX_DATA_LENGTH);
@@ -142,16 +152,18 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			err = _T("Read BIN chunk failed.");
 			cmd.TraceError(_T("FW"), _T("Read BIN chunk failed: chunk=%d/%d size=%u"), iCount, totalChunks, wDownloadSize);
 			CloseHandle(hBin);
+			(void)cmd.FWUpdateEnd();
 			return FALSE;
 		}
 		cmd.TraceInfo(_T("FW"), _T("Flash chunk %d/%d: size=%u remaining=%lu"), iCount, totalChunks, wDownloadSize, dwCodeSizeLeft);
 		if (cb)
-			cb(iCount, totalChunks, user);
+			cb(progressBase + iCount, progressTotal, user);
 		if (!cmd.FWTranSportFW((BYTE*)pbBinData, wDownloadSize, iCount, totalChunks))
 		{
 			err = cmd.m_strLogInfo;
 			cmd.TraceError(_T("FW"), _T("FWTranSportFW failed: chunk=%d/%d size=%u err=%s"), iCount, totalChunks, wDownloadSize, err.GetString());
 			CloseHandle(hBin);
+			(void)cmd.FWUpdateEnd();
 			return FALSE;
 		}
 		cmd.TraceInfo(_T("FW"), _T("Flash chunk %d/%d acknowledged."), iCount, totalChunks);
@@ -167,6 +179,132 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	}
 	cmd.TraceInfo(_T("FW"), _T("FWUpdateEnd acknowledged. Waiting for firmware settle."));
 	Sleep(5000);
-	cmd.TraceInfo(_T("FW"), _T("Flash complete: bin=%s"), szBinPath);
+	cmd.TraceInfo(_T("FW"), _T("Flash complete (tunnel): bin=%s"), szBinPath);
+	return TRUE;
+}
+
+} // namespace
+
+CString M576TransBackupPathFromBase(LPCTSTR szBasePath, int transChannel)
+{
+	CString base(szBasePath);
+	base.Trim();
+	CString suffix;
+	suffix.Format(_T("_t%d"), transChannel);
+	const int dot = base.ReverseFind(_T('.'));
+	if (dot < 0)
+		return base + suffix + _T(".bin");
+	return base.Left(dot) + suffix + base.Mid(dot);
+}
+
+BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
+{
+	return McsFwUploadBinEx(cmd, szBinPath, err, NULL, NULL);
+}
+
+BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user)
+{
+	err.Empty();
+	if (g_m576FlashReadTransChannelCount == 0)
+	{
+		err = _T("No read trans channels configured.");
+		return FALSE;
+	}
+	CString discard;
+	(void)Board439fTransTunnel::EndTrans(cmd, discard);
+
+	const size_t bundleBytes = CLutBinWriter::FullBundleFileSize();
+	if (bundleBytes == 0)
+	{
+		err = _T("Invalid bundle size.");
+		return FALSE;
+	}
+	const int chunksPerBundle = ChunkCountForRead(bundleBytes);
+	const int progressTotal = (int)(g_m576FlashReadTransChannelCount * (size_t)chunksPerBundle);
+
+	for (std::size_t i = 0; i < g_m576FlashReadTransChannelCount; ++i)
+	{
+		const int ch = g_m576FlashReadTransChannels[i];
+		CString path = M576TransBackupPathFromBase(szOutPathBase, ch);
+		cmd.TraceInfo(_T("FW"), _T("Read LUT multi-channel: trans=%d file=%s"), ch, path.GetString());
+
+		(void)Board439fTransTunnel::EndTrans(cmd, discard);
+		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
+		{
+			err.Format(_T("trans %d: %s"), ch, err.GetString());
+			(void)Board439fTransTunnel::EndTrans(cmd, discard);
+			return FALSE;
+		}
+		const int progressBase = (int)(i * (size_t)chunksPerBundle);
+		if (!ReadLutBundleOnCurrentTunnel(cmd, path, err, cb, user, progressBase, progressTotal))
+		{
+			err.Format(_T("trans %d: %s"), ch, err.GetString());
+			(void)Board439fTransTunnel::EndTrans(cmd, discard);
+			return FALSE;
+		}
+		if (!Board439fTransTunnel::EndTrans(cmd, err))
+		{
+			err.Format(_T("trans %d end $$: %s"), ch, err.GetString());
+			return FALSE;
+		}
+	}
+	cmd.TraceInfo(_T("FW"), _T("All read-backup channels done (base path=%s)."), szOutPathBase);
+	return TRUE;
+}
+
+BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user)
+{
+	err.Empty();
+	if (g_m576FlashBurnTransChannelCount == 0)
+	{
+		err = _T("No burn trans channels configured.");
+		return FALSE;
+	}
+	CString discard;
+	(void)Board439fTransTunnel::EndTrans(cmd, discard);
+
+	HANDLE hProbe = CreateFile(szBinPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	if (hProbe == INVALID_HANDLE_VALUE)
+	{
+		err.Format(_T("Open BIN failed: %s"), szBinPath);
+		return FALSE;
+	}
+	const DWORD binSize = GetFileSize(hProbe, NULL);
+	CloseHandle(hProbe);
+	if (binSize == 0)
+	{
+		err = _T("BIN file is empty.");
+		return FALSE;
+	}
+	const int iCnt = (int)(binSize / MAX_DATA_LENGTH);
+	const int chunksThisFile = iCnt + 1;
+	const int progressTotal = (int)(g_m576FlashBurnTransChannelCount * (size_t)chunksThisFile);
+
+	for (std::size_t i = 0; i < g_m576FlashBurnTransChannelCount; ++i)
+	{
+		const int ch = g_m576FlashBurnTransChannels[i];
+		cmd.TraceInfo(_T("FW"), _T("Burn: trans=%d bin=%s"), ch, szBinPath);
+
+		(void)Board439fTransTunnel::EndTrans(cmd, discard);
+		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
+		{
+			err.Format(_T("trans %d: %s"), ch, err.GetString());
+			(void)Board439fTransTunnel::EndTrans(cmd, discard);
+			return FALSE;
+		}
+		const int progressBase = (int)(i * (size_t)chunksThisFile);
+		if (!UploadBinOnCurrentTunnel(cmd, szBinPath, err, cb, user, progressBase, progressTotal))
+		{
+			err.Format(_T("trans %d: %s"), ch, err.GetString());
+			(void)Board439fTransTunnel::EndTrans(cmd, discard);
+			return FALSE;
+		}
+		if (!Board439fTransTunnel::EndTrans(cmd, err))
+		{
+			err.Format(_T("trans %d end $$: %s"), ch, err.GetString());
+			return FALSE;
+		}
+	}
+	cmd.TraceInfo(_T("FW"), _T("Burn finished all configured trans channels."));
 	return TRUE;
 }

@@ -12,7 +12,7 @@
 #include "PathCsvDriver.h"
 #include "McsFwTransport.h"
 
-/// Single serial link to 429F: ASCII RECAL + Z4671 binary frames (forwarded to MCS by firmware).
+/// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 class CM576CalibratorDlg : public CDialogEx
 {
 public:
@@ -40,7 +40,7 @@ private:
 	CString m_strSn;
 	CString m_strCommLogPath;
 
-	/// One port: 429F board (RECAL ASCII + MCS LUT transport via firmware forwarding).
+	/// One port: 439F board (RECAL ASCII + MCS LUT transport via trans/$$).
 	Z4671Command m_dev429f;
 	std::unique_ptr<CRecalSession> m_pRecal;
 
