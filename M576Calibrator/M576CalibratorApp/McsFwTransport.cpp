@@ -29,6 +29,8 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 	err.Empty();
 	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle (tunnel): output=%s"), szOutPath);
 	const size_t total = CLutBinWriter::FullBundleFileSize();
+	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle: 0xC4 fileType=%d flashBase=0x%08lX totalBytes=%Iu"),
+		M576_FLASH_FILE_TYPE, (unsigned long)M576_FLASH_LUT_READ_BASE, (size_t)total);
 	if (total == 0)
 	{
 		err = _T("Invalid bundle size.");
@@ -44,7 +46,8 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 
 	while (offset < total)
 	{
-		const int req = (int)((total - offset) > 255 ? 255 : (total - offset));
+		const size_t rem = total - offset;
+		const int req = (int)((rem > 255) ? 255 : rem);
 		const DWORD flashAddr = M576_FLASH_LUT_READ_BASE + (DWORD)offset;
 		cmd.TraceInfo(_T("FW"), _T("Read flash chunk %d/%d: addr=0x%08lX req=%d"), nChunkDone + 1, nChunkTotal, flashAddr, req);
 		BYTE* pPayload = NULL;
@@ -231,8 +234,7 @@ BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CStrin
 		const int ch = g_m576FlashReadTransChannels[i];
 		CString path = M576TransBackupPathFromBase(szOutPathBase, ch);
 		cmd.TraceInfo(_T("FW"), _T("Read LUT multi-channel: trans=%d file=%s"), ch, path.GetString());
-
-		(void)Board439fTransTunnel::EndTrans(cmd, discard);
+		// First pass: only the function-level `$$` (above), then `trans n`, then 0xC4… — no extra `$$` here.
 		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
 		{
 			err.Format(_T("trans %d: %s"), ch, err.GetString());
@@ -308,8 +310,6 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			continue;
 		}
 		cmd.TraceInfo(_T("FW"), _T("Burn: trans=%d bin=%s"), ch, binPath.GetString());
-
-		(void)Board439fTransTunnel::EndTrans(cmd, discard);
 		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
 		{
 			err.Format(_T("trans %d: %s"), ch, err.GetString());

@@ -23,6 +23,8 @@ class  DLLEXPORT COpComm
 public:
 
 	BOOL ReadBuffer(char* pInBuffer, DWORD dwBufferSize, PDWORD pdwReadLength = NULL);
+	/// `ReadBuffer(..., PDWORD)` writes 4 bytes; for Z4671 use this overload with `WORD nCmdLength` (else /RTC1 stack check fails).
+	BOOL ReadBuffer(char* pInBuffer, DWORD dwBufferSize, WORD* pwReadLength);
 	// Read the data from the receive buffer of the COM port 
 	//BOOL ReadBuffer(char* pInBuffer, DWORD dwBufferSize);
 	

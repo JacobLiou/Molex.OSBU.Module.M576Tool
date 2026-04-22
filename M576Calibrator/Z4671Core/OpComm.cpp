@@ -156,6 +156,17 @@ BOOL COpComm::ReadBuffer(char* pInBuffer, DWORD dwBufferSize,PDWORD pdwLength)
 	return TRUE;
 }
 
+BOOL COpComm::ReadBuffer(char* pInBuffer, DWORD dwBufferSize, WORD* pwReadLength)
+{
+	if (!pInBuffer || !pwReadLength)
+		return FALSE;
+	DWORD dw = 0;
+	if (!ReadBuffer(pInBuffer, dwBufferSize, &dw))
+		return FALSE;
+	*pwReadLength = (dw > 0xFFFFu) ? 0xFFFFu : (WORD)dw;
+	return TRUE;
+}
+
 DWORD COpComm::RxBytesWaiting() const
 {
 	if (m_hCommPort == INVALID_HANDLE_VALUE)

@@ -229,7 +229,7 @@ BOOL Z4671Command::GetModulePara()
 	}
 	Sleep(50);
 	BYTE  byGetData[2048];
-	if (!ReadBuffer((char*)byGetData,2048,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,2048,&nCmdLength))
 	{
 		m_strLogInfo.Format("Read GetModulePara response failed");
 		return FALSE;
@@ -475,7 +475,7 @@ BOOL Z4671Command::ReadModuleVoltage()
 	}
 	Sleep(20);
 	
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = "读取数据错误";
 		return FALSE;
@@ -585,7 +585,7 @@ BOOL Z4671Command::SetEDFAWorkMode(int nEDFA, int nMode, double dblPower)
 	}
 	Sleep(20);
 	BYTE  byGetData[256];
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("读取数据错误");
 		return FALSE;
@@ -662,7 +662,7 @@ BOOL Z4671Command::ReadAlarm(int nType)
 	}
 	Sleep(20);
 	BYTE  byGetData[256];
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("发送数据错误");
 		return FALSE;
@@ -755,7 +755,7 @@ BOOL Z4671Command::GetVOAAtten(int nVOAIndex, double *pdblAtten, int nType)
 	}
 	Sleep(20);
 	BYTE  byGetData[256];
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = "发送数据错误";
 		return FALSE;
@@ -844,7 +844,7 @@ BOOL Z4671Command::GetLogFileData(int nType,int nDataLength,DWORD dwAddress,byte
 	}
 	Sleep(100);
 	PBYTE  byGetData = new BYTE[MAX_COUNT];
-	if (!ReadBuffer((char*)byGetData,MAX_COUNT,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,MAX_COUNT,&nCmdLength))
 	{
 		//LogInfo("读取EDFA返回接收错误");
 		delete []byGetData;
@@ -1394,7 +1394,7 @@ BOOL Z4671Command::GetModuleState(int *nReady)
 	}
 	Sleep(10);
 	BYTE  byGetData[256];
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = "发送数据错误";
 		return FALSE;
@@ -1539,7 +1539,7 @@ BOOL Z4671Command::SendScanDoubleTrig(stSWScanPara *stScanPara)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -1630,7 +1630,7 @@ BOOL Z4671Command::SendCmdToEDFA(const CStringA& strCmd, char *pchReStr)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,1024,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,1024,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -1720,7 +1720,7 @@ BOOL Z4671Command::GetALLSwitch(int nBlock, int *pPos)
 		return FALSE;
 	}
 	Sleep(10);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -1808,7 +1808,7 @@ BOOL Z4671Command::GetMONSwitch(int nSwitch, int *pPos)
 		return FALSE;
 	}
 	Sleep(10);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -2095,7 +2095,7 @@ BOOL Z4671Command::GetEDFATemp(double *dblTemp)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,50,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,50,&nCmdLength))
 	{
 		m_strLogInfo = ("读取EDFA温度接收错误");
 		return FALSE;
@@ -2172,7 +2172,7 @@ BOOL Z4671Command::GetProductSN(char *pchSN)
 		return FALSE;
 	}
 	Sleep(20);
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -2257,7 +2257,7 @@ BOOL Z4671Command::GetProductPN(char *pchPN)
 		return FALSE;
 	}
 	Sleep(20);
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -2347,7 +2347,7 @@ BOOL Z4671Command::CloseSwitchMonitor(int nSwitchIndex)
 		return FALSE;
 	}
 	Sleep(20);
-	if (!ReadBuffer((char*)byGetData,10,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,10,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -2448,7 +2448,7 @@ BOOL Z4671Command::GetVersion(char *pchVer)
 		return FALSE;
 	}
 	Sleep(10);
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -2561,7 +2561,7 @@ BOOL Z4671Command::GetMCSVersion(char *pchMCSVer)
 		return FALSE;
 	}
 	Sleep(20);
-	if (!ReadBuffer((char*)byGetData,100,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,100,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -2667,7 +2667,7 @@ BOOL Z4671Command::GetEDFAInfo(char *pchEDFAVer)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,4096,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,4096,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -2836,7 +2836,7 @@ BOOL Z4671Command::SwitchALLSwitch(int nDrop, int *nPort, int nCount)
 		return FALSE;
 	}
 	Sleep(100);
-	if (!ReadBuffer((char*)byGetData,100,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,100,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -3082,7 +3082,7 @@ BOOL Z4671Command::GetSingleSwitchState(int nBlock, int nSwitch, int *pPos)
 		return FALSE;
 	}
 	Sleep(10);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -3404,7 +3404,7 @@ BOOL Z4671Command::SendHitlessTestCmd(int nBlock, int nSwitch, int nCHNum)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -3744,7 +3744,7 @@ BOOL Z4671Command::GetProductID(char *pchID)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -3813,7 +3813,7 @@ BOOL Z4671Command::GetProductSupplier(char *pchSupplier)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -3898,7 +3898,7 @@ BOOL Z4671Command::GetMCSAlarm()
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -4048,7 +4048,7 @@ float Z4671Command::GetPDPower(int nPD)
 		return -99;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData, 30, (PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData, 30, &nCmdLength))
 	{
 		return -99;
 	}
@@ -4112,7 +4112,7 @@ BOOL Z4671Command::GetProductPDADC(int nPD, int *PDADC)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -4190,7 +4190,7 @@ BOOL Z4671Command::GetProductPDPower(int nPDIndex, double *pdblPDPower)
 		return FALSE;
 	}
 	Sleep(50);
-	if (!ReadBuffer((char*)byGetData,30,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,30,&nCmdLength))
 	{
 		m_strLogInfo = ("接收错误！");
 		return FALSE;
@@ -4385,7 +4385,7 @@ BOOL Z4671Command::SetVOAAtten(int nType, int nVOAIndex, double dblAtten)
 	}
 	Sleep(50);
 	BYTE  byGetData[256];
-	if (!ReadBuffer((char*)byGetData,256,(PDWORD)&nCmdLength))
+	if (!ReadBuffer((char*)byGetData,256,&nCmdLength))
 	{
 		m_strLogInfo = ("读取数据错误");
 		return FALSE;
