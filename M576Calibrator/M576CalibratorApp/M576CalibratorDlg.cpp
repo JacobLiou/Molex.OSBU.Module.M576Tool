@@ -380,7 +380,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
-	AppendLog(_T("Backup BIN: base path -> Read Flash writes *_tN.bin; merge uses per-trans backups."));
+	AppendLog(_T("Backup BIN: base path -> Read Flash writes *_mcs1.bin, *_mcs2.bin, *_1x64_1.bin, *_1x64_2.bin; merge uses those per path."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	return TRUE;
@@ -561,7 +561,7 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	{
 		SafeSetProgressPos(100);
 		CString ok;
-		ok.Format(_T("Flash LUT backups saved (439F trans per channel): base=%s -> *_t1.bin … (see CalibConstants for channel list)."),
+		ok.Format(_T("Flash LUT backups saved (439F trans per channel): base=%s -> *_mcs1.bin … *_1x64_2.bin (see CalibConstants)."),
 			(LPCTSTR)absBackupBin);
 		SafeAppendLog(ok);
 	}
@@ -752,7 +752,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	AppendLog(_T("Read Flash backup: 439F trans per channel; output files <base>_tN.bin (see CalibConstants)."));
+	AppendLog(_T("Read Flash backup: 439F trans per channel; output <base>_mcs1.bin … _1x64_2.bin (see CalibConstants)."));
 	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 
@@ -948,7 +948,7 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 	const CString absBk = ResolveFilePath(base);
 	for (int li = 0; li < 4; ++li)
 	{
-		const CString p = M576TransBackupPathFromBase(absBk, li + 1);
+		const CString p = M576TransBinPathForRead(absBk, li + 1);
 		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 			continue;
 		if (CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
@@ -1461,7 +1461,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	UpdateData(TRUE);
 	if (m_strOutBin.IsEmpty())
 	{
-		AppendLog(_T("Set output BIN base path (writes <base>_t1.bin … _t4.bin)."));
+		AppendLog(_T("Set output BIN base path (writes <base>_mcs1.bin … <base>_1x64_2.bin)."));
 		return;
 	}
 	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
@@ -1477,7 +1477,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 		BOOL haveBackup = FALSE;
 		if (!m_strBackupBin.IsEmpty())
 		{
-			const CString perTransBk = M576TransBackupPathFromBase(absBackupBin, i + 1);
+			const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
 			if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
 				haveBackup = CLutBinWriter::ReadLutFromFile(perTransBk, merged);
 			if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
@@ -1498,7 +1498,8 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 		{
 			memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
 			CString m;
-			m.Format(_T("Trans %d: no per-trans backup (*_t%d.bin); writing in-memory LUT only."), i + 1, i + 1);
+			m.Format(_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."), i + 1,
+				g_m576TransLutBinSuffix[i]);
 			AppendLog(m);
 		}
 
@@ -1541,14 +1542,14 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (m_strOutBin.IsEmpty())
 	{
-		AppendLog(_T("Set output BIN base path; burn uses <base>_t1.bin … from disk."));
+		AppendLog(_T("Set output BIN base path; burn uses *_mcs1.bin … *_1x64_2.bin from disk."));
 		return;
 	}
 	const CString absOutBin = ResolveFilePath(m_strOutBin);
 	BOOL anyBin = FALSE;
 	for (int ti = 1; ti <= 4; ++ti)
 	{
-		const CString p = M576TransBackupPathFromBase(absOutBin, ti);
+		const CString p = M576TransBinPathForRead(absOutBin, ti);
 		if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
 		{
 			HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
@@ -1563,7 +1564,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (!anyBin)
 	{
-		AppendLog(_T("No non-empty *_tN.bin found for this base path; run Write BIN first."));
+		AppendLog(_T("No non-empty per-trans .bin (e.g. *_mcs1.bin) for this base; run Write BIN first."));
 		return;
 	}
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
@@ -1581,5 +1582,5 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(m);
 		return;
 	}
-	AppendLog(_T("Flash completed (each trans uses its own *_tN.bin from the output base path)."));
+	AppendLog(_T("Flash completed (each trans uses its own *_mcs1.bin / *_1x64_2.bin from the output base)."));
 }

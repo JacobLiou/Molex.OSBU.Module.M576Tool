@@ -84,7 +84,7 @@ private:
 	void RunPathPd();
 	void RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, SPathStep const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
 	void RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
-	/// If Backup BIN base is set, load existing `*_tN.bin` into `m_lutByTrans` before a path run (optional seed).
+	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_2.bin` (or legacy `*_tN.bin`) into `m_lutByTrans` before a path run.
 	void TryPreloadLutFromPerTransBackup();
 	void FillComPorts();
 	CString GetComboCom();

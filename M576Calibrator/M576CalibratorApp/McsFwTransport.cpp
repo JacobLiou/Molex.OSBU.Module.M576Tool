@@ -19,7 +19,10 @@ namespace {
 
 static int ChunkCountForRead(size_t total)
 {
-	return (int)((total + 254u) / 255u);
+	const size_t k = (size_t)M576_FLASH_READ_CHUNK_MAX;
+	if (k == 0)
+		return 0;
+	return (int)((total + k - 1u) / k);
 }
 
 // Z4671 flash read: caller already opened trans to target.
@@ -47,7 +50,8 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 	while (offset < total)
 	{
 		const size_t rem = total - offset;
-		const int req = (int)((rem > 255) ? 255 : rem);
+		const int chunkMax = M576_FLASH_READ_CHUNK_MAX;
+		const int req = (rem > (size_t)chunkMax) ? chunkMax : (int)rem;
 		const DWORD flashAddr = M576_FLASH_LUT_READ_BASE + (DWORD)offset;
 		cmd.TraceInfo(_T("FW"), _T("Read flash chunk %d/%d: addr=0x%08lX req=%d"), nChunkDone + 1, nChunkTotal, flashAddr, req);
 		BYTE* pPayload = NULL;
@@ -192,16 +196,37 @@ static BOOL UploadBinOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szBinPath, CStri
 
 } // namespace
 
-CString M576TransBackupPathFromBase(LPCTSTR szBasePath, int transChannel)
+static CString M576PathInsertSuffixBeforeExt(LPCTSTR szBasePath, const CString& suffix)
 {
 	CString base(szBasePath);
 	base.Trim();
-	CString suffix;
-	suffix.Format(_T("_t%d"), transChannel);
 	const int dot = base.ReverseFind(_T('.'));
 	if (dot < 0)
 		return base + suffix + _T(".bin");
 	return base.Left(dot) + suffix + base.Mid(dot);
+}
+
+CString M576TransBackupPathFromBase(LPCTSTR szBasePath, int transChannel)
+{
+	CString suffix;
+	if (transChannel >= 1 && transChannel <= 4)
+		suffix = g_m576TransLutBinSuffix[transChannel - 1];
+	else
+		suffix.Format(_T("_t%d"), transChannel);
+	return M576PathInsertSuffixBeforeExt(szBasePath, suffix);
+}
+
+CString M576TransBinPathForRead(LPCTSTR szBasePath, int transChannel)
+{
+	const CString primary = M576TransBackupPathFromBase(szBasePath, transChannel);
+	if (GetFileAttributes(primary) != INVALID_FILE_ATTRIBUTES)
+		return primary;
+	CString legacySuf;
+	legacySuf.Format(_T("_t%d"), transChannel);
+	const CString leg = M576PathInsertSuffixBeforeExt(szBasePath, legacySuf);
+	if (GetFileAttributes(leg) != INVALID_FILE_ATTRIBUTES)
+		return leg;
+	return primary;
 }
 
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
@@ -275,7 +300,7 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	for (std::size_t pi = 0; pi < g_m576FlashBurnTransChannelCount; ++pi)
 	{
 		const int pch = g_m576FlashBurnTransChannels[pi];
-		const CString pathProbe = M576TransBackupPathFromBase(szBinPath, pch);
+		const CString pathProbe = M576TransBinPathForRead(szBinPath, pch);
 		DWORD sz = 0;
 		HANDLE hProbe = CreateFile(pathProbe, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 		if (hProbe != INVALID_HANDLE_VALUE)
@@ -294,7 +319,7 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	}
 	if (progressTotal <= 0)
 	{
-		err.Format(_T("No non-empty _tN.bin found from base: %s"), szBinPath);
+		err.Format(_T("No non-empty per-trans .bin (e.g. *_mcs1.bin) from base: %s"), szBinPath);
 		return FALSE;
 	}
 
@@ -302,7 +327,7 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	for (std::size_t i = 0; i < g_m576FlashBurnTransChannelCount; ++i)
 	{
 		const int ch = g_m576FlashBurnTransChannels[i];
-		const CString binPath = M576TransBackupPathFromBase(szBinPath, ch);
+		const CString binPath = M576TransBinPathForRead(szBinPath, ch);
 		const int chunksThis = chunksPerChannel[i];
 		if (chunksThis <= 0)
 		{

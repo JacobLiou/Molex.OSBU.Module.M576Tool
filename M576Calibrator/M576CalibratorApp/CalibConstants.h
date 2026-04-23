@@ -98,8 +98,13 @@
 #ifndef M576_FLASH_FILE_TYPE
 #define M576_FLASH_FILE_TYPE 0
 #endif
+/// LUT region base in device flash (0x65000, not decimal 65000/0xFDE8), per firmware.
 #ifndef M576_FLASH_LUT_READ_BASE
-#define M576_FLASH_LUT_READ_BASE 0
+#define M576_FLASH_LUT_READ_BASE 0x65000U
+#endif
+/// Max bytes per 0xC4 read; firmware requires <200; use a power of two (e.g. 128) for efficient chunking.
+#ifndef M576_FLASH_READ_CHUNK_MAX
+#define M576_FLASH_READ_CHUNK_MAX 128
 #endif
 
 /// 439F passthrough: ASCII command / drain timing (tune with firmware).
@@ -126,6 +131,11 @@ inline constexpr std::size_t g_m576FlashReadTransChannelCount =
 inline constexpr int g_m576FlashBurnTransChannels[] = { 1, 2, 3, 4 };
 inline constexpr std::size_t g_m576FlashBurnTransChannelCount =
 	sizeof(g_m576FlashBurnTransChannels) / sizeof(g_m576FlashBurnTransChannels[0]);
+
+/// Suffix before ".bin" per 439F trans 1~4 (e.g. `x_mcs1.bin`), same order as `pm_*.csv` / `pd_*.csv` stems.
+inline constexpr const TCHAR* const g_m576TransLutBinSuffix[4] = {
+	_T("_mcs1"), _T("_mcs2"), _T("_1x64_1"), _T("_1x64_2")
+};
 
 /// Default path CSV per trans slot: 0=1#MCS, 1=2#MCS, 2=1#1x64, 3=2#1x64 (ASCII filenames).
 inline constexpr const TCHAR* const g_m576DefaultPmCsvRel[4] = {

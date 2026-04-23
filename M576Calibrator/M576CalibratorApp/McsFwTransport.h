@@ -10,8 +10,10 @@ BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err);
 typedef void (__cdecl *McsFwProgressCb)(int current, int total, void* user);
 BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user);
 
-/// From base path "x.bin" builds "x_tN.bin" (multi-channel read output naming).
+/// From base "x.bin" -> "x_mcs1.bin" / "x_mcs2.bin" / "x_1x64_1.bin" / "x_1x64_2.bin" (trans 1~4; see g_m576TransLutBinSuffix).
 CString M576TransBackupPathFromBase(LPCTSTR szBasePath, int transChannel);
+/// Load/burn: prefer that path; if missing, use legacy "x_tN.bin" when present.
+CString M576TransBinPathForRead(LPCTSTR szBasePath, int transChannel);
 
-/// Read LUT from each trans channel; szOutPathBase is stem (e.g. out\backup.bin -> out\backup_t1.bin).
+/// Read LUT from each trans channel; szOutPathBase is base (e.g. out\backup.bin -> out\backup_mcs1.bin …).
 BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user);

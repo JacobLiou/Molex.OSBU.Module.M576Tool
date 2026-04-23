@@ -813,6 +813,7 @@ BOOL Z4671Command::GetLogFileData(int nType,int nDataLength,DWORD dwAddress,byte
 	int   nLength;
 	int   nCheckSum;
 	CString strValue;
+	TraceInfo(_T("GetLogFileData"), _T("request type=%d dataLen=%d addr=0x%08lX"), nType, nDataLength, dwAddress);
 //	double dblValue;
 	
 	byData[0] = START_CMD;
@@ -837,9 +838,11 @@ BOOL Z4671Command::GetLogFileData(int nType,int nDataLength,DWORD dwAddress,byte
 	WORD nCmdLength = 13;
 	PBYTE pbySendData=NULL;
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
+	TraceInfo(_T("GetLogFileData"), _T("sendTx len=%u data=%s"), nCmdLength, M576HexDump(pbySendData, nCmdLength).GetString());
 	
 	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
+		TraceError(_T("GetLogFileData"), _T("WriteBuffer failed"));
 		return FALSE;
 	}
 	Sleep(100);
@@ -847,30 +850,38 @@ BOOL Z4671Command::GetLogFileData(int nType,int nDataLength,DWORD dwAddress,byte
 	if (!ReadBuffer((char*)byGetData,MAX_COUNT,&nCmdLength))
 	{
 		//LogInfo("读取EDFA返回接收错误");
+		TraceError(_T("GetLogFileData"), _T("ReadBuffer failed"));
 		delete []byGetData;
 		return FALSE;
 	}
+	TraceInfo(_T("GetLogFileData"), _T("rawRx len=%u data=%s"), nCmdLength, M576HexDump(byGetData, nCmdLength).GetString());
 	PBYTE pbyNewData=NULL;
-	if(!CmdReadExchange(byGetData,nCmdLength,&pbyNewData))
+	WORD nDecodedLength = 0;
+	if(!CmdReadExchange(byGetData,nCmdLength,&pbyNewData,&nDecodedLength))
 	{
+		TraceError(_T("GetLogFileData"), _T("CmdReadExchange failed"));
 		delete []byGetData;
 		return FALSE;
 	}
+	TraceInfo(_T("GetLogFileData"), _T("decoded len=%u data=%s"), nDecodedLength, M576HexDump(pbyNewData, nDecodedLength).GetString());
 	delete []byGetData;
 	byGetData = NULL;
 	if (pbyNewData[1]!=0X00)
 	{
+		TraceError(_T("GetLogFileData"), _T("status not success: 0x%02X"), pbyNewData[1]);
 		delete []byData;
 		return FALSE;
 	}
 	if (pbyNewData[2]!=byData[2])
 	{
+		TraceError(_T("GetLogFileData"), _T("index mismatch rsp=0x%02X req=0x%02X"), pbyNewData[2], byData[2]);
 		delete []byData;
 		return FALSE;
 	}
 //	delete []byData;
 	if (pbyNewData[5]!=byData[1]) 
 	{
+		TraceError(_T("GetLogFileData"), _T("cmd mismatch rsp=0x%02X req=0x%02X"), pbyNewData[5], byData[1]);
 		delete []byData;
 		return FALSE;
 	}
@@ -879,6 +890,16 @@ BOOL Z4671Command::GetLogFileData(int nType,int nDataLength,DWORD dwAddress,byte
 
 	*pReDataLength = pbyNewData[7];
 	*pbyData = &pbyNewData[12];
+	if (*pReDataLength > 0)
+	{
+		const int nPayloadDumpLen = (nDecodedLength > 12) ? ((*pReDataLength < (int)(nDecodedLength - 12)) ? *pReDataLength : (int)(nDecodedLength - 12)) : 0;
+		TraceInfo(_T("GetLogFileData"), _T("payload len=%d data=%s"), *pReDataLength,
+			(nPayloadDumpLen > 0) ? M576HexDump(*pbyData, nPayloadDumpLen).GetString() : _T("<empty-or-out-of-range>"));
+	}
+	else
+	{
+		TraceInfo(_T("GetLogFileData"), _T("payload len=0"));
+	}
 	//pbyData = pbyGetData;
 	return TRUE;
 
