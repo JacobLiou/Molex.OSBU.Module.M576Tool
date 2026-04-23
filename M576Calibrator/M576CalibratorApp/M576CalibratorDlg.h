@@ -108,6 +108,7 @@ private:
 	afx_msg void OnBnClickedCalPm();
 	afx_msg void OnBnClickedCalPd();
 	afx_msg void OnBnClickedRunPath();
+	afx_msg void OnBnClickedClearLog();
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedStop();

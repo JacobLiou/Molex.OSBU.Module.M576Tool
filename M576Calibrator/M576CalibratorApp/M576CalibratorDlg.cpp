@@ -301,6 +301,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_RADIO_CAL_PM, &CM576CalibratorDlg::OnBnClickedCalPm)
 	ON_BN_CLICKED(IDC_RADIO_CAL_PD, &CM576CalibratorDlg::OnBnClickedCalPd)
 	ON_BN_CLICKED(IDC_BTN_RUN_PATH, &CM576CalibratorDlg::OnBnClickedRunPath)
+	ON_BN_CLICKED(IDC_BTN_CLEAR_LOG, &CM576CalibratorDlg::OnBnClickedClearLog)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
@@ -884,10 +885,16 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 		m_pathThread.join();
 	m_pathRunning = true;
 	m_suppressPathProgress = false;
+	AppendLog(_T("Run Path Started"));
 	SetPathActionButtonsEnabled(FALSE);
 	if (CWnd* pStop = GetDlgItem(IDC_BTN_STOP))
 		pStop->EnableWindow(TRUE);
 	m_pathThread = std::thread([this]() { PathWorkerEntry(); });
+}
+
+void CM576CalibratorDlg::OnBnClickedClearLog()
+{
+	m_editLog.SetWindowText(_T(""));
 }
 
 void CM576CalibratorDlg::OnDestroy()

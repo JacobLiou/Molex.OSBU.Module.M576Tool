@@ -59,6 +59,7 @@
 #define IDC_STATIC_LABEL_WL             1036
 #define IDC_STATIC_LABEL_PM             1037
 #define IDC_BTN_CLOSE_PORT              1038
+#define IDC_BTN_CLEAR_LOG               1039
 #define IDC_STATIC_PATH_CSV_HINT        2116
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
@@ -567,7 +568,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        102
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2117
+#define _APS_NEXT_CONTROL_VALUE         2118
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
