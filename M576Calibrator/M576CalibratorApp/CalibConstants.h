@@ -94,15 +94,15 @@
 #define M576_MCS2_SW_INDEX_OFFSET 0
 #endif
 
-/// Z4671 GetLogFileData (0xC4): `nType` and region base must match firmware; set via project defines after alignment with FW.
+/// Z4671 GetLogFileData (0xC4): 16-bit file type (default 0x007B per FW); flash base `M576_FLASH_LUT_READ_BASE`.
 #ifndef M576_FLASH_FILE_TYPE
 #define M576_FLASH_FILE_TYPE 0
 #endif
-/// LUT region base in device flash (0x65000, not decimal 65000/0xFDE8), per firmware.
+/// LUT read start address in device flash (32-bit, big-endian in 0xC4 frame; use 0 unless FW文档另有规定).
 #ifndef M576_FLASH_LUT_READ_BASE
-#define M576_FLASH_LUT_READ_BASE 0x65000U
+#define M576_FLASH_LUT_READ_BASE 0U
 #endif
-/// Max bytes per 0xC4 read; firmware requires <200; use a power of two (e.g. 128) for efficient chunking.
+/// Max bytes per 0xC4 read (per FW: e.g. 0x14 / 20; larger requests may be rejected).
 #ifndef M576_FLASH_READ_CHUNK_MAX
 #define M576_FLASH_READ_CHUNK_MAX 128
 #endif
