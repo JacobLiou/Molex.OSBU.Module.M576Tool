@@ -215,6 +215,48 @@ CString ResolveFilePath(const CString& path)
 	return combined;
 }
 
+/// From base path `output\comm.log` build `output\comm_2026-04-24.log` (new file each local calendar day).
+static CString CommLogPathForCurrentDay(const CString& commLogPathRel)
+{
+	if (commLogPathRel.IsEmpty())
+		return commLogPathRel;
+	int sep = commLogPathRel.ReverseFind(_T('\\'));
+	if (sep < 0)
+		sep = commLogPathRel.ReverseFind(_T('/'));
+	CString dir, fname;
+	if (sep >= 0)
+	{
+		dir = commLogPathRel.Left(sep);
+		fname = commLogPathRel.Mid(sep + 1);
+	}
+	else
+	{
+		fname = commLogPathRel;
+	}
+	int dot = fname.ReverseFind(_T('.'));
+	CString stem, ext;
+	if (dot > 0)
+	{
+		stem = fname.Left(dot);
+		ext = fname.Mid(dot);
+	}
+	else
+	{
+		stem = fname;
+		ext = _T(".log");
+	}
+	SYSTEMTIME st = {};
+	GetLocalTime(&st);
+	CString day;
+	day.Format(_T("%04d-%02d-%02d"), (int)st.wYear, (int)st.wMonth, (int)st.wDay);
+	CString rel;
+	if (dir.IsEmpty())
+		rel.Format(_T("%s_%s%s"), stem.GetString(), day.GetString(), ext.GetString());
+	else
+		rel.Format(_T("%s\\%s_%s%s"), dir.GetString(), stem.GetString(), day.GetString(), ext.GetString());
+	return rel;
+}
+
 /// Parse wavelength nm from combo edit (presets 1310/1550 or typed value).
 static BOOL ParseWavelengthNm(const CString& raw, int& outNm, CString& err)
 {
@@ -572,7 +614,7 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 
 void CM576CalibratorDlg::WriteLogFileLine(const CString& line)
 {
-	const CString absPath = ResolveFilePath(m_strCommLogPath);
+	const CString absPath = ResolveFilePath(CommLogPathForCurrentDay(m_strCommLogPath));
 	HANDLE h = CreateFile(absPath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (h == INVALID_HANDLE_VALUE)
 		return;
