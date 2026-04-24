@@ -639,6 +639,10 @@ LRESULT CM576CalibratorDlg::OnReadBackupFinished(WPARAM, LPARAM)
 	m_readBackupRunning = false;
 	SetPathActionButtonsEnabled(TRUE);
 	UpdateData(FALSE);
+	if (m_readBackupLastOk)
+		AfxMessageBox(m_readBackupLastMsg, MB_OK | MB_ICONINFORMATION);
+	else
+		AfxMessageBox(m_readBackupLastMsg, MB_OK | MB_ICONERROR);
 	return 0;
 }
 
@@ -659,12 +663,19 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	CString err;
 	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this))
 	{
+		m_readBackupLastOk = FALSE;
+		m_readBackupLastMsg.Format(_T("Read Flash backup failed:\n\n%s"), (LPCTSTR)err);
 		CString m;
 		m.Format(_T("Read Flash backup failed: %s"), (LPCTSTR)err);
 		SafeAppendLog(m);
 	}
 	else
 	{
+		m_readBackupLastOk = TRUE;
+		m_readBackupLastMsg.Format(
+			_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
+			_T("(MCS: 0xC4 LUT; 1x64: MEM full read per CalibConstants.)"),
+			(LPCTSTR)absBackupBin);
 		SafeSetProgressPos(100);
 		CString ok;
 		ok.Format(_T("Flash backups saved (439F per trans): base=%s — MCS=0xC4 LUT, 1x64=MEM full read (see M576_1X64_MEMS_BACKUP_TOTAL_SIZE in CalibConstants)."),
@@ -1574,6 +1585,9 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	if (m_strOutBin.IsEmpty())
 	{
 		AppendLog(_T("Set output BIN base path (writes <base>_mcs1.bin … <base>_1x64_2.bin)."));
+		AfxMessageBox(
+			_T("Set output BIN base path first (writes <base>_mcs1.bin … <base>_1x64_2.bin)."),
+			MB_OK | MB_ICONWARNING);
 		return;
 	}
 	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
@@ -1625,6 +1639,9 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			CString m;
 			m.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
 			AppendLog(m);
+			CString box;
+			box.Format(_T("Write BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
+			AfxMessageBox(box, MB_OK | MB_ICONERROR);
 			return;
 		}
 		memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
@@ -1633,6 +1650,9 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 		AppendLog(ok);
 	}
 	AppendLog(_T("All trans BIN files written."));
+	AfxMessageBox(
+		_T("Write BIN completed.\n\nAll four per-trans .bin files were written successfully."),
+		MB_OK | MB_ICONINFORMATION);
 }
 
 void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)
@@ -1655,6 +1675,9 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	if (m_strOutBin.IsEmpty())
 	{
 		AppendLog(_T("Set output BIN base; burn: MCS (trans1–2) FW stream, 1x64 (trans3–4) fwdl+XMODEM, per *_mcs* / *_1x64_*.bin."));
+		AfxMessageBox(
+			_T("Set output BIN base first (burn uses <base>_mcs*.bin and <base>*_1x64_*.bin next to that path)."),
+			MB_OK | MB_ICONWARNING);
 		return;
 	}
 	const CString absOutBin = ResolveFilePath(m_strOutBin);
@@ -1677,6 +1700,9 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	if (!anyBin)
 	{
 		AppendLog(_T("No non-empty per-trans .bin (*_mcs* / *_1x64_*) for this base; run Write BIN or place backups first."));
+		AfxMessageBox(
+			_T("Cannot burn: no non-empty per-trans .bin for this base.\n\nRun Write BIN or copy backup files first."),
+			MB_OK | MB_ICONWARNING);
 		return;
 	}
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
@@ -1685,6 +1711,17 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 			return;
 		SyncSerialPortUi();
 	}
+	if (AfxMessageBox(
+			_T("Warning: Burn Flash will program the device on the current 439F tunnel(s):\n\n")
+			_T("Trans 1–2: MCS firmware stream\n")
+			_T("Trans 3–4: 1x64 XMODEM (per existing *_1x64_*.bin)\n\n")
+			_T("Continue?"),
+			MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)
+		!= IDYES)
+	{
+		AppendLog(_T("Burn Flash cancelled by user."));
+		return;
+	}
 	CString err;
 	m_progress.SetRange(0, 100);
 	if (!McsFwUploadBinEx(m_dev429f, absOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
@@ -1692,7 +1729,13 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		CString m;
 		m.Format(_T("Flash failed: %s"), (LPCTSTR)err);
 		AppendLog(m);
+		CString box;
+		box.Format(_T("Burn Flash failed:\n\n%s"), (LPCTSTR)err);
+		AfxMessageBox(box, MB_OK | MB_ICONERROR);
 		return;
 	}
 	AppendLog(_T("Flash completed: trans1–2 via MCS update stream, trans3–4 via 1x64 XMODEM (per-file from output base)."));
+	AfxMessageBox(
+		_T("Burn Flash completed successfully.\n\nMCS and 1x64 paths finished for the configured .bin set."),
+		MB_OK | MB_ICONINFORMATION);
 }

@@ -158,6 +158,16 @@ static int ParseMemHexLine(const char* s, int len, BYTE* out, int needBytes)
 	return needBytes;
 }
 
+static CString M5761x64ChunkHeadHex8(const BYTE* p)
+{
+	if (!p)
+		return _T("?");
+	CString s;
+	for (int b = 0; b < 8; ++b)
+		s.AppendFormat(_T("%02X"), p[b]);
+	return s;
+}
+
 static unsigned MemCountHexInString(const std::string& a)
 {
 	unsigned c = 0;
@@ -272,9 +282,17 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szOutPath, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal)
 {
 	err.Empty();
-	cmd.TraceInfo(_T("FW-1x64"), _T("Read 1x64 (MEM) base=0x%08lX total=%u (incl. %u??%uB MemsSw) -> %s"), (unsigned long)flashBase,
-		(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE, (unsigned)(M576_1X64_MEMS_BACKUP_TOTAL_SIZE / M576_1X64_MEMS_BIN_SIZE),
-		(unsigned)M576_1X64_MEMS_BIN_SIZE, szOutPath);
+	{
+		const unsigned numBlocks2k = (unsigned)(M576_1X64_MEMS_BACKUP_TOTAL_SIZE / M576_1X64_MEMS_BIN_SIZE);
+		cmd.TraceInfo(
+			_T("FW-1x64"),
+			_T("Read 1x64 (MEM) start: base=0x%08lX total=%u B (%u x %u B blocks) -> file %s"),
+			(unsigned long)flashBase,
+			(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE,
+			numBlocks2k,
+			(unsigned)M576_1X64_MEMS_BIN_SIZE,
+			szOutPath);
+	}
 	const int steps = M5761x64MemReadStepCount();
 	if (steps < 1 || (size_t)steps * (size_t)M576_1X64_MEM_ADDR_STEP != (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
 	{
@@ -282,21 +300,40 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
+	const int kStepsPer2k = (int)(M576_1X64_MEMS_BIN_SIZE / M576_1X64_MEM_ADDR_STEP);
+	const int kNum2k = (int)(M576_1X64_MEMS_BACKUP_TOTAL_SIZE / M576_1X64_MEMS_BIN_SIZE);
+	cmd.TraceInfo(
+		_T("FW-1x64"),
+		_T("MEM schedule: %d read steps, addr +0x%X per step, %d x 2K block(s) in range."),
+		steps,
+		(unsigned)M576_1X64_MEM_ADDR_STEP,
+		kNum2k);
 	std::vector<BYTE> buf;
 	buf.resize((size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE);
 	char readBuf[4096];
 	const int needPayload = (int)M576_1X64_MEM_PAYLOAD_BYTES;
-	/// Set on first step after probe: 0=`MEM %u`, 1=`MEM 0x`, 2=`mem 0x` ?? do not 3x-probe on every 64 lines.
+	/// 0..2 = MEM line style; locked after first success.
 	int memCmdAttempt = -1;
 	for (int i = 0; i < steps; i++)
 	{
 		const DWORD addr = flashBase + (DWORD)i * (DWORD)M576_1X64_MEM_ADDR_STEP;
+		if (i % kStepsPer2k == 0)
+		{
+			const int blockIdx = i / kStepsPer2k;
+			cmd.TraceInfo(
+				_T("FW-1x64"),
+				_T("MEM block %d/%d: from @0x%08X (step %d/%d)"),
+				blockIdx + 1,
+				kNum2k,
+				(unsigned)addr,
+				i + 1,
+				steps);
+		}
 		BYTE chunk[32];
 		ZeroMemory(chunk, sizeof(chunk));
 		int pr = 0;
 		DWORD dwr = 0;
 		CStringA line;
-		/// Runtime: dwr=19,hex=6 after 5s ?? likely wrong `MEM` spelling for this gateway; auto-try 0x forms on step 0 only.
 		int attUsed = -1;
 		int attLo = 0, attHi = 2;
 		if (i > 0 && memCmdAttempt >= 0)
@@ -311,10 +348,35 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 				line.Format("MEM 0x%X\r", (unsigned)addr);
 			else
 				line.Format("mem 0x%x\r", (unsigned)addr);
+			const bool logProbe = (i == 0 && attLo < attHi);
+			if (logProbe)
+			{
+				cmd.TraceInfo(
+					_T("FW-1x64"),
+					_T("MEM[probe step0] try format %d/3, TX (ASCII) -> %hs"),
+					att + 1,
+					(LPCSTR)line);
+			}
+			else
+			{
+				/// Log every 8th step, first 4 steps, and last (fine-grained + bounded volume).
+				const bool logThisStep =
+					(i < 4) || (i + 1 == steps) || ((i % 8) == 0) || (i > 0 && (i % kStepsPer2k) == 0);
+				if (logThisStep)
+				{
+					cmd.TraceInfo(
+						_T("FW-1x64"),
+						_T("MEM step %d/%d @0x%08X TX -> %hs"),
+						i + 1,
+						steps,
+						(unsigned)addr,
+						(LPCSTR)line);
+				}
+			}
 			if (!cmd.WriteBuffer((char*)(LPCSTR)line, (DWORD)line.GetLength()))
 			{
 				err = _T("MEM write failed.");
-				cmd.TraceError(_T("FW-1x64"), _T("MEM @0x%08X failed: TX"), (unsigned)addr);
+				cmd.TraceError(_T("FW-1x64"), _T("MEM @0x%08X failed: TX (serial write)"), (unsigned)addr);
 				return FALSE;
 			}
 			Sleep((DWORD)M576_439F_POST_TRANS_MS);
@@ -323,6 +385,11 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 			dwr = 0;
 			if (!MemDrainHexResponse(cmd, readBuf, sizeof(readBuf) - 1, &dwr, needPayload, (DWORD)M576_1X64_MEM_READ_MAX_MS) || dwr == 0)
 			{
+				if (i == 0 && att < attHi)
+					cmd.TraceInfo(
+						_T("FW-1x64"),
+						_T("MEM[probe] format %d: no RX or drain empty; next format..."),
+						att + 1);
 				if (att < attHi)
 					continue;
 				if (i > 0)
@@ -336,14 +403,63 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 				return FALSE;
 			}
 			readBuf[dwr] = 0;
+			const std::string rbs(readBuf, (size_t)dwr);
+			const unsigned nXd = MemCountHexInString(rbs);
 			pr = ParseMemHexLine(readBuf, (int)dwr, chunk, needPayload);
 			attUsed = att;
+			{
+				const bool logRx =
+					logProbe || (i < 4) || (i + 1 == steps) || ((i % 8) == 0) || (i > 0 && (i % kStepsPer2k) == 0);
+				if (logRx)
+				{
+					if (pr == needPayload)
+					{
+						const CString head8 = M5761x64ChunkHeadHex8(chunk);
+						cmd.TraceInfo(
+							_T("FW-1x64"),
+							_T("MEM step %d/%d RX: ascii_len=%lu hex_chars=%u parse32=OK  head8=%s"),
+							i + 1,
+							steps,
+							(unsigned long)dwr,
+							(unsigned)nXd,
+							head8.GetString());
+					}
+					else
+					{
+						cmd.TraceInfo(
+							_T("FW-1x64"),
+							_T("MEM step %d/%d RX: ascii_len=%lu hex_chars=%u parse32=%d (expect %d)"),
+							i + 1,
+							steps,
+							(unsigned long)dwr,
+							(unsigned)nXd,
+							pr,
+							needPayload);
+					}
+				}
+			}
 			if (pr == needPayload)
 			{
 				if (i == 0)
+				{
 					memCmdAttempt = att;
+					LPCTSTR fmtName = _T("MEM");
+					if (att == 0) fmtName = _T("MEM <decimal> <CR>");
+					else if (att == 1) fmtName = _T("MEM 0x<hex> <CR>");
+					else if (att == 2) fmtName = _T("mem 0x<hex> <CR>");
+					cmd.TraceInfo(
+						_T("FW-1x64"),
+						_T("MEM line style locked: %s (use for next %d steps)."),
+						fmtName,
+						steps - 1);
+				}
 				break;
 			}
+			if (i == 0 && att < attHi)
+				cmd.TraceInfo(
+					_T("FW-1x64"),
+					_T("MEM[probe] format %d: parse not 32B; try next..."),
+					att + 1);
 		}
 		if (pr != needPayload)
 		{
@@ -373,7 +489,11 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 		err = _T("Write 1x64 bin failed.");
 		return FALSE;
 	}
-	cmd.TraceInfo(_T("FW-1x64"), _T("Wrote 1x64 MemsSw bin: %s"), szOutPath);
+	cmd.TraceInfo(
+		_T("FW-1x64"),
+		_T("Read 1x64 (MEM) done: wrote %u B to %s"),
+		(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE,
+		szOutPath);
 	return TRUE;
 }
 
