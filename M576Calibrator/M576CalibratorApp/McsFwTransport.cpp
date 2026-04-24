@@ -380,8 +380,8 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			else
 			{
 				DWORD x64sz = sz;
-				if (x64sz > (DWORD)M576_1X64_MEMS_BIN_SIZE)
-					x64sz = (DWORD)M576_1X64_MEMS_BIN_SIZE;
+				if (x64sz > (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
+					x64sz = (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
 				chunks = M5761x64XmodemChunkCountForFileSize(x64sz);
 			}
 		}

@@ -123,13 +123,26 @@
 #define M576_439F_POST_TRANS_MS 50
 #endif
 
-/// 1x64 MemsSw XMODEM image / first LUT block: 2K = 0x800 B (14538: 0x0E000/0x0E800.., CRC@+0x7FC); not MCS `stLutSettingZ4671`.
+/// 1x64 MemsSw: one switch coef block = 2K = 0x800 B (CRC@+0x7FC in block); not MCS `stLutSettingZ4671`.
 #ifndef M576_1X64_MEMS_BIN_SIZE
 #define M576_1X64_MEMS_BIN_SIZE 2048u
 #endif
-/// Full `MEM` read-back from `M576_1X64_FLASH_BASE_TRANS*` in one run: N × 2K (default 12×2K=24576) from base upward; XMODEM burn still uses only the first `M576_1X64_MEMS_BIN_SIZE` bytes.
+/// 14538: four switch coefficient regions per 1x64; contiguous 4×2K = 8KB from `ADDR_SWITCH1_COEF`.
+#ifndef ADDR_SWITCH1_COEF
+#define ADDR_SWITCH1_COEF 0x0E000u
+#endif
+#ifndef ADDR_SWITCH2_COEF
+#define ADDR_SWITCH2_COEF 0x0E800u
+#endif
+#ifndef ADDR_SWITCH3_COEF
+#define ADDR_SWITCH3_COEF 0x0F000u
+#endif
+#ifndef ADDR_SWITCH4_COEF
+#define ADDR_SWITCH4_COEF 0x0F800u
+#endif
+/// Full `MEM` read for one 1x64: 4 × 2K = 8KB from `M576_1X64_FLASH_BASE_TRANS*`. XMODEM burn sends up to this size.
 #ifndef M576_1X64_MEMS_BACKUP_TOTAL_SIZE
-#define M576_1X64_MEMS_BACKUP_TOTAL_SIZE (12u * M576_1X64_MEMS_BIN_SIZE)
+#define M576_1X64_MEMS_BACKUP_TOTAL_SIZE (4u * M576_1X64_MEMS_BIN_SIZE)
 #endif
 /// `MEM` read: address step and payload bytes per response (32 B from 64 hex chars; 64 steps * 32 = 2048 B).
 #ifndef M576_1X64_MEM_ADDR_STEP
@@ -150,12 +163,12 @@
 #ifndef M576_1X64_MEM_AFTER_CMD_MS
 #define M576_1X64_MEM_AFTER_CMD_MS 120u
 #endif
-/// Image base in bundle (trans 3 = 1# 1x64 → SW1, trans 4 = 2# 1x64 → SW2), see `CreateSwitchPointBin` in 1X64 Switch.
+/// Per-tunnel 1x64 local flash: read starts at first switch block (0x0E000..0x0F800 = 4×2K). trans3/trans4 are different devices via 439F `trans`.
 #ifndef M576_1X64_FLASH_BASE_TRANS3
-#define M576_1X64_FLASH_BASE_TRANS3 0x0E000u
+#define M576_1X64_FLASH_BASE_TRANS3 ADDR_SWITCH1_COEF
 #endif
 #ifndef M576_1X64_FLASH_BASE_TRANS4
-#define M576_1X64_FLASH_BASE_TRANS4 0x0E800u
+#define M576_1X64_FLASH_BASE_TRANS4 ADDR_SWITCH1_COEF
 #endif
 /// After `fwdl\\r` before first XMODEM block (legacy `SendRevCommand` used long sleep).
 #ifndef M576_1X64_FWDL_PRE_MS

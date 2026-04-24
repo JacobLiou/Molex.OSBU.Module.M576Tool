@@ -526,16 +526,21 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 	{
 		CloseHandle(hBin);
 		err.Format(
-			_T("1x64 XMODEM needs at least %u B MemsSw (0x%04X); file has %lu B."),
-			(unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)dwFile);
+			_T("1x64 XMODEM needs at least %u B (one 2K block); file has %lu B."),
+			(unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)dwFile);
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
-	if (dwFile > (DWORD)M576_1X64_MEMS_BIN_SIZE)
-		cmd.TraceInfo(
-			_T("FW-1x64"), _T("Full backup is %lu B; XMODEM burns first %u B (MemsSw 2K) only."),
-			(unsigned long)dwFile, (unsigned)M576_1X64_MEMS_BIN_SIZE);
-	DWORD dwCodeSizeLeft = (DWORD)M576_1X64_MEMS_BIN_SIZE;
+	{
+		const unsigned maxBurn = (unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
+		if (dwFile > (DWORD)maxBurn)
+			cmd.TraceInfo(
+				_T("FW-1x64"), _T("File is %lu B; XMODEM burns first %u B (4×2K MemsSw) only."),
+				(unsigned long)dwFile, maxBurn);
+	}
+	DWORD dwCodeSizeLeft = dwFile;
+	if (dwCodeSizeLeft > (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
+		dwCodeSizeLeft = (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
 	std::vector<BYTE> blockbuf((size_t)(XMODEM_BLOCK_BODY_SIZE_1K + 32u));
 	BYTE* pbBinData = blockbuf.data();
 	int iCount = 0;

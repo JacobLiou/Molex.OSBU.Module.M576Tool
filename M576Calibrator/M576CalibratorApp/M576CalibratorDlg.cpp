@@ -431,7 +431,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
-	AppendLog(_T("Backup BIN: Read Flash — trans1–2 (MCS): 0xC4 LUT bundle; trans3–4 (1x64): MEM full range (e.g. 12×2K/24K from base); files *_mcs1/2.bin, *_1x64_1/2.bin."));
+	AppendLog(_T("Backup BIN: Read Flash — trans1–2 (MCS): 0xC4 LUT bundle; trans3–4 (1x64): 4×2K MEM (8KB from 0x0E000, four switch coef); files *_mcs1/2.bin, *_1x64_1/2.bin."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	return TRUE;
