@@ -138,6 +138,7 @@
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
     <ClInclude Include="McsFwTransport.h" />
+    <ClInclude Include="Switch1x64FwTransport.h" />
     <ClInclude Include="PathCsvDriver.h" />
     <ClInclude Include="PeakFinder2D.h" />
     <ClInclude Include="RecalSession.h" />
@@ -153,6 +154,7 @@
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />
+    <ClCompile Include="Switch1x64FwTransport.cpp" />
     <ClCompile Include="PathCsvDriver.cpp" />
     <ClCompile Include="PeakFinder2D.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

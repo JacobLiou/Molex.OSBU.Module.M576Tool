@@ -296,6 +296,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_tlsIndex(M576_DEFAULT_TLS_SOURCE - 1)
 	, m_strWavelength(_T("1310"))
 	, m_pmRangeIndex(M576_DEFAULT_PM_RANGE)
+	, m_readBackupLastOk(FALSE)
 {
 	for (int i = 0; i < 4; ++i)
 	{
@@ -430,7 +431,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
-	AppendLog(_T("Backup BIN: base path -> Read Flash writes *_mcs1.bin, *_mcs2.bin, *_1x64_1.bin, *_1x64_2.bin; merge uses those per path."));
+	AppendLog(_T("Backup BIN: Read Flash — trans1–2 (MCS): 0xC4 LUT bundle; trans3–4 (1x64): MEM full range (e.g. 12×2K/24K from base); files *_mcs1/2.bin, *_1x64_1/2.bin."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	return TRUE;
@@ -666,7 +667,7 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	{
 		SafeSetProgressPos(100);
 		CString ok;
-		ok.Format(_T("Flash LUT backups saved (439F trans per channel): base=%s -> *_mcs1.bin … *_1x64_2.bin (see CalibConstants)."),
+		ok.Format(_T("Flash backups saved (439F per trans): base=%s — MCS=0xC4 LUT, 1x64=MEM full read (see M576_1X64_MEMS_BACKUP_TOTAL_SIZE in CalibConstants)."),
 			(LPCTSTR)absBackupBin);
 		SafeAppendLog(ok);
 	}
@@ -857,7 +858,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	AppendLog(_T("Read Flash backup: 439F trans per channel; output <base>_mcs1.bin … _1x64_2.bin (see CalibConstants)."));
+	AppendLog(_T("Read Flash: trans1–2 MCS 0xC4 LUT; trans3–4 1x64 MEM (full range) → <base>_mcs1/2.bin, <base>_1x64_1/2.bin."));
 	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 
@@ -1653,7 +1654,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (m_strOutBin.IsEmpty())
 	{
-		AppendLog(_T("Set output BIN base path; burn uses *_mcs1.bin … *_1x64_2.bin from disk."));
+		AppendLog(_T("Set output BIN base; burn: MCS (trans1–2) FW stream, 1x64 (trans3–4) fwdl+XMODEM, per *_mcs* / *_1x64_*.bin."));
 		return;
 	}
 	const CString absOutBin = ResolveFilePath(m_strOutBin);
@@ -1675,7 +1676,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (!anyBin)
 	{
-		AppendLog(_T("No non-empty per-trans .bin (e.g. *_mcs1.bin) for this base; run Write BIN first."));
+		AppendLog(_T("No non-empty per-trans .bin (*_mcs* / *_1x64_*) for this base; run Write BIN or place backups first."));
 		return;
 	}
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
@@ -1693,5 +1694,5 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(m);
 		return;
 	}
-	AppendLog(_T("Flash completed (each trans uses its own *_mcs1.bin / *_1x64_2.bin from the output base)."));
+	AppendLog(_T("Flash completed: trans1–2 via MCS update stream, trans3–4 via 1x64 XMODEM (per-file from output base)."));
 }

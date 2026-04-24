@@ -63,6 +63,10 @@ private:
 	CString m_queuedPathLog;
 	std::atomic<bool> m_pathLogFlushScheduled{ false };
 
+	/// Filled by `ReadFlashBackupWorkerEntry` before `WM_M576_READ_BACKUP_FINISHED`; shown in `OnReadBackupFinished` (UI thread).
+	BOOL m_readBackupLastOk;
+	CString m_readBackupLastMsg;
+
 	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
 	int m_nCalMode;
 	int m_delayMs;

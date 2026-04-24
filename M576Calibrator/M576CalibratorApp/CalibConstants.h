@@ -123,6 +123,45 @@
 #define M576_439F_POST_TRANS_MS 50
 #endif
 
+/// 1x64 MemsSw XMODEM image / first LUT block: 2K = 0x800 B (14538: 0x0E000/0x0E800.., CRC@+0x7FC); not MCS `stLutSettingZ4671`.
+#ifndef M576_1X64_MEMS_BIN_SIZE
+#define M576_1X64_MEMS_BIN_SIZE 2048u
+#endif
+/// Full `MEM` read-back from `M576_1X64_FLASH_BASE_TRANS*` in one run: N × 2K (default 12×2K=24576) from base upward; XMODEM burn still uses only the first `M576_1X64_MEMS_BIN_SIZE` bytes.
+#ifndef M576_1X64_MEMS_BACKUP_TOTAL_SIZE
+#define M576_1X64_MEMS_BACKUP_TOTAL_SIZE (12u * M576_1X64_MEMS_BIN_SIZE)
+#endif
+/// `MEM` read: address step and payload bytes per response (32 B from 64 hex chars; 64 steps * 32 = 2048 B).
+#ifndef M576_1X64_MEM_ADDR_STEP
+#define M576_1X64_MEM_ADDR_STEP 32u
+#endif
+#ifndef M576_1X64_MEM_PAYLOAD_BYTES
+#define M576_1X64_MEM_PAYLOAD_BYTES 32u
+#endif
+/// `MEM` reply: wait up to this long (multi-chunk may arrive >100ms apart; see `MemDrainHexResponse`).
+#ifndef M576_1X64_MEM_READ_MAX_MS
+#define M576_1X64_MEM_READ_MAX_MS 5000u
+#endif
+/// After 64+ payload hex in buffer, end when RX idle this long (ms) so the full line/CR is flushed.
+#ifndef M576_1X64_MEM_READ_IDLE_OK_MS
+#define M576_1X64_MEM_READ_IDLE_OK_MS 60u
+#endif
+/// Extra delay after `MEM` TX before starting RX drain (firmware / 439F may need time before payload bytes).
+#ifndef M576_1X64_MEM_AFTER_CMD_MS
+#define M576_1X64_MEM_AFTER_CMD_MS 120u
+#endif
+/// Image base in bundle (trans 3 = 1# 1x64 → SW1, trans 4 = 2# 1x64 → SW2), see `CreateSwitchPointBin` in 1X64 Switch.
+#ifndef M576_1X64_FLASH_BASE_TRANS3
+#define M576_1X64_FLASH_BASE_TRANS3 0x0E000u
+#endif
+#ifndef M576_1X64_FLASH_BASE_TRANS4
+#define M576_1X64_FLASH_BASE_TRANS4 0x0E800u
+#endif
+/// After `fwdl\\r` before first XMODEM block (legacy `SendRevCommand` used long sleep).
+#ifndef M576_1X64_FWDL_PRE_MS
+#define M576_1X64_FWDL_PRE_MS 5000u
+#endif
+
 #if defined(__cplusplus)
 #include <cstddef>
 /// Flash read-backup: trans channel index order (1=MCS1#, ... 4=1x64 #2 per site doc).
