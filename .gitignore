@@ -409,3 +409,4 @@ FodyWeavers.xsd
 /UUI_code/identifier.sqlite
 /.svn
 /M576Calibrator/dist/M576Calibrator
+*.db
