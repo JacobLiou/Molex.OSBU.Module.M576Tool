@@ -73,7 +73,7 @@ static void EnumPresentComPorts(std::vector<CString>& out)
 	}
 }
 
-constexpr UINT WM_M576_PATH_LOG = WM_APP + 100;
+constexpr UINT WM_M576_PATH_LOG_FLUSH = WM_APP + 100;
 constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
 constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
 constexpr UINT WM_M576_PATH_FINISHED = WM_APP + 103;
@@ -347,8 +347,9 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
+	ON_WM_SYSCOMMAND()
 	ON_WM_DESTROY()
-	ON_MESSAGE(WM_M576_PATH_LOG, &CM576CalibratorDlg::OnPathLog)
+	ON_MESSAGE(WM_M576_PATH_LOG_FLUSH, &CM576CalibratorDlg::OnPathLogFlush)
 	ON_MESSAGE(WM_M576_PATH_PROGRESS_RANGE, &CM576CalibratorDlg::OnPathProgressRange)
 	ON_MESSAGE(WM_M576_PATH_PROGRESS_POS, &CM576CalibratorDlg::OnPathProgressPos)
 	ON_MESSAGE(WM_M576_PATH_FINISHED, &CM576CalibratorDlg::OnPathFinished)
@@ -358,6 +359,12 @@ END_MESSAGE_MAP()
 BOOL CM576CalibratorDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
+	ModifyStyle(WS_MINIMIZEBOX | WS_MAXIMIZEBOX, 0, SWP_FRAMECHANGED);
+	if (CMenu* pSys = GetSystemMenu(FALSE))
+	{
+		pSys->RemoveMenu(SC_MINIMIZE, MF_BYCOMMAND);
+		pSys->RemoveMenu(SC_MAXIMIZE, MF_BYCOMMAND);
+	}
 	HICON hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	if (hIcon)
 	{
@@ -429,6 +436,13 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	return TRUE;
 }
 
+void CM576CalibratorDlg::OnSysCommand(UINT nID, LPARAM lParam)
+{
+	if ((nID & 0xFFF0) == SC_MINIMIZE)
+		return;
+	CDialogEx::OnSysCommand(nID, lParam);
+}
+
 void CM576CalibratorDlg::FillComPorts()
 {
 	m_comboCom.ResetContent();
@@ -466,9 +480,16 @@ void CM576CalibratorDlg::SafeAppendLog(LPCTSTR sz)
 		AppendLog(sz);
 		return;
 	}
-	CString* p = new CString(sz);
-	if (!::PostMessage(m_hWnd, WM_M576_PATH_LOG, 0, reinterpret_cast<LPARAM>(p)))
-		delete p;
+	CString line;
+	line.Format(_T("%s %s"), FormatLogTimestamp().GetString(), sz);
+	{
+		std::lock_guard<std::mutex> lock(m_pathLogQueueMutex);
+		if (!m_queuedPathLog.IsEmpty())
+			m_queuedPathLog += _T("\r\n");
+		m_queuedPathLog += line;
+	}
+	if (!m_pathLogFlushScheduled.exchange(true))
+		::PostMessage(m_hWnd, WM_M576_PATH_LOG_FLUSH, 0, 0);
 }
 
 void CM576CalibratorDlg::SafeSetProgressRange(int minVal, int maxVal)
@@ -536,13 +557,54 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 		p->EnableWindow(!open);
 }
 
-LRESULT CM576CalibratorDlg::OnPathLog(WPARAM, LPARAM lParam)
+LRESULT CM576CalibratorDlg::OnPathLogFlush(WPARAM, LPARAM)
 {
-	CString* p = reinterpret_cast<CString*>(lParam);
-	if (p)
+	CString batch;
 	{
-		AppendLog(p->GetString());
-		delete p;
+		std::lock_guard<std::mutex> lock(m_pathLogQueueMutex);
+		batch = m_queuedPathLog;
+		m_queuedPathLog.Empty();
+	}
+	if (batch.IsEmpty())
+	{
+		m_pathLogFlushScheduled = false;
+		{
+			std::lock_guard<std::mutex> lock(m_pathLogQueueMutex);
+			if (!m_queuedPathLog.IsEmpty() && !m_pathLogFlushScheduled.exchange(true))
+				::PostMessage(m_hWnd, WM_M576_PATH_LOG_FLUSH, 0, 0);
+		}
+		return 0;
+	}
+	CString t;
+	m_editLog.GetWindowText(t);
+	TrimEditLogText(t);
+	if (!t.IsEmpty())
+		t += _T("\r\n");
+	t += batch;
+	m_editLog.SetWindowText(t);
+	int n = m_editLog.GetWindowTextLength();
+	m_editLog.SetSel(n, n);
+	{
+		int pos = 0;
+		for (;;)
+		{
+			const int nl = batch.Find(_T("\r\n"), pos);
+			if (nl < 0)
+			{
+				if (pos < batch.GetLength())
+					WriteLogFileLine(batch.Mid(pos));
+				break;
+			}
+			if (nl > pos)
+				WriteLogFileLine(batch.Mid(pos, nl - pos));
+			pos = nl + 2;
+		}
+	}
+	m_pathLogFlushScheduled = false;
+	{
+		std::lock_guard<std::mutex> lock(m_pathLogQueueMutex);
+		if (!m_queuedPathLog.IsEmpty() && !m_pathLogFlushScheduled.exchange(true))
+			::PostMessage(m_hWnd, WM_M576_PATH_LOG_FLUSH, 0, 0);
 	}
 	return 0;
 }

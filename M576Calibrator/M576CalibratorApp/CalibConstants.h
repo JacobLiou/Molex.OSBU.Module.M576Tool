@@ -98,11 +98,13 @@
 #ifndef M576_FLASH_FILE_TYPE
 #define M576_FLASH_FILE_TYPE 0
 #endif
-/// LUT read start address in device flash (32-bit, big-endian in 0xC4 frame; use 0 unless FW文档另有规定).
+/// Start of `stLutSettingZ4671` in device flash (32-bit, big-endian in 0xC4); not the bundle file base—
+/// headers are assembled on PC. Use 0 unless FW says otherwise.
 #ifndef M576_FLASH_LUT_READ_BASE
 #define M576_FLASH_LUT_READ_BASE 0U
 #endif
-/// Max bytes per 0xC4 read (per FW: e.g. 0x14 / 20; larger requests may be rejected).
+/// 0xC4 LUT read: fixed steps of at most `M576_FLASH_READ_CHUNK_MAX` (128) bytes; last
+/// 0xC4 may be 1..128 (remainder when `total` is not a multiple of 128) or 128 (final full block when it is).
 #ifndef M576_FLASH_READ_CHUNK_MAX
 #define M576_FLASH_READ_CHUNK_MAX 128
 #endif

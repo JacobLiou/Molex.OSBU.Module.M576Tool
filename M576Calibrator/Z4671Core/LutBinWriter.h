@@ -33,4 +33,7 @@ public:
 
 	/// Full on-disk bundle size (headers + LUT), same as Write() produces.
 	static size_t FullBundleFileSize();
+
+	/// Bytes of `stLutSettingZ4671` only: size the firmware allows over 0xC4 (not `FullBundleFileSize()`).
+	static size_t LutDevicePayloadSize();
 };

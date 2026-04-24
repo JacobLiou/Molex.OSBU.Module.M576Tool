@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
 #include <thread>
 
 #include "resource.h"
@@ -56,6 +57,11 @@ private:
 	std::atomic<bool> m_readBackupRunning{ false };
 	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
 	std::atomic<bool> m_suppressPathProgress{ false };
+	/// Worker `SafeAppendLog` coalesces into a queue; a single `WM_M576_PATH_LOG_FLUSH` drains all pending lines
+	/// (avoids thousands of per-line posts that block the UI thread on restore from minimize).
+	std::mutex m_pathLogQueueMutex;
+	CString m_queuedPathLog;
+	std::atomic<bool> m_pathLogFlushScheduled{ false };
 
 	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
 	int m_nCalMode;
@@ -112,7 +118,8 @@ private:
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedStop();
-	afx_msg LRESULT OnPathLog(WPARAM wParam, LPARAM lParam);
+	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
+	afx_msg LRESULT OnPathLogFlush(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathProgressRange(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathProgressPos(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathFinished(WPARAM wParam, LPARAM lParam);

@@ -17,12 +17,33 @@ static char THIS_FILE[] = __FILE__;
 
 namespace {
 
-static int ChunkCountForRead(size_t total)
+/// 0xC4 bytes for this read step: at most `maxBlock` (128) per frame; the tail is `rem` when
+/// `rem` < 128, never a merged (128,255] single request.
+static int LutReadChunkSize(size_t rem, int maxBlock)
 {
-	const size_t k = (size_t)M576_FLASH_READ_CHUNK_MAX;
-	if (k == 0)
+	if (rem == 0 || maxBlock < 1)
 		return 0;
-	return (int)((total + k - 1u) / k);
+	if (rem <= (size_t)maxBlock)
+		return (int)rem;
+	return maxBlock;
+}
+
+static int CountReadChunksSimulate(size_t total, int maxBlock)
+{
+	if (total == 0 || maxBlock < 1)
+		return 0;
+	size_t off = 0;
+	int n = 0;
+	while (off < total)
+	{
+		const size_t rem = total - off;
+		const int step = LutReadChunkSize(rem, maxBlock);
+		if (step < 1)
+			break;
+		off += (size_t)step;
+		++n;
+	}
+	return n;
 }
 
 // Z4671 flash read: caller already opened trans to target.
@@ -31,27 +52,29 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 {
 	err.Empty();
 	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle (tunnel): output=%s"), szOutPath);
-	const size_t total = CLutBinWriter::FullBundleFileSize();
-	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle: 0xC4 fileType=%d flashBase=0x%08lX totalBytes=%Iu"),
-		M576_FLASH_FILE_TYPE, (unsigned long)M576_FLASH_LUT_READ_BASE, (size_t)total);
-	if (total == 0)
+	const size_t readBytes = CLutBinWriter::LutDevicePayloadSize();
+	const size_t outFileBytes = CLutBinWriter::FullBundleFileSize();
+	cmd.TraceInfo(_T("FW"), _T("Read LUT: 0xC4 fileType=%d flashBase=0x%08lX devicePayload=%Iu fileOut=%Iu"),
+		M576_FLASH_FILE_TYPE, (unsigned long)M576_FLASH_LUT_READ_BASE, readBytes, outFileBytes);
+	if (readBytes == 0)
 	{
-		err = _T("Invalid bundle size.");
-		cmd.TraceError(_T("FW"), _T("Read LUT bundle aborted: invalid bundle size."));
+		err = _T("Invalid device payload size.");
+		cmd.TraceError(_T("FW"), _T("Read LUT bundle aborted: invalid device payload size."));
 		return FALSE;
 	}
 	std::vector<BYTE> buf;
-	buf.resize(total);
+	buf.resize(readBytes);
 	size_t offset = 0;
 	const int typ = M576_FLASH_FILE_TYPE;
-	const int nChunkTotal = ChunkCountForRead(total);
+	// 0xC4: always min(128, rem) so full steps are 128; last call is 1..128 (remainder when total%128 != 0).
+	const int nChunkTotal = CountReadChunksSimulate(readBytes, M576_FLASH_READ_CHUNK_MAX);
 	int nChunkDone = 0;
 
-	while (offset < total)
+	while (offset < readBytes)
 	{
-		const size_t rem = total - offset;
-		const int chunkMax = M576_FLASH_READ_CHUNK_MAX;
-		const int req = (rem > (size_t)chunkMax) ? chunkMax : (int)rem;
+		const size_t rem = readBytes - offset;
+		const int kBlock = M576_FLASH_READ_CHUNK_MAX;
+		const int req = LutReadChunkSize(rem, kBlock);
 		const DWORD flashAddr = M576_FLASH_LUT_READ_BASE + (DWORD)offset;
 		cmd.TraceInfo(_T("FW"), _T("Read flash chunk %d/%d: addr=0x%08lX req=%d"), nChunkDone + 1, nChunkTotal, flashAddr, req);
 		BYTE* pPayload = NULL;
@@ -69,7 +92,7 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 			return FALSE;
 		}
 		const int copyLen = (nLen < req) ? nLen : req;
-		if ((size_t)copyLen > total - offset)
+		if ((size_t)copyLen > readBytes - offset)
 		{
 			err = _T("Flash read length overflow.");
 			cmd.TraceError(_T("FW"), _T("Flash read overflow at addr=0x%08lX len=%d"), flashAddr, copyLen);
@@ -78,7 +101,7 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 		memcpy(&buf[offset], pPayload, (size_t)copyLen);
 		offset += (size_t)copyLen;
 		nChunkDone++;
-		cmd.TraceInfo(_T("FW"), _T("Read flash chunk %d/%d complete: received=%d total=%Iu/%Iu"), nChunkDone, nChunkTotal, copyLen, offset, total);
+		cmd.TraceInfo(_T("FW"), _T("Read flash chunk %d/%d complete: received=%d device=%Iu/%Iu"), nChunkDone, nChunkTotal, copyLen, offset, readBytes);
 		if (cb)
 			cb(progressBase + nChunkDone, progressTotal, user);
 		if ((size_t)copyLen < (size_t)req)
@@ -90,23 +113,24 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 		Sleep(20);
 	}
 
-	HANDLE h = CreateFile(szOutPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (h == INVALID_HANDLE_VALUE)
+	if (readBytes != sizeof(stLutSettingZ4671))
 	{
-		err.Format(_T("Cannot create %s"), szOutPath);
-		cmd.TraceError(_T("FW"), _T("Create backup file failed: %s"), err.GetString());
+		err = _T("Device payload size mismatch stLutSettingZ4671.");
+		cmd.TraceError(_T("FW"), _T("LutDevicePayloadSize %Iu != sizeof(stLutSettingZ4671)"), (size_t)readBytes);
 		return FALSE;
 	}
-	DWORD nWritten = 0;
-	const BOOL ok = WriteFile(h, buf.data(), (DWORD)total, &nWritten, NULL) && nWritten == (DWORD)total;
-	CloseHandle(h);
-	if (!ok)
+	stLutSettingZ4671 lut;
+	memcpy(&lut, buf.data(), readBytes);
+	SLutBinWriteParams wparams;
+	wparams.strOutputPath = szOutPath;
+	wparams.pLut = &lut;
+	if (!CLutBinWriter::Write(wparams))
 	{
-		err = _T("Write backup file failed.");
-		cmd.TraceError(_T("FW"), _T("Write backup file failed: %s"), szOutPath);
+		err = _T("CLutBinWriter::Write (assemble bundle) failed.");
+		cmd.TraceError(_T("FW"), _T("CLutBinWriter::Write failed: %s"), szOutPath);
 		return FALSE;
 	}
-	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle complete: bytes=%Iu path=%s"), total, szOutPath);
+	cmd.TraceInfo(_T("FW"), _T("Read LUT complete: device=%Iu out=%Iu path=%s"), readBytes, outFileBytes, szOutPath);
 	return TRUE;
 }
 
@@ -245,13 +269,13 @@ BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CStrin
 	CString discard;
 	(void)Board439fTransTunnel::EndTrans(cmd, discard);
 
-	const size_t bundleBytes = CLutBinWriter::FullBundleFileSize();
-	if (bundleBytes == 0)
+	const size_t devicePayload = CLutBinWriter::LutDevicePayloadSize();
+	if (devicePayload == 0)
 	{
-		err = _T("Invalid bundle size.");
+		err = _T("Invalid device payload size.");
 		return FALSE;
 	}
-	const int chunksPerBundle = ChunkCountForRead(bundleBytes);
+	const int chunksPerBundle = CountReadChunksSimulate(devicePayload, M576_FLASH_READ_CHUNK_MAX);
 	const int progressTotal = (int)(g_m576FlashReadTransChannelCount * (size_t)chunksPerBundle);
 
 	for (std::size_t i = 0; i < g_m576FlashReadTransChannelCount; ++i)
