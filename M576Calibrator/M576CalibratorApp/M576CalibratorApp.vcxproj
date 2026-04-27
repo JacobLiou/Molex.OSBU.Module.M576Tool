@@ -78,17 +78,17 @@
       <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <PostBuildEvent>
-      <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
-  copy /Y &quot;$(SolutionDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_mcs1.csv&quot; &quot;$(OutDir)output\pm_mcs1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_mcs2.csv&quot; &quot;$(OutDir)output\pm_mcs2.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_1x64_1.csv&quot; &quot;$(OutDir)output\pm_1x64_1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_1x64_2.csv&quot; &quot;$(OutDir)output\pm_1x64_2.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_mcs1.csv&quot; &quot;$(OutDir)output\pd_mcs1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_mcs2.csv&quot; &quot;$(OutDir)output\pd_mcs2.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_1x64_1.csv&quot; &quot;$(OutDir)output\pd_1x64_1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_1x64_2.csv&quot; &quot;$(OutDir)output\pd_1x64_2.csv&quot;</Command>
+      <Command>if not exist "$(OutDir)output" mkdir "$(OutDir)output"
+  copy /Y "$(SolutionDir)output\standard_pm.csv" "$(OutDir)output\standard_pm.csv"
+  copy /Y "$(SolutionDir)output\standard_pd.csv" "$(OutDir)output\standard_pd.csv"
+  copy /Y "$(SolutionDir)output\pm_mcs1.csv" "$(OutDir)output\pm_mcs1.csv"
+  copy /Y "$(SolutionDir)output\pm_mcs2.csv" "$(OutDir)output\pm_mcs2.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_1.csv" "$(OutDir)output\pm_1x64_1.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_2.csv" "$(OutDir)output\pm_1x64_2.csv"
+  copy /Y "$(SolutionDir)output\pd_mcs1.csv" "$(OutDir)output\pd_mcs1.csv"
+  copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
+  copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
+  copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -119,17 +119,17 @@
       <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <PostBuildEvent>
-      <Command>if not exist &quot;$(OutDir)output&quot; mkdir &quot;$(OutDir)output&quot;
-  copy /Y &quot;$(SolutionDir)output\standard_pm.csv&quot; &quot;$(OutDir)output\standard_pm.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\standard_pd.csv&quot; &quot;$(OutDir)output\standard_pd.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_mcs1.csv&quot; &quot;$(OutDir)output\pm_mcs1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_mcs2.csv&quot; &quot;$(OutDir)output\pm_mcs2.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_1x64_1.csv&quot; &quot;$(OutDir)output\pm_1x64_1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pm_1x64_2.csv&quot; &quot;$(OutDir)output\pm_1x64_2.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_mcs1.csv&quot; &quot;$(OutDir)output\pd_mcs1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_mcs2.csv&quot; &quot;$(OutDir)output\pd_mcs2.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_1x64_1.csv&quot; &quot;$(OutDir)output\pd_1x64_1.csv&quot;
-  copy /Y &quot;$(SolutionDir)output\pd_1x64_2.csv&quot; &quot;$(OutDir)output\pd_1x64_2.csv&quot;</Command>
+      <Command>if not exist "$(OutDir)output" mkdir "$(OutDir)output"
+  copy /Y "$(SolutionDir)output\standard_pm.csv" "$(OutDir)output\standard_pm.csv"
+  copy /Y "$(SolutionDir)output\standard_pd.csv" "$(OutDir)output\standard_pd.csv"
+  copy /Y "$(SolutionDir)output\pm_mcs1.csv" "$(OutDir)output\pm_mcs1.csv"
+  copy /Y "$(SolutionDir)output\pm_mcs2.csv" "$(OutDir)output\pm_mcs2.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_1.csv" "$(OutDir)output\pm_1x64_1.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_2.csv" "$(OutDir)output\pm_1x64_2.csv"
+  copy /Y "$(SolutionDir)output\pd_mcs1.csv" "$(OutDir)output\pd_mcs1.csv"
+  copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
+  copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
+  copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -171,8 +171,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="M576CalibratorApp.manifest" />
-    <None Include="output\standard_pd.csv" />
-    <None Include="output\standard_pm.csv" />
     <None Include="res\M576Calibrator.ico" />
   </ItemGroup>
   <ItemGroup>
