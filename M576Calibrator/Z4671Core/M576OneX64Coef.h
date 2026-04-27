@@ -1,6 +1,6 @@
 #pragma once
-// 1x64 MEMS layout matches 126S_45V_Switch_App (stMemsSwCoef, per-2K flash) for 1X64 trans + MFC write-bin.
-// Same bundle pattern as Z4671: header + four 2K MEMS blocks; 1x64 XMODEM/backup data is 8KB.
+// 1x64 MEMS layout matches 126S_45V_Switch_App (stMemsSwCoef, per-2K flash) for 1X64 trans + write-bin.
+// Four switches = four separate 2K files; device backup is 8KB contiguous MEM (4×2K). XMODEM burns one 2K per `fwdl` session.
 
 #include "Z4767StructDefine.h"
 

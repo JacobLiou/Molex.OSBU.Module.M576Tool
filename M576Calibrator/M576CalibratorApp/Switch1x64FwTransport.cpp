@@ -349,9 +349,9 @@ BOOL M576Read1x64SnStringOnCurrentTunnel(
 	return TRUE;
 }
 
-// 已在 trans 隧道上：从 flashBase 起 MEM 拼满 M576_1X64_MEMS_BACKUP_TOTAL_SIZE 写入 szOutPath。
+// 已在 trans 隧道上：从 flashBase 起 MEM 拼满 8K，再写出四路 2K 文件 `M576TransBinPathForSwitch( base, transChannel, sw )`。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
-	Z4671Command& cmd, LPCTSTR szOutPath, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal,
+	Z4671Command& cmd, LPCTSTR szOutPathBase, int transChannel, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal,
 	const CString& strBundleSn)
 {
 	err.Empty();
@@ -359,12 +359,13 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 		const unsigned numBlocks2k = (unsigned)(M576_1X64_MEMS_BACKUP_TOTAL_SIZE / M576_1X64_MEMS_BIN_SIZE);
 		cmd.TraceInfo(
 			_T("FW-1x64"),
-			_T("Read 1x64 (MEM) start: base=0x%08lX total=%u B (%u x %u B blocks) -> file %s"),
+			_T("Read 1x64 (MEM) start: trans=%d base=0x%08lX total=%u B (%u x %u B) -> 4x2K from %s"),
+			transChannel,
 			(unsigned long)flashBase,
 			(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE,
 			numBlocks2k,
 			(unsigned)M576_1X64_MEMS_BIN_SIZE,
-			szOutPath);
+			szOutPathBase);
 	}
 	const int steps = M5761x64MemReadStepCount();
 	if (steps < 1 || (size_t)steps * (size_t)M576_1X64_MEM_ADDR_STEP != (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
@@ -574,29 +575,29 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 		return FALSE;
 	}
 	memcpy(sw4, buf.data(), (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE);
-	SMems1x64BinWriteParams wparams;
-	wparams.strOutputPath = szOutPath;
-	wparams.pSw4 = sw4;
-	wparams.strBundleSN = strBundleSn;
-	if (!CMems1x64LutBinWriter::Write(wparams))
+	for (int sw = 0; sw < 4; ++sw)
 	{
-		err = _T("CMems1x64LutBinWriter::Write after MEM read failed.");
-		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
-		return FALSE;
+		const CString outOne = M576TransBinPathForSwitch(szOutPathBase, transChannel, sw);
+		if (!CMems1x64LutBinWriter::WriteSingleSwitch(sw4[sw], sw, outOne, strBundleSn, CString()))
+		{
+			err = _T("CMems1x64LutBinWriter::WriteSingleSwitch after MEM read failed.");
+			cmd.TraceError(_T("FW-1x64"), _T("%s (path: %s)"), err.GetString(), outOne.GetString());
+			return FALSE;
+		}
 	}
 	cmd.TraceInfo(
 		_T("FW-1x64"),
-		_T("Read 1x64 (MEM) done: wrote Z4671 bundle (header+8K) to %s"),
-		szOutPath);
+		_T("Read 1x64 (MEM) done: wrote 4x2K to trans=%d (base: %s)"),
+		transChannel, szOutPathBase);
 	return TRUE;
 }
 
-// 发 fwdl 后按 XMODEM 将 Mems 系数 bin 烧入当前 1x64 隧道下设备（非 MCS FWUpdate）。
+// 发 fwdl 后按 XMODEM 将**单个 2K** Mems 系数烧入当前 1x64 隧道（多路烧录在 McsFwUploadBinEx 中连发）。
 BOOL M576Upload1x64MemsBinOnCurrentTunnel(
-	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal)
+	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal, BOOL bSendRset)
 {
 	err.Empty();
-	cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM burn (fwdl): %s"), szBinPath);
+	cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM burn (fwdl): %s; RSET=%d"), szBinPath, (int)bSendRset);
 	const char* fwdl = "fwdl\r";
 	if (!cmd.WriteBuffer((char*)fwdl, (DWORD)strlen(fwdl)))
 	{
@@ -617,44 +618,16 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		err = _T("1x64 bin: GetFileSize failed.");
 		return FALSE;
 	}
-	if (dwFile < (DWORD)M576_1X64_MEMS_BIN_SIZE)
+	if (dwFile != (DWORD)M576_1X64_MEMS_BIN_SIZE)
 	{
 		CloseHandle(hBin);
 		err.Format(
-			_T("1x64 XMODEM needs at least %u B (one 2K block); file has %lu B."),
+			_T("1x64 XMODEM expects exactly %u B (one 2K stMemsSwCoef); file has %lu B."),
 			(unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)dwFile);
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
-	{
-		const unsigned maxBurn = (unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
-		if (dwFile > (DWORD)maxBurn)
-			cmd.TraceInfo(
-				_T("FW-1x64"), _T("File is %lu B; XMODEM burns first %u B (4x2K MemsSw) only."),
-				(unsigned long)dwFile, maxBurn);
-	}
-	const DWORD kFull1x64 = (DWORD)CMems1x64LutBinWriter::FullBundleFileSize();
-	DWORD payOff = 0;
-	if (dwFile >= kFull1x64)
-	{
-		payOff = (DWORD)CMems1x64LutBinWriter::LutPayloadOffset();
-	}
-	else if (dwFile < (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE
-		|| (dwFile > (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE && dwFile < kFull1x64))
-	{
-		CloseHandle(hBin);
-		err = _T("1x64 bin: expected 8KB raw Mems or Z4671-bundle + 8KB; size invalid.");
-		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
-		return FALSE;
-	}
-	if (SetFilePointer(hBin, (LONG)payOff, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER
-		&& GetLastError() != NO_ERROR)
-	{
-		CloseHandle(hBin);
-		err = _T("1x64 bin: seek to Mems payload failed.");
-		return FALSE;
-	}
-	DWORD dwCodeSizeLeft = (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
+	DWORD dwCodeSizeLeft = (DWORD)M576_1X64_MEMS_BIN_SIZE;
 	std::vector<BYTE> blockbuf((size_t)(XMODEM_BLOCK_BODY_SIZE_1K + 32u));
 	BYTE* pbBinData = blockbuf.data();
 	int iCount = 0;
@@ -714,11 +687,16 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
-	Sleep(4000);
+	if (bSendRset)
 	{
-		const char* rset = "RSET\r";
-		(void)cmd.WriteBuffer((char*)rset, (DWORD)strlen(rset));
+		Sleep(4000);
+		{
+			const char* rset = "RSET\r";
+			(void)cmd.WriteBuffer((char*)rset, (DWORD)strlen(rset));
+		}
+		cmd.TraceInfo(_T("FW-1x64"), _T("1x64 burn done (RSET sent): %s"), szBinPath);
 	}
-	cmd.TraceInfo(_T("FW-1x64"), _T("1x64 burn done (RSET sent): %s"), szBinPath);
+	else
+		cmd.TraceInfo(_T("FW-1x64"), _T("1x64 burn XMODEM done (no RSET, more blocks may follow): %s"), szBinPath);
 	return TRUE;
 }

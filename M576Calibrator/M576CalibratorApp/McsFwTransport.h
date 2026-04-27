@@ -13,16 +13,19 @@ BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err);
 typedef void (__cdecl *McsFwProgressCb)(int current, int total, void* user); // 上载/读回进度，__cdecl
 BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user);
 
-/// From base "x.bin" -> "x_mcs1.bin" / "x_mcs2.bin" / "x_1x64_1.bin" / "x_1x64_2.bin" (trans 1~4; see g_m576TransLutBinSuffix).
+/// From base "x.bin" -> "x_mcs1.bin" / "x_mcs2.bin" / "x_1x64_1.bin" + per-switch "x_1x64_1_swN.bin" (trans 1~4; see g_m576TransLutBinSuffix + M576TransBinPathForSwitch).
 // 由用户选的“基名”生成分 trans 备份/输出文件名（后缀 g_m576TransLutBinSuffix）。
 CString M576TransBackupPathFromBase(LPCTSTR szBasePath, int transChannel);
 /// Load/burn: prefer that path; if missing, use legacy "x_tN.bin" when present.
 // 读/烧时优先新命名，缺失则回退老命名 *_tN.bin（若存在）。
 CString M576TransBinPathForRead(LPCTSTR szBasePath, int transChannel);
 
+/// trans 1~2: same as M576TransBackupPathFromBase. trans 3~4: per-switch 2K file, e.g. `x_1x64_1_sw2.bin` (swIdx 0..3).
+CString M576TransBinPathForSwitch(LPCTSTR szBasePath, int transChannel, int swIdx);
+
 /// Read LUT from each trans channel; szOutPathBase is base (e.g. out\backup.bin -> out\backup_mcs1.bin …).
 // 从各 trans 将设备 LUT 读回为多个分文件（如 out\foo.bin → out\foo_mcs1.bin …）。
-/// snTrans[0..3] 与 trans1~4 对应，写入各 bin 的 Z4671 bundle 头 `pBundleSN`（MCS 经 CLutBinWriter；1x64 经 CMems1x64LutBinWriter 整包）。
+/// snTrans[0..3] 与 trans1~4 对应，写入各 bin 的 Z4671 bundle 头 `pBundleSN`（MCS 经 CLutBinWriter；1x64 经 CMems1x64LutBinWriter 每路 2K）。
 BOOL McsReadLutBundleFromDevice(
 	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const CString snTrans[4]);
 

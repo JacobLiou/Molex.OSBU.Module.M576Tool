@@ -2,7 +2,6 @@
 #include "McsFwTransport.h"
 #include "Board439fTransTunnel.h"
 #include "LutBinWriter.h"
-#include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
 #include "Switch1x64FwTransport.h"
 #include <vector>
@@ -268,6 +267,21 @@ CString M576TransBinPathForRead(LPCTSTR szBasePath, int transChannel)
 	return primary;
 }
 
+CString M576TransBinPathForSwitch(LPCTSTR szBasePath, int transChannel, int swIdx)
+{
+	if (transChannel == 1 || transChannel == 2)
+		return M576TransBackupPathFromBase(szBasePath, transChannel);
+	const CString primary = M576TransBackupPathFromBase(szBasePath, transChannel);
+	if (swIdx < 0 || swIdx > 3)
+		return primary;
+	CString suf;
+	suf.Format(_T("_sw%d"), swIdx + 1);
+	const int dot = primary.ReverseFind(_T('.'));
+	if (dot < 0)
+		return primary + suf + _T(".bin");
+	return primary.Left(dot) + suf + primary.Mid(dot);
+}
+
 // 无进度回调的 MCS LUT 上载（内部转 McsFwUploadBinEx）。
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
 {
@@ -307,7 +321,7 @@ BOOL McsReadLutBundleFromDevice(
 		const int ch = g_m576FlashReadTransChannels[i];
 		CString path = M576TransBackupPathFromBase(szOutPathBase, ch);
 		cmd.TraceInfo(_T("FW"), _T("Read backup multi: trans=%d file=%s (%s)"),
-			ch, path.GetString(), IsMcsTransChannel(ch) ? _T("MCS 0xC4+LUT") : _T("1x64 MEM"));
+			ch, path.GetString(), IsMcsTransChannel(ch) ? _T("MCS 0xC4+LUT") : _T("1x64 MEM 4x2K"));
 		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
 		{
 			err.Format(_T("trans %d: %s"), ch, err.GetString());
@@ -336,7 +350,7 @@ BOOL McsReadLutBundleFromDevice(
 				return FALSE;
 			}
 			if (!M576Read1x64MemsBinOnCurrentTunnel(
-					cmd, path, x64Base, err, cb, user, progressBase, progressTotal, snTrans[ch - 1]))
+					cmd, szOutPathBase, ch, x64Base, err, cb, user, progressBase, progressTotal, snTrans[ch - 1]))
 			{
 				err.Format(_T("trans %d: %s"), ch, err.GetString());
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
@@ -390,13 +404,24 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			}
 			else
 			{
-				// 烧录 1x64 时固定按 8KB 载荷分块；文件可为裸 8K 或「bundle 头+8K」
-				const DWORD kFull1x64 = (DWORD)CMems1x64LutBinWriter::FullBundleFileSize();
-				DWORD x64sz = 0;
-				if (sz >= (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE
-					&& (sz == (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE || sz >= kFull1x64))
-					x64sz = (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
-				chunks = (x64sz > 0) ? M5761x64XmodemChunkCountForFileSize(x64sz) : 0;
+				// 1x64：每路 2K 一个 XMODEM 链；四个 sw 文件 `*_1x64_*_swN.bin` 的块数累加
+				int c = 0;
+				for (int sw = 0; sw < 4; ++sw)
+				{
+					const CString p = M576TransBinPathForSwitch(szBinPath, pch, sw);
+					if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+						continue;
+					HANDLE hP = CreateFile(
+						p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+					if (hP == INVALID_HANDLE_VALUE)
+						continue;
+					const DWORD fsz = GetFileSize(hP, NULL);
+					CloseHandle(hP);
+					if (fsz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
+						continue;
+					c += M5761x64XmodemChunkCountForFileSize(fsz);
+				}
+				chunks = c;
 			}
 		}
 		chunksPerChannel[pi] = chunks;
@@ -438,11 +463,52 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 		}
 		else
 		{
-			if (!M576Upload1x64MemsBinOnCurrentTunnel(cmd, binPath, err, cb, user, progressBase, progressTotal))
+			std::vector<CString> x64Paths;
+			for (int sw = 0; sw < 4; ++sw)
 			{
-				err.Format(_T("trans %d: %s"), ch, err.GetString());
+				const CString p = M576TransBinPathForSwitch(szBinPath, ch, sw);
+				if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+				{
+					cmd.TraceInfo(
+						_T("FW"), _T("Burn 1x64 trans=%d: skip missing sw %d: %s"), ch, sw + 1, p.GetString());
+					continue;
+				}
+				HANDLE hP = CreateFile(
+					p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+				if (hP == INVALID_HANDLE_VALUE)
+					continue;
+				const DWORD fsz = GetFileSize(hP, NULL);
+				CloseHandle(hP);
+				if (fsz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
+				{
+					cmd.TraceInfo(
+						_T("FW"),
+						_T("Burn 1x64 trans=%d: skip sw %d (expected %u B, got %lu): %s"),
+						ch, sw + 1, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)fsz, p.GetString());
+					continue;
+				}
+				x64Paths.push_back(p);
+			}
+			if (x64Paths.empty())
+			{
+				err.Format(
+					_T("trans %d: no valid 1x64 2K per-switch .bin (*_sw1..4) for base %s"),
+					ch, szBinPath);
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
 				return FALSE;
+			}
+			int progressLocal = progressBase;
+			for (size_t u = 0; u < x64Paths.size(); ++u)
+			{
+				const BOOL last = (u + 1u == x64Paths.size());
+				if (!M576Upload1x64MemsBinOnCurrentTunnel(
+						cmd, x64Paths[u], err, cb, user, progressLocal, progressTotal, last))
+				{
+					err.Format(_T("trans %d: %s"), ch, err.GetString());
+					(void)Board439fTransTunnel::EndTrans(cmd, discard);
+					return FALSE;
+				}
+				progressLocal += M5761x64XmodemChunkCountForFileSize((DWORD)M576_1X64_MEMS_BIN_SIZE);
 			}
 		}
 		if (!Board439fTransTunnel::EndTrans(cmd, err))

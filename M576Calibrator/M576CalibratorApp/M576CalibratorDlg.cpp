@@ -473,7 +473,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
 	AppendLog(
-		_T("Backup BIN: Read Flash writes *_mcs1/2.bin, *_1x64_*.bin with Z4671 headers; SN from the four SN edit boxes merged into each file."));
+		_T("Backup BIN: Read Flash writes *_mcs1/2.bin (Z4671), *_1x64_*_sw1..4.bin (4x2K each); SN merged into headers."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	SyncExportStatsButton();
@@ -820,12 +820,12 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		m_readBackupLastOk = TRUE;
 		m_readBackupLastMsg.Format(
 			_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
-			_T("(Bundle headers use SN from the four SN fields; MCS 0xC4 LUT; 1x64 MEM+Z4671 bundle.)"),
+			_T("(Bundle headers use SN from the four SN fields; MCS 0xC4 LUT; 1x64 MEM -> 4x2K per switch.)"),
 			(LPCTSTR)absBackupBin);
 		SafeSetProgressPos(100);
 		CString ok;
 		ok.Format(
-			_T("Flash backups saved: base=%s (per-trans pBundleSN from UI SN fields; 1x64 files are full bundle)."),
+			_T("Flash backups saved: base=%s (per-trans pBundleSN from UI SN fields; 1x64 is 8x 2K files)."),
 			(LPCTSTR)absBackupBin);
 		SafeAppendLog(ok);
 	}
@@ -1050,7 +1050,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	AppendLog(
-		_T("Read Flash: per-trans bins; UI SN fields -> bundle pBundleSN; MCS=0xC4+CLutBinWriter; 1x64=MEM+CMems1x64LutBinWriter."));
+		_T("Read Flash: per-trans bins; UI SN fields -> bundle pBundleSN; MCS=0xC4+CLutBinWriter; 1x64=MEM+4x2K CMems1x64LutBinWriter."));
 	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 
@@ -1366,16 +1366,29 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 		}
 		else
 		{
-			if (CMems1x64LutBinWriter::ReadMemsFromFile(p, m_mems1x64[li - 2]))
+			BOOL anySw = FALSE;
+			for (int sw = 0; sw < 4; ++sw)
+			{
+				const CString ps = M576TransBinPathForSwitch(absBk, li + 1, sw);
+				if (GetFileAttributes(ps) == INVALID_FILE_ATTRIBUTES)
+					continue;
+				if (CMems1x64LutBinWriter::ReadMemsFromFile(ps, &m_mems1x64[li - 2][sw]))
+					anySw = TRUE;
+			}
+			if (anySw)
 			{
 				CString m;
-				m.Format(_T("Run path: preloaded 1x64 trans %d (4x2K Mems) from %s"), li + 1, p.GetString());
+				m.Format(
+					_T("Run path: preloaded 1x64 trans %d (per-switch 2K Mems) from %s_sw*"),
+					li + 1, p.GetString());
 				SafeAppendLog(m);
 			}
 			else
 			{
 				CString m;
-				m.Format(_T("Run path: read 1x64 Mems backup failed for %s"), p.GetString());
+				m.Format(
+					_T("Run path: no 1x64 per-switch Mems backup for trans %d (expected %s_sw1..4)"),
+					li + 1, p.GetString());
 				SafeAppendLog(m);
 			}
 		}
@@ -1932,7 +1945,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 	(void)globalTotal;
 }
 
-// --- 生成 BIN：MCS 为 Z4671 包，1x64 为同形头+4x2K Mems（m_lut / m_mems1x64 合并 1310）---
+// --- 生成 BIN：MCS 为 Z4671 包，1x64 为四路 2K Mems（m_lut / m_mems1x64 合并 1310）---
 
 void CM576CalibratorDlg::OnBnClickedGenBin()
 {
@@ -1940,9 +1953,9 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	ApplyFixedBinBasePaths(TRUE);
 	if (m_strOutBin.IsEmpty())
 	{
-		AppendLog(_T("Set output BIN base path (writes <base>_mcs1.bin ... <base>_1x64_2.bin)."));
+		AppendLog(_T("Set output BIN base path (writes <base>_mcs1/2.bin, <base>*_1x64_*_sw1..4.bin)."));
 		AfxMessageBox(
-			_T("Set output BIN base path first (writes <base>_mcs1.bin ... <base>_1x64_2.bin)."),
+			_T("Set output BIN base path first (writes MCS Z4671 bins and 1x64 4x2K per trans)."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -2018,16 +2031,22 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			BOOL haveBackup = FALSE;
 			if (!m_strBackupBin.IsEmpty())
 			{
-				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
-				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
-					haveBackup = CMems1x64LutBinWriter::ReadMemsFromFile(perTransBk, merged4);
+				for (int sw = 0; sw < 4; ++sw)
+				{
+					const CString perSwBk = M576TransBinPathForSwitch(absBackupBin, i + 1, sw);
+					if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
+					{
+						if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
+							haveBackup = TRUE;
+					}
+				}
 			}
 			if (haveBackup)
 			{
 				MergeMems1310LowTempSlot(merged4, m_mems1x64[i - 2]);
 				CString m;
 				m.Format(
-					_T("Trans %d: merged 1310 Mems session (4x2K) into per-trans backup (1x64)."),
+					_T("Trans %d: merged 1310 Mems session (4x2K) into per-trans backup (1x64 *._sw*)."),
 					i + 1);
 				AppendLog(m);
 			}
@@ -2036,35 +2055,36 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 				memcpy(merged4, m_mems1x64[i - 2], sizeof(merged4));
 				CString m;
 				m.Format(
-					_T("Trans %d: no 1x64 per-trans Mems backup; writing in-memory 4x2K only."),
+					_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."),
 					i + 1);
 				AppendLog(m);
 			}
-			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
-			SMems1x64BinWriteParams p;
-			p.strOutputPath = absOutOne;
-			p.pSw4 = merged4;
+			CString sn = m_strSnTrans[i].Trim();
+			if (sn.IsEmpty())
+				sn = _T("SN000000");
+			for (int sw = 0; sw < 4; ++sw)
 			{
-				CString sn = m_strSnTrans[i].Trim();
-				if (sn.IsEmpty())
-					sn = _T("SN000000");
-				p.strBundleSN = sn;
-			}
-			if (!CMems1x64LutBinWriter::Write(p))
-			{
-				CString m;
-				m.Format(_T("Write 1x64 Mems BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
-				AppendLog(m);
-				CString box;
-				box.Format(
-					_T("Write 1x64 Mems BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
-				AfxMessageBox(box, MB_OK | MB_ICONERROR);
-				return;
+				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
+				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
+				{
+					CString m;
+					m.Format(
+						_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"), i + 1, sw + 1, absOutSw.GetString());
+					AppendLog(m);
+					CString box;
+					box.Format(
+						_T("Write 1x64 Mems BIN failed (trans %d sw %d):\n\n%s"), i + 1, sw + 1, absOutSw.GetString());
+					AfxMessageBox(box, MB_OK | MB_ICONERROR);
+					return;
+				}
 			}
 			memcpy(m_mems1x64[i - 2], merged4, sizeof(m_mems1x64[i - 2]));
-			CString ok;
-			ok.Format(_T("Trans %d: wrote 1x64 %s"), i + 1, absOutOne.GetString());
-			AppendLog(ok);
+			{
+				const CString baseTag = M576TransBackupPathFromBase(absOutBase, i + 1);
+				CString ok;
+				ok.Format(_T("Trans %d: wrote 1x64 4x2K from base %s (*_sw1..4)"), i + 1, baseTag.GetString());
+				AppendLog(ok);
+			}
 		}
 	}
 	AppendLog(_T("All trans BIN files written."));
@@ -2141,9 +2161,9 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (m_strOutBin.IsEmpty())
 	{
-		AppendLog(_T("Set output BIN base; burn: MCS (trans1-2) FW stream, 1x64 (trans3-4) fwdl+XMODEM, per *_mcs* / *_1x64_*.bin."));
+		AppendLog(_T("Set output BIN base; burn: MCS (trans1-2) FW stream, 1x64 (trans3-4) 4xfwdl+XMODEM per *_1x64_*_sw1..4.bin."));
 		AfxMessageBox(
-			_T("Set output BIN base first (burn uses <base>_mcs*.bin and <base>*_1x64_*.bin next to that path)."),
+			_T("Set output BIN base first (burn uses <base>_mcs*.bin and <base>*_1x64_*_swN.bin)."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -2151,22 +2171,46 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	BOOL anyBin = FALSE;
 	for (int ti = 1; ti <= 4; ++ti)
 	{
-		const CString p = M576TransBinPathForRead(absOutBin, ti);
-		if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
+		if (ti <= 2)
 		{
-			HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-			if (h != INVALID_HANDLE_VALUE)
+			const CString p = M576TransBinPathForRead(absOutBin, ti);
+			if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
 			{
-				const DWORD sz = GetFileSize(h, NULL);
-				CloseHandle(h);
-				if (sz > 0)
-					anyBin = TRUE;
+				HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+				if (h != INVALID_HANDLE_VALUE)
+				{
+					const DWORD sz = GetFileSize(h, NULL);
+					CloseHandle(h);
+					if (sz > 0)
+						anyBin = TRUE;
+				}
+			}
+		}
+		else
+		{
+			for (int sw = 0; sw < 4; ++sw)
+			{
+				const CString p = M576TransBinPathForSwitch(absOutBin, ti, sw);
+				if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
+				{
+					HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+					if (h != INVALID_HANDLE_VALUE)
+					{
+						const DWORD sz = GetFileSize(h, NULL);
+						CloseHandle(h);
+						if (sz > 0)
+						{
+							anyBin = TRUE;
+							break;
+						}
+					}
+				}
 			}
 		}
 	}
 	if (!anyBin)
 	{
-		AppendLog(_T("No non-empty per-trans .bin (*_mcs* / *_1x64_*) for this base; run Write BIN or place backups first."));
+		AppendLog(_T("No non-empty per-trans .bin (*_mcs* or *_1x64_*_swN) for this base; run Write BIN or place backups first."));
 		AfxMessageBox(
 			_T("Cannot burn: no non-empty per-trans .bin for this base.\n\nRun Write BIN or copy backup files first."),
 			MB_OK | MB_ICONWARNING);
@@ -2181,7 +2225,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	if (AfxMessageBox(
 			_T("Warning: Burn Flash will program the device on the current 439F tunnel(s):\n\n")
 			_T("Trans 1-2: MCS firmware stream\n")
-			_T("Trans 3-4: 1x64 XMODEM (per existing *_1x64_*.bin)\n\n")
+			_T("Trans 3-4: 1x64 XMODEM 4x per trans (*_1x64_*_sw1..4.bin)\n\n")
 			_T("Continue?"),
 			MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)
 		!= IDYES)
