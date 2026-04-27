@@ -5,6 +5,7 @@
 #include "CalibConstants.h"
 #include "Switch1x64FwTransport.h"
 #include <vector>
+// McsFwTransport.cpp：Z4671 0xC4 分块读 LUT、StartFWUpdate 上载、多 trans 读备份/烧录与路径名规则。
 
 #if defined(__cplusplus) && __cplusplus >= 201103L
 #include <cstddef>
@@ -17,6 +18,7 @@ static char THIS_FILE[] = __FILE__;
 #endif
 
 namespace {
+// 匿名：0xC4 步长、单隧道整包读、分块上载到 Flash、MCS/1x64 通道判断与 1x64 基址。
 
 /// 0xC4 bytes for this read step: at most `maxBlock` (128) per frame; the tail is `rem` when
 /// `rem` < 128, never a merged (128,255] single request.
@@ -230,6 +232,7 @@ static DWORD FlashBase1x64ForTrans(int ch)
 
 } // namespace
 
+// 在路径扩展名前插入 _mcs1 等后缀，用于分 trans 输出文件名。
 static CString M576PathInsertSuffixBeforeExt(LPCTSTR szBasePath, const CString& suffix)
 {
 	CString base(szBasePath);
@@ -263,11 +266,13 @@ CString M576TransBinPathForRead(LPCTSTR szBasePath, int transChannel)
 	return primary;
 }
 
+// 无进度回调的 MCS LUT 上载（内部转 McsFwUploadBinEx）。
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
 {
 	return McsFwUploadBinEx(cmd, szBinPath, err, NULL, NULL);
 }
 
+// 按 g_m576FlashReadTransChannels 逐路 trans：MCS 用 0xC4+ReadLutBundle，1x64 用 MEM 8KB（见 Switch1x64）。
 BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user)
 {
 	err.Empty();
@@ -344,6 +349,7 @@ BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CStrin
 	return TRUE;
 }
 
+// 多路烧录：对 g_m576FlashBurnTransChannels 中存在的分 trans bin 上载（MCS 400B 流 / 1x64 XMODEM），合并进度。
 BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user)
 {
 	err.Empty();

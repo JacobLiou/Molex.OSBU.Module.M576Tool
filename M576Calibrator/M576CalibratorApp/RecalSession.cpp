@@ -1,9 +1,11 @@
 #include "stdafx.h"
 #include "RecalSession.h"
 #include "CalibConstants.h"
+#include "CommRetry.h"
 #include <stdlib.h>
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
+// RecalSession.cpp：与 429F 间 ASCII RECAL0~5、读行/扫频行、Trace 与通信心跳（timeBeginPeriod 等）。
 
 CRecalSession::CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarget)
 	: m_comm(comm429f)
@@ -16,6 +18,7 @@ CRecalSession::CRecalSession(COpComm& comm429f, const M576CommLogTarget& logTarg
 	ZeroMemory(&m_savedTimeouts, sizeof(m_savedTimeouts));
 }
 
+// ---------- Trace：发送/收包落盘、耗时与 [ERROR]/[RETRY] 标记 ----------
 void CRecalSession::TraceSend(LPCTSTR commandName, const CStringA& payload)
 {
 	if (!m_logTarget.IsEnabled())
@@ -31,7 +34,7 @@ void CRecalSession::TraceSend(LPCTSTR commandName, const CStringA& payload)
 	m_logTarget.Emit(line);
 }
 
-void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL ok, DWORD timeoutMs)
+void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL ok, DWORD timeoutMs, BOOL isFinalFailure)
 {
 	if (!m_logTarget.IsEnabled())
 		return;
@@ -45,6 +48,24 @@ void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL 
 			command.GetString(),
 			M576EscapeAscii(payload).GetString(),
 			elapsedMs);
+	}
+	else if (!isFinalFailure)
+	{
+		if (!payload.IsEmpty())
+		{
+			line.Format(_T("[RETRY] [RECAL] #%lu TIMEOUT %s | partial=%s | waited=%lums (will retry)"),
+				seq,
+				command.GetString(),
+				M576EscapeAscii(payload).GetString(),
+				timeoutMs);
+		}
+		else
+		{
+			line.Format(_T("[RETRY] [RECAL] #%lu TIMEOUT %s | waited=%lums (will retry)"),
+				seq,
+				command.GetString(),
+				timeoutMs);
+		}
 	}
 	else if (!payload.IsEmpty())
 	{
@@ -62,7 +83,7 @@ void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL 
 			timeoutMs);
 	}
 	m_logTarget.Emit(line);
-	if (ok || payload.IsEmpty())
+	if (ok || isFinalFailure)
 	{
 		m_pendingTraceSeq = 0;
 		m_pendingTick = 0;
@@ -70,6 +91,7 @@ void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL 
 	}
 }
 
+// ---------- COM 超时：非阻塞读 + 外层总时限（ReadLine* 内用 GetTickCount 轮询）----------
 void CRecalSession::PushCommTimeouts(DWORD readTotalMs)
 {
 	(void)readTotalMs;
@@ -101,6 +123,7 @@ void CRecalSession::PopCommTimeouts()
 	m_haveSaved = FALSE;
 }
 
+// 读到首换行/回车为一条 ASCII 行（OK/应答用）。
 BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 {
 	line.Empty();
@@ -138,6 +161,7 @@ BOOL CRecalSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 	return !line.IsEmpty();
 }
 
+// RECAL3/5 数据行：以尾空闲判帧、允许无 CR/LF。
 BOOL CRecalSession::ReadSweepLineBlocking(CStringA& line, DWORD timeoutMs)
 {
 	line.Empty();
@@ -199,6 +223,7 @@ BOOL CRecalSession::ReadSweepLineBlocking(CStringA& line, DWORD timeoutMs)
 	return !line.IsEmpty();
 }
 
+// ---------- 仅发送单条 RECAL（不含 Polly 重试；应答由另函数读）----------
 BOOL CRecalSession::SendRecal0(int tlsSource, int wavelengthNm, int pmRange, CString& err)
 {
 	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
@@ -312,24 +337,240 @@ BOOL CRecalSession::SendRecal2(const SPathStepPd& step, CString& err)
 	return TRUE;
 }
 
+// ---------- 读普通 ASCII 一行 / 扫频一行，并打 Trace（含 isFinal 语义）----------
 BOOL CRecalSession::ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CString& err)
+{
+	return ReadAsciiResponse(outLine, timeoutMs, err, TRUE);
+}
+
+BOOL CRecalSession::ReadAsciiResponse(CStringA& outLine, DWORD timeoutMs, CString& err, BOOL isFinalReadFailure)
 {
 	UNREFERENCED_PARAMETER(err);
 	const DWORD start = GetTickCount();
 	const BOOL ok = ReadLineBlocking(outLine, timeoutMs);
-	TraceReceive(outLine, GetTickCount() - start, ok, timeoutMs);
+	TraceReceive(outLine, GetTickCount() - start, ok, timeoutMs, isFinalReadFailure);
 	return ok;
 }
 
 BOOL CRecalSession::ReadAsciiSweepResponse(CStringA& outLine, DWORD timeoutMs, CString& err)
 {
+	return ReadAsciiSweepResponse(outLine, timeoutMs, err, TRUE);
+}
+
+BOOL CRecalSession::ReadAsciiSweepResponse(CStringA& outLine, DWORD timeoutMs, CString& err, BOOL isFinalReadFailure)
+{
 	UNREFERENCED_PARAMETER(err);
 	const DWORD start = GetTickCount();
 	const BOOL ok = ReadSweepLineBlocking(outLine, timeoutMs);
-	TraceReceive(outLine, GetTickCount() - start, ok, timeoutMs);
+	TraceReceive(outLine, GetTickCount() - start, ok, timeoutMs, isFinalReadFailure);
 	return ok;
 }
 
+// 写 RECAL 行：WriteBufferNoPurge 多轮，不打 purge 以免清掉下位机已发数据。
+BOOL CRecalSession::WriteNoPurgeReliable(const CStringA& fullLine, LPCTSTR commandName, CString& err)
+{
+	err.Empty();
+	const int n = fullLine.GetLength();
+	if (n <= 0)
+	{
+		err = _T("Empty command line.");
+		return FALSE;
+	}
+	CStringA lineCopy(fullLine);
+	char* pb = lineCopy.GetBuffer(n);
+	BOOL okW = FALSE;
+	for (int w = 0; w < (int)M576_COMM_WRITE_RETRY_MAX; ++w)
+	{
+		okW = m_comm.WriteBufferNoPurge(pb, (DWORD)n);
+		if (okW)
+			break;
+		if (w + 1 < (int)M576_COMM_WRITE_RETRY_MAX)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	lineCopy.ReleaseBuffer();
+	if (okW)
+		return TRUE;
+	err.Format(_T("%s: write failed after %d attempt(s)."), commandName, (int)M576_COMM_WRITE_RETRY_MAX);
+	return FALSE;
+}
+
+// ---------- 发+读 Polly 式全交换：读 OK 行/扫频行，失败可重试到 M576_COMM_RETRY_MAX_ATTEMPTS ----------
+BOOL CRecalSession::ExchangeRecal0ReadLine(
+	int tlsSource, int wavelengthNm, int pmRange, CStringA& outLine, DWORD timeoutMs, CString& err)
+{
+	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
+	{
+		err.Format(_T("RECAL 0: TLS source %d out of range %d..%d."),
+			tlsSource, M576_MIN_TLS_SOURCE, M576_MAX_TLS_SOURCE);
+		return FALSE;
+	}
+	if (wavelengthNm < M576_MIN_WAVELENGTH_NM || wavelengthNm > M576_MAX_WAVELENGTH_NM)
+	{
+		err.Format(_T("RECAL 0: wavelength %d out of PRD range %d..%d."),
+			wavelengthNm, M576_MIN_WAVELENGTH_NM, M576_MAX_WAVELENGTH_NM);
+		return FALSE;
+	}
+	if (pmRange < M576_MIN_PM_RANGE || pmRange > M576_MAX_PM_RANGE)
+	{
+		err.Format(_T("RECAL 0: pm range %d out of range %d..%d."),
+			pmRange, M576_MIN_PM_RANGE, M576_MAX_PM_RANGE);
+		return FALSE;
+	}
+	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
+	for (int a = 1; a <= kMax; ++a)
+	{
+		const BOOL isFinal = (a >= kMax);
+		CStringA cmd;
+		cmd.Format("RECAL 0 %d %d %d\r", tlsSource, wavelengthNm, pmRange);
+		TraceSend(_T("RECAL 0"), cmd);
+		if (!WriteNoPurgeReliable(cmd, _T("RECAL 0"), err))
+		{
+			TraceReceive(CStringA(), 0, FALSE, 0, TRUE);
+			return FALSE;
+		}
+		const DWORD t0 = GetTickCount();
+		const BOOL okL = ReadLineBlocking(outLine, timeoutMs);
+		TraceReceive(outLine, GetTickCount() - t0, okL, timeoutMs, isFinal);
+		if (okL)
+			return TRUE;
+		if (!isFinal)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	if (err.IsEmpty())
+		err = _T("RECAL 0: no response after retries.");
+	return FALSE;
+}
+
+BOOL CRecalSession::ExchangeRecal1ReadLine(const SPathStep& step, CStringA& outLine, DWORD timeoutMs, CString& err)
+{
+	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
+	for (int a = 1; a <= kMax; ++a)
+	{
+		const BOOL isFinal = (a >= kMax);
+		CStringA cmd;
+		cmd.Format("RECAL 1 %d %d %d %d %d\r",
+			step.targetSwitchIndex,
+			step.c1, step.c2, step.c3, step.c4);
+		TraceSend(_T("RECAL 1"), cmd);
+		if (!WriteNoPurgeReliable(cmd, _T("RECAL 1"), err))
+		{
+			TraceReceive(CStringA(), 0, FALSE, 0, TRUE);
+			return FALSE;
+		}
+		const DWORD t0 = GetTickCount();
+		const BOOL okL = ReadLineBlocking(outLine, timeoutMs);
+		TraceReceive(outLine, GetTickCount() - t0, okL, timeoutMs, isFinal);
+		if (okL)
+			return TRUE;
+		if (!isFinal)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	if (err.IsEmpty())
+		err = _T("RECAL 1: no OK line after retries.");
+	return FALSE;
+}
+
+BOOL CRecalSession::ExchangeRecal2ReadLine(const SPathStepPd& step, CStringA& outLine, DWORD timeoutMs, CString& err)
+{
+	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
+	for (int a = 1; a <= kMax; ++a)
+	{
+		const BOOL isFinal = (a >= kMax);
+		CStringA cmd;
+		cmd.Format("RECAL 2 %d %d %d\r",
+			step.targetSwitchIndex,
+			step.ch1, step.ch2);
+		TraceSend(_T("RECAL 2"), cmd);
+		if (!WriteNoPurgeReliable(cmd, _T("RECAL 2"), err))
+		{
+			TraceReceive(CStringA(), 0, FALSE, 0, TRUE);
+			return FALSE;
+		}
+		const DWORD t0 = GetTickCount();
+		const BOOL okL = ReadLineBlocking(outLine, timeoutMs);
+		TraceReceive(outLine, GetTickCount() - t0, okL, timeoutMs, isFinal);
+		if (okL)
+			return TRUE;
+		if (!isFinal)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	if (err.IsEmpty())
+		err = _T("RECAL 2: no OK line after retries.");
+	return FALSE;
+}
+
+// 扫频重试用的 Trace/错误串名称（RECAL3 vs RECAL5）。
+static void R3R5Name(int sweepMode, BOOL isFive, CString& o)
+{
+	if (isFive)
+		o.Format(_T("RECAL 5 %d"), sweepMode);
+	else
+		o.Format(_T("RECAL 3 %d"), sweepMode);
+}
+
+BOOL CRecalSession::ExchangeRecal3ReadSweep(
+	int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CStringA& outLine, DWORD readTimeoutMs, CString& err)
+{
+	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
+	for (int a = 1; a <= kMax; ++a)
+	{
+		const BOOL isFinal = (a >= kMax);
+		CStringA cmd;
+		cmd.Format("RECAL 3 %d %d %d %d %d\r",
+			sweepMode, baseDac, offsetDac, stepDac, delayMs);
+		CString traceName;
+		R3R5Name(sweepMode, FALSE, traceName);
+		TraceSend(traceName, cmd);
+		if (!WriteNoPurgeReliable(cmd, traceName, err))
+		{
+			TraceReceive(CStringA(), 0, FALSE, 0, TRUE);
+			return FALSE;
+		}
+		const DWORD t0 = GetTickCount();
+		const BOOL okL = ReadSweepLineBlocking(outLine, readTimeoutMs);
+		TraceReceive(outLine, GetTickCount() - t0, okL, readTimeoutMs, isFinal);
+		if (okL)
+			return TRUE;
+		if (!isFinal)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	if (err.IsEmpty())
+		err = _T("RECAL 3: no sweep line after retries.");
+	return FALSE;
+}
+
+BOOL CRecalSession::ExchangeRecal5ReadSweep(
+	int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CStringA& outLine, DWORD readTimeoutMs, CString& err)
+{
+	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
+	for (int a = 1; a <= kMax; ++a)
+	{
+		const BOOL isFinal = (a >= kMax);
+		CStringA cmd;
+		cmd.Format("RECAL 5 %d %d %d %d %d\r",
+			sweepMode, baseDac, offsetDac, stepDac, delayMs);
+		CString traceName;
+		R3R5Name(sweepMode, TRUE, traceName);
+		TraceSend(traceName, cmd);
+		if (!WriteNoPurgeReliable(cmd, traceName, err))
+		{
+			TraceReceive(CStringA(), 0, FALSE, 0, TRUE);
+			return FALSE;
+		}
+		const DWORD t0 = GetTickCount();
+		const BOOL okL = ReadSweepLineBlocking(outLine, readTimeoutMs);
+		TraceReceive(outLine, GetTickCount() - t0, okL, readTimeoutMs, isFinal);
+		if (okL)
+			return TRUE;
+		if (!isFinal)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	if (err.IsEmpty())
+		err = _T("RECAL 5: no sweep line after retries.");
+	return FALSE;
+}
+
+// ---------- 从逗号分隔文本解析样点，以及 RECAL3/5 行首格点 + 动轴样点切分 ----------
 BOOL CRecalSession::ParsePowerDoubles(const CStringA& line, std::vector<double>& out)
 {
 	out.clear();

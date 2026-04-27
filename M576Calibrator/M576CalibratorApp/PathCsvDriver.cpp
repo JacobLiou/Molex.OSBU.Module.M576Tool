@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "PathCsvDriver.h"
+// 从文本 CSV 读 PM/PD 路径行（跳过表头、# 注释），再按 Z4744 校通道范围。
 
+// PM：每行 5 整数 target_index, c1..c4，逗号分隔；空行与表头行忽略。
 BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CString& errMsg)
 {
 	steps.RemoveAll();
@@ -67,6 +69,7 @@ BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CSt
 	return TRUE;
 }
 
+// PM 单步各通道 PRD 范围与 target 1~6 检查。
 BOOL ValidatePathStep(const SPathStep& s, CString& errMsg)
 {
 	if (s.targetSwitchIndex < 1 || s.targetSwitchIndex > 6)
@@ -87,6 +90,7 @@ BOOL ValidatePathStep(const SPathStep& s, CString& errMsg)
 	return TRUE;
 }
 
+// PD：三列 target, ch1, ch2，解析与 PM 同风格跳过表头。
 BOOL LoadPathCsvPd(LPCTSTR szPath, CArray<SPathStepPd, SPathStepPd const&>& steps, CString& errMsg)
 {
 	steps.RemoveAll();
@@ -151,6 +155,7 @@ BOOL LoadPathCsvPd(LPCTSTR szPath, CArray<SPathStepPd, SPathStepPd const&>& step
 	return TRUE;
 }
 
+// PD：target 与 ch1 半区、MCS 通道上界等组合规则。
 BOOL ValidatePathStepPd(const SPathStepPd& s, CString& errMsg)
 {
 	if (s.targetSwitchIndex < 1 || s.targetSwitchIndex > 4)

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cctype>
 #include <string>
+// 1x64 设备：MEM 十六进制行读 8KB 系数、XMODEM fwdl 烧回；与 MCS 0xC4 LUT 不同路径。
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -13,6 +14,7 @@ static char THIS_FILE[] = __FILE__;
 #endif
 
 namespace {
+// 匿名：XMODEM 与 MEM 行解析、Drain 缓冲（自老版 126S/产线经验沿用）。
 
 // --- XMODEM (from legacy 126S DataDownLoad / XmodemloadData) ---
 enum {
@@ -253,6 +255,7 @@ static BOOL MemDrainHexResponse(
 
 } // namespace
 
+// 单段 8KB 备份需要的 MEM 读次数（与 ADDR 步进、总长相配）。
 int M5761x64MemReadStepCount()
 {
 	if (M576_1X64_MEM_ADDR_STEP == 0)
@@ -278,6 +281,7 @@ int M5761x64XmodemChunkCountForFileSize(DWORD fileBytes)
 	return c;
 }
 
+// 已在 trans 隧道上：从 flashBase 起 MEM 拼满 M576_1X64_MEMS_BACKUP_TOTAL_SIZE 写入 szOutPath。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szOutPath, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal)
 {
@@ -330,17 +334,32 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 				steps);
 		}
 		BYTE chunk[32];
-		ZeroMemory(chunk, sizeof(chunk));
 		int pr = 0;
-		DWORD dwr = 0;
-		CStringA line;
 		int attUsed = -1;
-		int attLo = 0, attHi = 2;
-		if (i > 0 && memCmdAttempt >= 0)
+		BOOL stepOk = FALSE;
+		for (int memPass = 0; !stepOk && memPass < (int)M576_COMM_RETRY_MAX_ATTEMPTS; ++memPass)
 		{
-			attLo = attHi = memCmdAttempt;
-		}
-		for (int att = attLo; att <= attHi; att++)
+			if (memPass > 0)
+			{
+				cmd.TraceInfo(
+					_T("FW-1x64"),
+					_T("MEM @0x%08X retry pass %d/%d (Polly-style)"),
+					(unsigned)addr,
+					memPass + 1,
+					(int)M576_COMM_RETRY_MAX_ATTEMPTS);
+				Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+			}
+			ZeroMemory(chunk, sizeof(chunk));
+			pr = 0;
+			DWORD dwr = 0;
+			CStringA line;
+			attUsed = -1;
+			int attLo = 0, attHi = 2;
+			if (i > 0 && memCmdAttempt >= 0)
+			{
+				attLo = attHi = memCmdAttempt;
+			}
+			for (int att = attLo; att <= attHi; att++)
 		{
 			if (att == 0)
 				line.Format("MEM %u\r", (unsigned)addr);
@@ -461,13 +480,17 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 					_T("MEM[probe] format %d: parse not 32B; try next..."),
 					att + 1);
 		}
-		if (pr != needPayload)
+			if (pr == needPayload)
+				stepOk = TRUE;
+		}
+		if (!stepOk)
 		{
 			err.Format(
-				_T("MEM parse failed at 0x%08X (tried att %d, expected %d payload bytes from hex)."),
+				_T("MEM parse failed at 0x%08X (tried att %d, expected %d payload bytes from hex) after %d pass(es)."),
 				(unsigned)addr,
 				attUsed,
-				needPayload);
+				needPayload,
+				(int)M576_COMM_RETRY_MAX_ATTEMPTS);
 			cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 			return FALSE;
 		}
@@ -497,6 +520,7 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	return TRUE;
 }
 
+// 发 fwdl 后按 XMODEM 将 Mems 系数 bin 烧入当前 1x64 隧道下设备（非 MCS FWUpdate）。
 BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal)
 {

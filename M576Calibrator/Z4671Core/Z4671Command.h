@@ -338,6 +338,11 @@ private:
 	CString LookupCommandName(BYTE cmdCode) const;
 	void TraceFrame(BOOL isSend, BYTE cmdCode, const BYTE* frame, int frameLen, const BYTE* wireData, int wireLen, DWORD elapsedMs = 0);
 
+	BOOL GetLogFileDataNoRetry(int nType, int nDataLength, DWORD dwAddress, byte** pbyData, int* pReDataLength);
+	BOOL StartFWUpdateNoRetry();
+	BOOL FWTranSportFWNoRetry(BYTE* byTransData, int nDataLength, int nIndex, int nSum);
+	BOOL FWUpdateEndNoRetry();
+
 public:
 	bool SetScanDelayTime(int nDelayus);
 };

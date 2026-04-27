@@ -7,12 +7,14 @@
 #include "LutPeakApply.h"
 #include <math.h>
 #include <algorithm>
+// M576CalibratorDlg.cpp：M576 定标主界面。单 COM 经 429F 发 RECAL、经 trans/$$ 跑 Z4671；后台线程跑路径/读备份，UI 仅收消息刷日志与进度。
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
 namespace {
+// 本文件内静态工具：COM 口枚举/排序、通信错类型、通信日志路径、波长解析等（不属 CM576CalibratorDlg 成员）。
 
 static int ComPortSortKey(const CString& s)
 {
@@ -71,6 +73,16 @@ static void EnumPresentComPorts(std::vector<CString>& out)
 		if (i == 0 || found[i].CompareNoCase(found[i - 1]) != 0)
 			out.push_back(found[i]);
 	}
+}
+
+/// `Exchange*` write-retry error messages contain "write" (EN); used to `break` path vs `continue` step.
+static bool M576CommErrIsSerialWriteFailure(const CString& e)
+{
+	if (e.IsEmpty())
+		return false;
+	CString t(e);
+	t.MakeLower();
+	return t.Find(_T("write")) >= 0;
 }
 
 constexpr UINT WM_M576_PATH_LOG_FLUSH = WM_APP + 100;
@@ -286,6 +298,8 @@ static BOOL ParseWavelengthNm(const CString& raw, int& outNm, CString& err)
 
 } // namespace
 
+// --- 构造与 DDX：默认 CSV/LUT/日志路径、定标步参与 PM 模式初值 ---
+
 CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	: CDialogEx(IDD, pParent)
 	, m_bStop(FALSE)
@@ -309,6 +323,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	m_strSn         = _T("429F1 Tester");
 }
 
+// 控件与 PM/PD 单选、路径框绑定等。
 void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
@@ -646,6 +661,8 @@ LRESULT CM576CalibratorDlg::OnReadBackupFinished(WPARAM, LPARAM)
 	return 0;
 }
 
+// --- 定标路径后台线程：按 PM/PD 调 RunPath*，结束 Post WM_M576_PATH_FINISHED ---
+
 void CM576CalibratorDlg::PathWorkerEntry()
 {
 	if (m_nCalMode == 0)
@@ -655,6 +672,8 @@ void CM576CalibratorDlg::PathWorkerEntry()
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_PATH_FINISHED, 0, 0);
 }
+
+// --- 读 Flash 备份后台线程：McsReadLutBundleFromDevice，结果供 OnReadBackupFinished ---
 
 void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 {
@@ -978,6 +997,8 @@ BOOL CM576CalibratorDlg::ValidateRunPathInputs(CString& errMsg)
 	return TRUE;
 }
 
+// 起路径定标工作线程（PathWorkerEntry），并设 UI 为运行中态。
+
 void CM576CalibratorDlg::OnBnClickedRunPath()
 {
 	if (m_pathRunning.load())
@@ -1062,6 +1083,8 @@ void CM576CalibratorDlg::OnDestroy()
 	CDialogEx::OnDestroy();
 }
 
+// 若备份基路径已设，从分 trans 的 bin 预载 m_lutByTrans（含 legacy _tN 名）。
+
 void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 {
 	CString base = m_strBackupBin;
@@ -1088,6 +1111,8 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 		}
 	}
 }
+
+// --- PM 定标：RECAL0 + 分文件 CSV、RECAL1/3、寻峰写 LUT 槽、合并/进度 ---
 
 void CM576CalibratorDlg::RunPathPowerMeter()
 {
@@ -1124,16 +1149,16 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	}
 	const int tlsSource = m_tlsIndex + 1;
 	const int pmRange = m_pmRangeIndex;
-	if (!m_pRecal->SendRecal0(tlsSource, wavelengthNm, pmRange, err))
-	{
-		SafeAppendLog(err);
-		return;
-	}
 	{
 		CStringA line0;
-		if (!m_pRecal->ReadAsciiResponse(line0, 3000, err))
-			SafeAppendLog(_T("RECAL 0: timeout waiting for response."));
-		else
+		if (!m_pRecal->ExchangeRecal0ReadLine(tlsSource, wavelengthNm, pmRange, line0, 3000, err))
+		{
+			if (err.IsEmpty())
+				SafeAppendLog(_T("RECAL 0: no response after retries."));
+			else
+				SafeAppendLog(err);
+			return;
+		}
 		{
 			CString msg;
 			msg.Format(_T("RECAL 0 (TLS=%d nm=%d PM=%d) -> %s"),
@@ -1181,6 +1206,8 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	SafeAppendLog(_T("Path run finished (PM all slots)."));
 }
 
+// 单路 pm_*.csv：RECAL1/3 扫点、双轴寻峰、回写 m_lutByTrans[fileSlot] 与 trans3/4 占用计数。
+
 void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, SPathStep const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4)
 {
 	CString err;
@@ -1216,14 +1243,14 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		else if (st.targetSwitchIndex == 4)
 			occT4++;
 
-		if (!m_pRecal->SendRecal1(st, err))
+		if (!m_pRecal->ExchangeRecal1ReadLine(st, lineOk, 3000, err))
 		{
-			SafeAppendLog(err);
-			break;
-		}
-		if (!m_pRecal->ReadAsciiResponse(lineOk, 3000, err))
-		{
-			SafeAppendLog(_T("RECAL 1: timeout waiting for OK."));
+			if (err.IsEmpty())
+				SafeAppendLog(_T("RECAL 1: no OK line after retries."));
+			else
+				SafeAppendLog(err);
+			if (M576CommErrIsSerialWriteFailure(err))
+				break;
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -1240,14 +1267,14 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			}
 		}
 
-		if (!m_pRecal->SendRecal3(0, M576_RECAL_FW_READ_BASE_DAC, m_dacRange, m_dacStep, m_delayMs, err))
+		if (!m_pRecal->ExchangeRecal3ReadSweep(0, M576_RECAL_FW_READ_BASE_DAC, m_dacRange, m_dacStep, m_delayMs, lineY, readTimeout1d, err))
 		{
-			SafeAppendLog(err);
-			break;
-		}
-		if (!m_pRecal->ReadAsciiSweepResponse(lineY, readTimeout1d, err))
-		{
-			SafeAppendLog(_T("RECAL 3 0 (Y sweep): timeout or empty."));
+			if (err.IsEmpty())
+				SafeAppendLog(_T("RECAL 3 0 (Y sweep): no line after retries."));
+			else
+				SafeAppendLog(err);
+			if (M576CommErrIsSerialWriteFailure(err))
+				break;
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -1284,14 +1311,14 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			SafeAppendLog(msg);
 		}
 
-		if (!m_pRecal->SendRecal3(1, yBaseDacForSweep1, m_dacRange, m_dacStep, m_delayMs, err))
+		if (!m_pRecal->ExchangeRecal3ReadSweep(1, yBaseDacForSweep1, m_dacRange, m_dacStep, m_delayMs, lineX, readTimeout1d, err))
 		{
-			SafeAppendLog(err);
-			break;
-		}
-		if (!m_pRecal->ReadAsciiSweepResponse(lineX, readTimeout1d, err))
-		{
-			SafeAppendLog(_T("RECAL 3 1 (X sweep): timeout or empty."));
+			if (err.IsEmpty())
+				SafeAppendLog(_T("RECAL 3 1 (X sweep): no line after retries."));
+			else
+				SafeAppendLog(err);
+			if (M576CommErrIsSerialWriteFailure(err))
+				break;
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -1349,6 +1376,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 	}
 	(void)globalTotal;
 }
+
+// --- PD 定标：无 RECAL0，仅 RECAL2/5 与双轴寻峰，分 pd_*.csv 槽 ---
 
 void CM576CalibratorDlg::RunPathPd()
 {
@@ -1418,6 +1447,8 @@ void CM576CalibratorDlg::RunPathPd()
 	SafeAppendLog(_T("Path run finished (PD all slots)."));
 }
 
+// 单路 pd_*.csv：RECAL2/5、Apply 到 m_lutByTrans[fileSlot]（PD 目标语义）。
+
 void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4)
 {
 	CString err;
@@ -1453,14 +1484,14 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		else if (st.targetSwitchIndex == 4)
 			occT4++;
 
-		if (!m_pRecal->SendRecal2(st, err))
+		if (!m_pRecal->ExchangeRecal2ReadLine(st, lineOk, 3000, err))
 		{
-			SafeAppendLog(err);
-			break;
-		}
-		if (!m_pRecal->ReadAsciiResponse(lineOk, 3000, err))
-		{
-			SafeAppendLog(_T("RECAL 2: timeout waiting for OK."));
+			if (err.IsEmpty())
+				SafeAppendLog(_T("RECAL 2: no OK line after retries."));
+			else
+				SafeAppendLog(err);
+			if (M576CommErrIsSerialWriteFailure(err))
+				break;
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -1477,14 +1508,14 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			}
 		}
 
-		if (!m_pRecal->SendRecal5(0, M576_RECAL_FW_READ_BASE_DAC, m_dacRange, m_dacStep, m_delayMs, err))
+		if (!m_pRecal->ExchangeRecal5ReadSweep(0, M576_RECAL_FW_READ_BASE_DAC, m_dacRange, m_dacStep, m_delayMs, lineY, readTimeout1d, err))
 		{
-			SafeAppendLog(err);
-			break;
-		}
-		if (!m_pRecal->ReadAsciiSweepResponse(lineY, readTimeout1d, err))
-		{
-			SafeAppendLog(_T("RECAL 5 0 (Y sweep): timeout or empty."));
+			if (err.IsEmpty())
+				SafeAppendLog(_T("RECAL 5 0 (Y sweep): no line after retries."));
+			else
+				SafeAppendLog(err);
+			if (M576CommErrIsSerialWriteFailure(err))
+				break;
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -1520,14 +1551,14 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			SafeAppendLog(msg);
 		}
 
-		if (!m_pRecal->SendRecal5(1, yBaseDacForSweep1Pd, m_dacRange, m_dacStep, m_delayMs, err))
+		if (!m_pRecal->ExchangeRecal5ReadSweep(1, yBaseDacForSweep1Pd, m_dacRange, m_dacStep, m_delayMs, lineX, readTimeout1d, err))
 		{
-			SafeAppendLog(err);
-			break;
-		}
-		if (!m_pRecal->ReadAsciiSweepResponse(lineX, readTimeout1d, err))
-		{
-			SafeAppendLog(_T("RECAL 5 1 (X sweep): timeout or empty."));
+			if (err.IsEmpty())
+				SafeAppendLog(_T("RECAL 5 1 (X sweep): no line after retries."));
+			else
+				SafeAppendLog(err);
+			if (M576CommErrIsSerialWriteFailure(err))
+				break;
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -1578,6 +1609,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 	}
 	(void)globalTotal;
 }
+
+// --- 生成 Z4671 兼容 BIN：四路 m_lutByTrans 合并/写盘（1310 低温槽合并等按 UI/代码逻辑）---
 
 void CM576CalibratorDlg::OnBnClickedGenBin()
 {
@@ -1663,6 +1696,8 @@ void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)
 	int pct = (total > 0) ? (cur * 100 / total) : 0;
 	p->SafeSetProgressPos(pct);
 }
+
+// --- 按配置烧录各 trans 分 bin（McsFwUploadBinEx 等）---
 
 void CM576CalibratorDlg::OnBnClickedFlash()
 {

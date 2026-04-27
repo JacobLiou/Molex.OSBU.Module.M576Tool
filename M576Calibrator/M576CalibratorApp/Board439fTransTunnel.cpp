@@ -1,6 +1,20 @@
 #include "stdafx.h"
 #include "Board439fTransTunnel.h"
 #include "CalibConstants.h"
+// 439F 多路 trans：写 trans/$$ 与 RX 排空；写操作带 M576_COMM_WRITE 重试（NoPurge）。
+
+static BOOL M576WriteNoPurgeRetry439f(Z4671Command& cmd, char* p, DWORD n, CString& err, LPCTSTR ctx) // 底层多轮写
+{
+	for (int w = 0; w < (int)M576_COMM_WRITE_RETRY_MAX; ++w)
+	{
+		if (cmd.WriteBufferNoPurge(p, n))
+			return TRUE;
+		if (w + 1 < (int)M576_COMM_WRITE_RETRY_MAX)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	err.Format(_T("%s: write failed after %d attempt(s)."), ctx, (int)M576_COMM_WRITE_RETRY_MAX);
+	return FALSE;
+}
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -9,6 +23,7 @@ static char THIS_FILE[] = __FILE__;
 #endif
 
 namespace {
+// 匿名：进入 trans 后收紧读策略、按空闲判 ASCII 排空，供 Begin/End 清回声。
 
 BOOL PushFastReadTimeouts(HANDLE h, COMMTIMEOUTS& saved)
 {
@@ -68,14 +83,14 @@ void DrainAscii(Z4671Command& cmd, DWORD maxWaitMs, DWORD idleMs, CStringA& accu
 
 } // namespace
 
+// 发 $$ 退出透传，并短排空 UART，避免下一条 Z4671 二进制粘旧 ASCII。
 BOOL Board439fTransTunnel::EndTrans(Z4671Command& cmd, CString& err)
 {
 	err.Empty();
 	static const char kEnd[] = "$$\r\n";
 	cmd.TraceInfo(_T("439F"), _T("TRANS end: send $$"));
-	if (!cmd.WriteBufferNoPurge((char*)kEnd, (DWORD)(sizeof(kEnd) - 1)))
+	if (!M576WriteNoPurgeRetry439f(cmd, (char*)kEnd, (DWORD)(sizeof(kEnd) - 1), err, _T("439F $$")))
 	{
-		err = _T("439F: write $$ failed.");
 		cmd.TraceError(_T("439F"), _T("%s"), err.GetString());
 		return FALSE;
 	}
@@ -86,6 +101,7 @@ BOOL Board439fTransTunnel::EndTrans(Z4671Command& cmd, CString& err)
 	return TRUE;
 }
 
+// 发 trans n，排空直至空闲，使后续可安全发 Z4671 到该下位机。
 BOOL Board439fTransTunnel::BeginTrans(Z4671Command& cmd, int transChannel, CString& err)
 {
 	err.Empty();
@@ -99,11 +115,23 @@ BOOL Board439fTransTunnel::BeginTrans(Z4671Command& cmd, int transChannel, CStri
 	line.Format("trans %d\r\n", transChannel);
 	cmd.TraceInfo(_T("439F"), _T("TRANS begin: %s"), CString(line).Trim().GetString());
 	const int n = line.GetLength();
-	if (n <= 0 || !cmd.WriteBufferNoPurge((char*)(LPCSTR)line, (DWORD)n))
+	if (n <= 0)
 	{
-		err.Format(_T("439F: write trans %d failed."), transChannel);
+		err = _T("439F: empty trans line.");
 		cmd.TraceError(_T("439F"), _T("%s"), err.GetString());
 		return FALSE;
+	}
+	{
+		char* pb = line.GetBuffer(n);
+		const BOOL wOk = M576WriteNoPurgeRetry439f(cmd, pb, (DWORD)n, err, _T("439F trans"));
+		line.ReleaseBuffer();
+		if (!wOk)
+		{
+			if (err.IsEmpty())
+				err.Format(_T("439F: write trans %d failed."), transChannel);
+			cmd.TraceError(_T("439F"), _T("%s"), err.GetString());
+			return FALSE;
+		}
 	}
 	CStringA echo;
 	DrainAscii(cmd, M576_439F_TRANS_DRAIN_MAX_MS, M576_439F_TRANS_DRAIN_IDLE_MS, echo);

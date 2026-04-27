@@ -5,6 +5,7 @@
 #include "stdafx.h"
 //#include "126s_45v_switch_app.h"
 #include "Z4671Command.h"
+#include "CommRetry.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -801,6 +802,16 @@ BOOL Z4671Command::GetVOAAtten(int nVOAIndex, double *pdblAtten, int nType)
 
 BOOL Z4671Command::GetLogFileData(int nType,int nDataLength,DWORD dwAddress,byte **pbyData,int *pReDataLength)
 {
+	BOOL ok = FALSE;
+	(void)M576WithRetry(M576_COMM_RETRY_MAX_ATTEMPTS, (DWORD)M576_COMM_RETRY_DELAY_MS, [&]() -> bool {
+		ok = GetLogFileDataNoRetry(nType, nDataLength, dwAddress, pbyData, pReDataLength);
+		return ok;
+	});
+	return ok;
+}
+
+BOOL Z4671Command::GetLogFileDataNoRetry(int nType,int nDataLength,DWORD dwAddress,byte **pbyData,int *pReDataLength)
+{
 	char  chSendBuf[256];
 	char  chReadBuf[MAX_COUNT];
 	CString strCmd;
@@ -956,9 +967,20 @@ BOOL Z4671Command::SendFWTranSportFW(BYTE *byTransData, int nDataLength, int nIn
 	CmdSendExchange(byData,nCmdLength,&pbySendData,&nCmdLength);
 	int nCount=0;
 //	BOOL bBreak;
-	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 	{
-		return FALSE;
+		BOOL wOk = FALSE;
+		for (int w = 0; w < M576_COMM_RETRY_MAX_ATTEMPTS; ++w)
+		{
+			if (WriteBuffer((char*)pbySendData, nCmdLength))
+			{
+				wOk = TRUE;
+				break;
+			}
+			if (w + 1 < M576_COMM_RETRY_MAX_ATTEMPTS)
+				Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+		}
+		if (!wOk)
+			return FALSE;
 	}
 	return TRUE;
 
@@ -3457,6 +3479,16 @@ BOOL Z4671Command::SendHitlessTestCmd(int nBlock, int nSwitch, int nCHNum)
 
 BOOL Z4671Command::StartFWUpdate()
 {
+	BOOL ok = FALSE;
+	(void)M576WithRetry(M576_COMM_RETRY_MAX_ATTEMPTS, (DWORD)M576_COMM_RETRY_DELAY_MS, [&]() -> bool {
+		ok = StartFWUpdateNoRetry();
+		return ok;
+	});
+	return ok;
+}
+
+BOOL Z4671Command::StartFWUpdateNoRetry()
+{
 	BYTE byData[256];
 	int  nCheckSum;
 	int  nLength;
@@ -3534,6 +3566,16 @@ BOOL Z4671Command::StartFWUpdate()
 }
 
 BOOL Z4671Command::FWTranSportFW(BYTE *byTransData, int nDataLength, int nIndex, int nSum)
+{
+	BOOL ok = FALSE;
+	(void)M576WithRetry(M576_COMM_RETRY_MAX_ATTEMPTS, (DWORD)M576_COMM_RETRY_DELAY_MS, [&]() -> bool {
+		ok = FWTranSportFWNoRetry(byTransData, nDataLength, nIndex, nSum);
+		return ok;
+	});
+	return ok;
+}
+
+BOOL Z4671Command::FWTranSportFWNoRetry(BYTE *byTransData, int nDataLength, int nIndex, int nSum)
 {
 	BYTE byData[500];
 	int  nCheckSum;
@@ -3655,6 +3697,16 @@ loopl:	if(!WriteBuffer((char*)pbySendData,nCmdLength))
 }
 
 BOOL Z4671Command::FWUpdateEnd()
+{
+	BOOL ok = FALSE;
+	(void)M576WithRetry(M576_COMM_RETRY_MAX_ATTEMPTS, (DWORD)M576_COMM_RETRY_DELAY_MS, [&]() -> bool {
+		ok = FWUpdateEndNoRetry();
+		return ok;
+	});
+	return ok;
+}
+
+BOOL Z4671Command::FWUpdateEndNoRetry()
 {
 	BYTE byData[256];
 	int  nCheckSum;

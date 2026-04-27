@@ -81,6 +81,7 @@
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CommRetry.h" />
     <ClInclude Include="ByteSwap.h" />
     <ClInclude Include="CommPort.h" />
     <ClInclude Include="LutBinWriter.h" />

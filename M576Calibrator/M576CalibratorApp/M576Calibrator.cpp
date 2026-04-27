@@ -1,3 +1,4 @@
+// 进程入口：MFC 应用对象，InitInstance 中弹出主定标对话框（模态）；return FALSE 表示不进入 Run 循环。
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576CalibratorDlg.h"

@@ -1,9 +1,10 @@
 #include <vector>
 #include "PeakFinder2D.h"
+// 行主序格点上的邻域和最大、全局最大，以及两列一维 argmax 组合成“交叉”峰下标。
 
 namespace M576
 {
-	static bool InRange(int r, int c, int rows, int cols)
+	static bool InRange(int r, int c, int rows, int cols) // 格点下标合法性
 	{
 		return r >= 0 && c >= 0 && r < rows && c < cols;
 	}

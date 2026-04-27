@@ -15,6 +15,7 @@
 #include "TransLutRoute.h"
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
+// 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
 class CM576CalibratorDlg : public CDialogEx
 {
 public:
@@ -30,6 +31,7 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 private:
+	// --- UI 与路径字符串 ---
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;
 	CComboBox m_comboWavelength;
@@ -44,29 +46,36 @@ private:
 	CString m_strCommLogPath;
 
 	/// One port: 439F board (RECAL ASCII + MCS LUT transport via trans/$$).
+	// 单路 Z4671Command 绑定 429F 串口；CRecalSession 封装 RECAL 文本层。
 	Z4671Command m_dev429f;
 	std::unique_ptr<CRecalSession> m_pRecal;
 
 	/// Trans slot 0..3 = trans 1..4 (1#MCS, 2#MCS, 1#1x64, 2#1x64).
+	// 内存中四分 trans 的 stLutSettingZ4671，定标/合并/烧录前装填或预载备份。
 	stLutSettingZ4671 m_lutByTrans[4];
 	volatile BOOL m_bStop;
 
+	// --- 工作线程与进度（路径、读备份）---
 	std::thread m_pathThread;
 	std::thread m_readBackupThread;
 	std::atomic<bool> m_pathRunning{ false };
 	std::atomic<bool> m_readBackupRunning{ false };
 	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
+	// 用户点停止后，路径线程未退出前忽略子线程的进度回写，防 UI 抖动。
 	std::atomic<bool> m_suppressPathProgress{ false };
 	/// Worker `SafeAppendLog` coalesces into a queue; a single `WM_M576_PATH_LOG_FLUSH` drains all pending lines
 	/// (avoids thousands of per-line posts that block the UI thread on restore from minimize).
+	// 路径日志批量刷 UI，减少 PostMessage 洪峰（如最小化恢复不卡死）。
 	std::mutex m_pathLogQueueMutex;
 	CString m_queuedPathLog;
 	std::atomic<bool> m_pathLogFlushScheduled{ false };
 
 	/// Filled by `ReadFlashBackupWorkerEntry` before `WM_M576_READ_BACKUP_FINISHED`; shown in `OnReadBackupFinished` (UI thread).
+	// 读 Flash 备份线程结果，由主线程在 OnReadBackupFinished 中展示。
 	BOOL m_readBackupLastOk;
 	CString m_readBackupLastMsg;
 
+	// --- 定标模式与 RECAL 步参 ---
 	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
 	int m_nCalMode;
 	int m_delayMs;
@@ -79,14 +88,17 @@ private:
 	/// PM range 0-4 -> combo index.
 	int m_pmRangeIndex;
 
+	// --- 日志与 UI 安全调用（可跨线程）---
 	void AppendLog(LPCTSTR sz);
 	void SafeAppendLog(LPCTSTR sz);
 	void SafeSetProgressRange(int minVal, int maxVal);
 	void SafeSetProgressPos(int pos);
 	void SetPathActionButtonsEnabled(BOOL enable);
 	/// Open vs Close mutual exclusion; Close disabled while path or flash-backup worker running.
+	// 串口打开/关闭与运行中互斥；跑路径或读备份时不可关错口。
 	void SyncSerialPortUi();
 	BOOL IsSerialPortOpen() const;
+	// 后台：跑完整定标路径 / 只读 Flash 备份
 	void PathWorkerEntry();
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void WriteLogFileLine(const CString& line);
@@ -95,21 +107,27 @@ private:
 	void RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, SPathStep const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
 	void RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_2.bin` (or legacy `*_tN.bin`) into `m_lutByTrans` before a path run.
+	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();
 	void FillComPorts();
 	CString GetComboCom();
 	BOOL OpenPort();
 	void ClosePort();
 	/// Reset PM/PD path strings to `g_m576Default*` and refresh the brief path hint for current mode.
+	// 随 PM/PD 单选切换默认 CSV 显示与提示。
 	void SyncCsvPathWithMode();
 	/// PM: show Command A (RECAL 0) controls; PD: hide (PD flow uses Command C only, no RECAL 0).
+	// PM 显示命令 A 控件；PD 流程仅命令 C，不显示 RECAL 0。
 	void SyncRecal0ControlsVisibility();
 	/// Before Run path: COM, PM wavelength (if PM), built-in CSV files exist. MessageBox and return FALSE when invalid.
+	// 跑路径前：串口、（PM 时）波长、内置 CSV 等输入校验。
 	BOOL ValidateRunPathInputs(CString& errMsg);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
+	// 进度回调节点，调用约定须与 McsFwProgressCb 一致（__cdecl）。
 	static void ProgressThunk(int cur, int total, void* user);
 	static void __cdecl CommLogThunk(LPCTSTR line, void* user);
 
+	// --- 按钮与自定义消息（路径日志/进度/完成）---
 	afx_msg void OnBnClickedOpenPorts();
 	afx_msg void OnBnClickedClosePort();
 	afx_msg void OnBnClickedBrowseBackup();

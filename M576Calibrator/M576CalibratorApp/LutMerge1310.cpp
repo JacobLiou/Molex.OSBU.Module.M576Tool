@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "LutMerge1310.h"
+// 将 1310nm 定标源 LUT 的低温档（IDX_TEMP_LOW）写回基 LUT，并同步校准日期字段。
 
 void MergeLut1310LowTempSlot(stLutSettingZ4671& base, const stLutSettingZ4671& src1310)
 {
