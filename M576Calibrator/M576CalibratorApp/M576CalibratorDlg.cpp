@@ -17,6 +17,9 @@
 namespace {
 // 本文件内静态工具：COM 口枚举/排序、通信错类型、通信日志路径、波长解析等（不属 CM576CalibratorDlg 成员）。
 
+static const TCHAR* kM576FixedBackupBinRel = _T("output\\backup.bin");
+static const TCHAR* kM576FixedOutBinRel = _T("output\\standard.bin");
+
 static int ComPortSortKey(const CString& s)
 {
 	if (s.GetLength() < 4 || _tcsnicmp(s, _T("COM"), 3) != 0)
@@ -322,8 +325,8 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 		m_strCsvPm[i] = g_m576DefaultPmCsvRel[i];
 		m_strCsvPd[i] = g_m576DefaultPdCsvRel[i];
 	}
-	m_strOutBin     = _T("output\\standard.bin");
-	m_strBackupBin  = _T("output\\backup.bin");
+	m_strOutBin     = kM576FixedOutBinRel;
+	m_strBackupBin  = kM576FixedBackupBinRel;
 	m_strCommLogPath = _T("output\\comm.log");
 	for (int i = 0; i < 4; ++i)
 		m_strSnTrans[i].Empty();
@@ -419,6 +422,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		::SetDlgItemText(m_hWnd, IDC_STATIC_DAC_STEP_HINT, hint);
 	}
 	EnsureOutputFolderUnderExe(GetExeFolder());
+	ApplyFixedBinBasePaths(FALSE);
 	SyncCsvPathWithMode();
 	// RECAL 0 combos: must list items before UpdateData(FALSE) (DDX_CBIndex).
 	if (CComboBox* pTls = (CComboBox*)GetDlgItem(IDC_COMBO_TLS))
@@ -451,6 +455,14 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		pWl->SetWindowText(m_strWavelength);
 	}
 	UpdateData(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_EDIT_BACKUP_BIN))
+		::SendMessage(p->m_hWnd, EM_SETREADONLY, TRUE, 0);
+	if (CWnd* p = GetDlgItem(IDC_EDIT_OUT_BIN))
+		::SendMessage(p->m_hWnd, EM_SETREADONLY, TRUE, 0);
+	if (CWnd* p = GetDlgItem(IDC_BTN_BROWSE_BACKUP))
+		p->EnableWindow(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_BROWSE_OUT))
+		p->EnableWindow(FALSE);
 	SyncRecal0ControlsVisibility();
 	FillComPorts();
 	SyncSerialPortUi();
@@ -466,6 +478,17 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	SyncExportStatsButton();
 	return TRUE;
+}
+
+void CM576CalibratorDlg::ApplyFixedBinBasePaths(BOOL syncUi)
+{
+	m_strBackupBin = kM576FixedBackupBinRel;
+	m_strOutBin = kM576FixedOutBinRel;
+	if (syncUi && m_hWnd && ::IsWindow(m_hWnd))
+	{
+		SetDlgItemText(IDC_EDIT_BACKUP_BIN, m_strBackupBin);
+		SetDlgItemText(IDC_EDIT_OUT_BIN, m_strOutBin);
+	}
 }
 
 void CM576CalibratorDlg::OnSysCommand(UINT nID, LPARAM lParam)
@@ -985,30 +1008,19 @@ void CM576CalibratorDlg::OnBnClickedClosePort()
 
 void CM576CalibratorDlg::OnBnClickedBrowseBackup()
 {
-	const CString exe = GetExeFolder();
-	CFileDialog dlg(TRUE, _T("bin"), NULL, OFN_HIDEREADONLY | OFN_FILEMUSTEXIST,
-		_T("BIN (*.bin)|*.bin|All (*.*)|*.*||"), this);
-	dlg.GetOFN().lpstrInitialDir = exe.GetString();
-	if (dlg.DoModal() != IDOK)
-		return;
-	SetDlgItemText(IDC_EDIT_BACKUP_BIN, ToRelPath(dlg.GetPathName()));
-	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
+	AppendLog(_T("Old BIN base is fixed to output\\backup.bin (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseOut()
 {
-	const CString exe = GetExeFolder();
-	CFileDialog dlg(FALSE, _T("bin"), _T("standard.bin"), OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST,
-		_T("BIN (*.bin)|*.bin|All (*.*)|*.*||"), this);
-	dlg.GetOFN().lpstrInitialDir = exe.GetString();
-	if (dlg.DoModal() != IDOK)
-		return;
-	SetDlgItemText(IDC_EDIT_OUT_BIN, ToRelPath(dlg.GetPathName()));
-	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
+	AppendLog(_T("Output BIN base is fixed to output\\standard.bin (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 {
+	ApplyFixedBinBasePaths(TRUE);
 	if (m_readBackupRunning.load())
 		return;
 	if (m_burnFlashRunning.load())
@@ -1022,9 +1034,8 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 		return;
 	}
 	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
 	EnsureOutputFolderUnderExe(GetExeFolder());
-	if (m_strBackupBin.IsEmpty())
-		m_strBackupBin = _T("output\\mcs_lut_backup.bin");
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
 	{
 		if (!OpenPort())
@@ -1926,6 +1937,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 void CM576CalibratorDlg::OnBnClickedGenBin()
 {
 	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
 	if (m_strOutBin.IsEmpty())
 	{
 		AppendLog(_T("Set output BIN base path (writes <base>_mcs1.bin ... <base>_1x64_2.bin)."));
@@ -2111,6 +2123,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	if (m_burnFlashRunning.load())
 		return;
 	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
 	if (m_pathRunning.load())
 	{
 		AppendLog(_T("Path run in progress; wait before burning flash."));

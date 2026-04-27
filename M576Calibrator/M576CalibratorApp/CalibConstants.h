@@ -68,7 +68,7 @@
 #define M576_MAX_DAC_STEP 100
 #endif
 #ifndef M576_DEFAULT_DAC_STEP
-#define M576_DEFAULT_DAC_STEP 5
+#define M576_DEFAULT_DAC_STEP 4
 #endif
 
 /// RECAL 3 / 5 Base DAC: 9999 = firmware uses current channel DAC as sweep center (PRD); any other value = host sets base.

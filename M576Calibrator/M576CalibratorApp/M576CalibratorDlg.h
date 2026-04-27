@@ -139,6 +139,7 @@ private:
 	/// Reset PM/PD path strings to `g_m576Default*` and refresh the brief path hint for current mode.
 	// 随 PM/PD 单选切换默认 CSV 显示与提示。
 	void SyncCsvPathWithMode();
+	void ApplyFixedBinBasePaths(BOOL syncUi = TRUE);
 	/// PM: show Command A (RECAL 0) controls; PD: hide (PD flow uses Command C only, no RECAL 0).
 	// PM 显示命令 A 控件；PD 流程仅命令 C，不显示 RECAL 0。
 	void SyncRecal0ControlsVisibility();
