@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "Switch1x64FwTransport.h"
+#include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
 #include <vector>
 #include <cstring>
@@ -562,9 +563,28 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 				_T("FW-1x64"), _T("File is %lu B; XMODEM burns first %u B (4×2K MemsSw) only."),
 				(unsigned long)dwFile, maxBurn);
 	}
-	DWORD dwCodeSizeLeft = dwFile;
-	if (dwCodeSizeLeft > (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
-		dwCodeSizeLeft = (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
+	const DWORD kFull1x64 = (DWORD)CMems1x64LutBinWriter::FullBundleFileSize();
+	DWORD payOff = 0;
+	if (dwFile >= kFull1x64)
+	{
+		payOff = (DWORD)CMems1x64LutBinWriter::LutPayloadOffset();
+	}
+	else if (dwFile < (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE
+		|| (dwFile > (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE && dwFile < kFull1x64))
+	{
+		CloseHandle(hBin);
+		err = _T("1x64 bin: expected 8KB raw Mems or Z4671-bundle + 8KB; size invalid.");
+		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
+		return FALSE;
+	}
+	if (SetFilePointer(hBin, (LONG)payOff, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER
+		&& GetLastError() != NO_ERROR)
+	{
+		CloseHandle(hBin);
+		err = _T("1x64 bin: seek to Mems payload failed.");
+		return FALSE;
+	}
+	DWORD dwCodeSizeLeft = (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
 	std::vector<BYTE> blockbuf((size_t)(XMODEM_BLOCK_BODY_SIZE_1K + 32u));
 	BYTE* pbBinData = blockbuf.data();
 	int iCount = 0;

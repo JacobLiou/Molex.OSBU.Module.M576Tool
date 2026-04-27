@@ -2,6 +2,7 @@
 #include "McsFwTransport.h"
 #include "Board439fTransTunnel.h"
 #include "LutBinWriter.h"
+#include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
 #include "Switch1x64FwTransport.h"
 #include <vector>
@@ -385,10 +386,13 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			}
 			else
 			{
-				DWORD x64sz = sz;
-				if (x64sz > (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
+				// 烧录 1x64 时固定按 8KB 载荷分块；文件可为裸 8K 或「bundle 头+8K」
+				const DWORD kFull1x64 = (DWORD)CMems1x64LutBinWriter::FullBundleFileSize();
+				DWORD x64sz = 0;
+				if (sz >= (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE
+					&& (sz == (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE || sz >= kFull1x64))
 					x64sz = (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
-				chunks = M5761x64XmodemChunkCountForFileSize(x64sz);
+				chunks = (x64sz > 0) ? M5761x64XmodemChunkCountForFileSize(x64sz) : 0;
 			}
 		}
 		chunksPerChannel[pi] = chunks;

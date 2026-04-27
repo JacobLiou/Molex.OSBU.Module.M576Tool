@@ -2,6 +2,7 @@
 #include "M576Calibrator.h"
 #include "M576CalibratorDlg.h"
 #include "LutMerge1310.h"
+#include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
 #include "PeakFinder2D.h"
 #include "LutPeakApply.h"
@@ -445,6 +446,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	m_progress.SetPos(0);
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
+	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
 	AppendLog(_T("Backup BIN: Read Flash — trans1–2 (MCS): 0xC4 LUT bundle; trans3–4 (1x64): 4×2K MEM (8KB from 0x0E000, four switch coef); files *_mcs1/2.bin, *_1x64_1/2.bin."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
@@ -1097,17 +1099,35 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 		const CString p = M576TransBinPathForRead(absBk, li + 1);
 		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 			continue;
-		if (CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
+		if (li < 2)
 		{
-			CString m;
-			m.Format(_T("Run path: preloaded trans %d from %s"), li + 1, p.GetString());
-			SafeAppendLog(m);
+			if (CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
+			{
+				CString m;
+				m.Format(_T("Run path: preloaded MCS trans %d from %s"), li + 1, p.GetString());
+				SafeAppendLog(m);
+			}
+			else
+			{
+				CString m;
+				m.Format(_T("Run path: read MCS backup failed for %s"), p.GetString());
+				SafeAppendLog(m);
+			}
 		}
 		else
 		{
-			CString m;
-			m.Format(_T("Run path: read backup failed for %s"), p.GetString());
-			SafeAppendLog(m);
+			if (CMems1x64LutBinWriter::ReadMemsFromFile(p, m_mems1x64[li - 2]))
+			{
+				CString m;
+				m.Format(_T("Run path: preloaded 1x64 trans %d (4x2K Mems) from %s"), li + 1, p.GetString());
+				SafeAppendLog(m);
+			}
+			else
+			{
+				CString m;
+				m.Format(_T("Run path: read 1x64 Mems backup failed for %s"), p.GetString());
+				SafeAppendLog(m);
+			}
 		}
 	}
 }
@@ -1139,6 +1159,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	SafeSetProgressRange(0, totalAll);
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
+	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	TryPreloadLutFromPerTransBackup();
 
 	int wavelengthNm = 0;
@@ -1368,7 +1389,11 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 3 0 / 3 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
-			ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+			if (fileSlot < 2)
+				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+			else
+				ApplyRecalPeakToMems1x64(
+					st, idxOcc3, idxOcc4, nLut, br, bc, m_mems1x64[fileSlot - 2]);
 		}
 
 		++globalProgress;
@@ -1404,6 +1429,7 @@ void CM576CalibratorDlg::RunPathPd()
 	SafeSetProgressRange(0, totalAll);
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
+	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	TryPreloadLutFromPerTransBackup();
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
@@ -1601,7 +1627,11 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 5 0 / 5 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
-			ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+			if (fileSlot < 2)
+				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+			else
+				ApplyRecalPeakToMems1x64Pd(
+					st, idxOcc3, idxOcc4, nLut, br, bc, m_mems1x64[fileSlot - 2]);
 		}
 
 		++globalProgress;
@@ -1610,7 +1640,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 	(void)globalTotal;
 }
 
-// --- 生成 Z4671 兼容 BIN：四路 m_lutByTrans 合并/写盘（1310 低温槽合并等按 UI/代码逻辑）---
+// --- 生成 BIN：MCS 为 Z4671 包，1x64 为同形头+4x2K Mems（m_lut / m_mems1x64 合并 1310）---
 
 void CM576CalibratorDlg::OnBnClickedGenBin()
 {
@@ -1631,56 +1661,111 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 
 	for (int i = 0; i < 4; ++i)
 	{
-		stLutSettingZ4671 merged;
-		ZeroMemory(&merged, sizeof(merged));
-		BOOL haveBackup = FALSE;
-		if (!m_strBackupBin.IsEmpty())
+		if (i < 2)
 		{
-			const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
-			if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
-				haveBackup = CLutBinWriter::ReadLutFromFile(perTransBk, merged);
-			if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
+			stLutSettingZ4671 merged;
+			ZeroMemory(&merged, sizeof(merged));
+			BOOL haveBackup = FALSE;
+			if (!m_strBackupBin.IsEmpty())
 			{
-				haveBackup = CLutBinWriter::ReadLutFromFile(absBackupBin, merged);
-				if (haveBackup)
-					AppendLog(_T("Trans1: read legacy single backup file for merge."));
+				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
+				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
+					haveBackup = CLutBinWriter::ReadLutFromFile(perTransBk, merged);
+				if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
+				{
+					haveBackup = CLutBinWriter::ReadLutFromFile(absBackupBin, merged);
+					if (haveBackup)
+						AppendLog(_T("Trans1: read legacy single backup file for merge."));
+				}
 			}
-		}
-		if (haveBackup)
-		{
-			MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
-			CString m;
-			m.Format(_T("Trans %d: merged session LUT into per-trans backup."), i + 1);
-			AppendLog(m);
+			if (haveBackup)
+			{
+				MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
+				CString m;
+				m.Format(_T("Trans %d: merged session LUT into per-trans backup."), i + 1);
+				AppendLog(m);
+			}
+			else
+			{
+				memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
+				CString m;
+				m.Format(
+					_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."),
+					i + 1,
+					g_m576TransLutBinSuffix[i]);
+				AppendLog(m);
+			}
+
+			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
+			SLutBinWriteParams p;
+			p.strOutputPath = absOutOne;
+			p.pLut = &merged;
+			p.strBundleSN = sn;
+			if (!CLutBinWriter::Write(p))
+			{
+				CString m;
+				m.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
+				AppendLog(m);
+				CString box;
+				box.Format(_T("Write BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
+				AfxMessageBox(box, MB_OK | MB_ICONERROR);
+				return;
+			}
+			memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
+			CString ok;
+			ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
+			AppendLog(ok);
 		}
 		else
 		{
-			memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
-			CString m;
-			m.Format(_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."), i + 1,
-				g_m576TransLutBinSuffix[i]);
-			AppendLog(m);
+			stM576OneX64MemsSwCoef merged4[4];
+			ZeroMemory(merged4, sizeof(merged4));
+			BOOL haveBackup = FALSE;
+			if (!m_strBackupBin.IsEmpty())
+			{
+				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
+				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
+					haveBackup = CMems1x64LutBinWriter::ReadMemsFromFile(perTransBk, merged4);
+			}
+			if (haveBackup)
+			{
+				MergeMems1310LowTempSlot(merged4, m_mems1x64[i - 2]);
+				CString m;
+				m.Format(
+					_T("Trans %d: merged 1310 Mems session (4x2K) into per-trans backup (1x64)."),
+					i + 1);
+				AppendLog(m);
+			}
+			else
+			{
+				memcpy(merged4, m_mems1x64[i - 2], sizeof(merged4));
+				CString m;
+				m.Format(
+					_T("Trans %d: no 1x64 per-trans Mems backup; writing in-memory 4x2K only."),
+					i + 1);
+				AppendLog(m);
+			}
+			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
+			SMems1x64BinWriteParams p;
+			p.strOutputPath = absOutOne;
+			p.pSw4 = merged4;
+			p.strBundleSN = sn;
+			if (!CMems1x64LutBinWriter::Write(p))
+			{
+				CString m;
+				m.Format(_T("Write 1x64 Mems BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
+				AppendLog(m);
+				CString box;
+				box.Format(
+					_T("Write 1x64 Mems BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
+				AfxMessageBox(box, MB_OK | MB_ICONERROR);
+				return;
+			}
+			memcpy(m_mems1x64[i - 2], merged4, sizeof(m_mems1x64[i - 2]));
+			CString ok;
+			ok.Format(_T("Trans %d: wrote 1x64 %s"), i + 1, absOutOne.GetString());
+			AppendLog(ok);
 		}
-
-		const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
-		SLutBinWriteParams p;
-		p.strOutputPath = absOutOne;
-		p.pLut = &merged;
-		p.strBundleSN = sn;
-		if (!CLutBinWriter::Write(p))
-		{
-			CString m;
-			m.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
-			AppendLog(m);
-			CString box;
-			box.Format(_T("Write BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
-			AfxMessageBox(box, MB_OK | MB_ICONERROR);
-			return;
-		}
-		memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
-		CString ok;
-		ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
-		AppendLog(ok);
 	}
 	AppendLog(_T("All trans BIN files written."));
 	AfxMessageBox(
