@@ -351,7 +351,8 @@ BOOL M576Read1x64SnStringOnCurrentTunnel(
 
 // 已在 trans 隧道上：从 flashBase 起 MEM 拼满 M576_1X64_MEMS_BACKUP_TOTAL_SIZE 写入 szOutPath。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
-	Z4671Command& cmd, LPCTSTR szOutPath, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal)
+	Z4671Command& cmd, LPCTSTR szOutPath, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal,
+	const CString& strBundleSn)
 {
 	err.Empty();
 	{
@@ -566,24 +567,26 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 		if (cb)
 			cb(progressBase + i + 1, progressTotal, user);
 	}
-	HANDLE h = CreateFile(szOutPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (h == INVALID_HANDLE_VALUE)
+	stM576OneX64MemsSwCoef sw4[4];
+	if (buf.size() < (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
 	{
-		err.Format(_T("Cannot create %s"), szOutPath);
+		err = _T("1x64 MEM buffer size mismatch.");
 		return FALSE;
 	}
-	DWORD nWr = 0;
-	const BOOL ok = WriteFile(h, buf.data(), (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE, &nWr, NULL) && nWr == (DWORD)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
-	CloseHandle(h);
-	if (!ok)
+	memcpy(sw4, buf.data(), (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE);
+	SMems1x64BinWriteParams wparams;
+	wparams.strOutputPath = szOutPath;
+	wparams.pSw4 = sw4;
+	wparams.strBundleSN = strBundleSn;
+	if (!CMems1x64LutBinWriter::Write(wparams))
 	{
-		err = _T("Write 1x64 bin failed.");
+		err = _T("CMems1x64LutBinWriter::Write after MEM read failed.");
+		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
 	cmd.TraceInfo(
 		_T("FW-1x64"),
-		_T("Read 1x64 (MEM) done: wrote %u B to %s"),
-		(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE,
+		_T("Read 1x64 (MEM) done: wrote Z4671 bundle (header+8K) to %s"),
 		szOutPath);
 	return TRUE;
 }

@@ -454,7 +454,8 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
-	AppendLog(_T("Backup BIN: Read Flash - trans1-2 (MCS): 0xC4 LUT bundle; trans3-4 (1x64): 4x2K MEM (8KB from 0x0E000, four switch coef); files *_mcs1/2.bin, *_1x64_1/2.bin."));
+	AppendLog(
+		_T("Backup BIN: Read Flash writes *_mcs1/2.bin, *_1x64_*.bin with Z4671 headers; SN from the four SN edit boxes merged into each file."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	SyncExportStatsButton();
@@ -715,7 +716,10 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	SafeSetProgressRange(0, 100);
 	SafeSetProgressPos(0);
 	CString err;
-	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	CString snTrans[4];
+	for (int i = 0; i < 4; ++i)
+		snTrans[i] = m_strSnTrans[i];
+	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this, snTrans))
 	{
 		m_readBackupLastOk = FALSE;
 		m_readBackupLastMsg.Format(_T("Read Flash backup failed:\n\n%s"), (LPCTSTR)err);
@@ -728,11 +732,12 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		m_readBackupLastOk = TRUE;
 		m_readBackupLastMsg.Format(
 			_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
-			_T("(MCS: 0xC4 LUT; 1x64: MEM full read per CalibConstants.)"),
+			_T("(Bundle headers use SN from the four SN fields; MCS 0xC4 LUT; 1x64 MEM+Z4671 bundle.)"),
 			(LPCTSTR)absBackupBin);
 		SafeSetProgressPos(100);
 		CString ok;
-		ok.Format(_T("Flash backups saved (439F per trans): base=%s, MCS=0xC4 LUT, 1x64=MEM full read (see M576_1X64_MEMS_BACKUP_TOTAL_SIZE in CalibConstants)."),
+		ok.Format(
+			_T("Flash backups saved: base=%s (per-trans pBundleSN from UI SN fields; 1x64 files are full bundle)."),
 			(LPCTSTR)absBackupBin);
 		SafeAppendLog(ok);
 	}
@@ -923,7 +928,8 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	AppendLog(_T("Read Flash: trans1-2 MCS 0xC4 LUT; trans3-4 1x64 MEM (full range) -> <base>_mcs1/2.bin, <base>_1x64_1/2.bin."));
+	AppendLog(
+		_T("Read Flash: per-trans bins; UI SN fields -> bundle pBundleSN; MCS=0xC4+CLutBinWriter; 1x64=MEM+CMems1x64LutBinWriter."));
 	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 

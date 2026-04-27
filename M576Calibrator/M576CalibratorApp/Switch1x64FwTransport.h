@@ -7,7 +7,7 @@
 // 当前 trans 隧道上从指定 Flash 基址 MEM 回读 8KB Mems 系数到文件（进度区间由调用方传入）。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szOutPath, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user,
-	int progressBase, int progressTotal);
+	int progressBase, int progressTotal, const CString& strBundleSn);
 
 /// XMODEM (fwdl) burn for 1x64 MemsSw bin (not StartFWUpdate / FWTranSportFW).
 // fwdl 后 XMODEM 下发 1x64 系数库（非 MCS 上载流程）。

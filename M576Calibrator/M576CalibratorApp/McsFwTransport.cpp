@@ -52,7 +52,7 @@ static int CountReadChunksSimulate(size_t total, int maxBlock)
 
 // Z4671 flash read: caller already opened trans to target.
 static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, CString& err,
-	McsFwProgressCb cb, void* user, int progressBase, int progressTotal)
+	McsFwProgressCb cb, void* user, int progressBase, int progressTotal, const CString& strBundleSn)
 {
 	err.Empty();
 	cmd.TraceInfo(_T("FW"), _T("Read LUT bundle (tunnel): output=%s"), szOutPath);
@@ -128,6 +128,7 @@ static BOOL ReadLutBundleOnCurrentTunnel(Z4671Command& cmd, LPCTSTR szOutPath, C
 	SLutBinWriteParams wparams;
 	wparams.strOutputPath = szOutPath;
 	wparams.pLut = &lut;
+	wparams.strBundleSN = strBundleSn;
 	if (!CLutBinWriter::Write(wparams))
 	{
 		err = _T("CLutBinWriter::Write (assemble bundle) failed.");
@@ -274,7 +275,8 @@ BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
 }
 
 // 按 g_m576FlashReadTransChannels 逐路 trans：MCS 用 0xC4+ReadLutBundle，1x64 用 MEM 8KB（见 Switch1x64）。
-BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user)
+BOOL McsReadLutBundleFromDevice(
+	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const CString snTrans[4])
 {
 	err.Empty();
 	if (g_m576FlashReadTransChannelCount == 0)
@@ -315,7 +317,8 @@ BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CStrin
 		const int progressBase = progressAt;
 		if (IsMcsTransChannel(ch))
 		{
-			if (!ReadLutBundleOnCurrentTunnel(cmd, path, err, cb, user, progressBase, progressTotal))
+			if (!ReadLutBundleOnCurrentTunnel(
+					cmd, path, err, cb, user, progressBase, progressTotal, snTrans[ch - 1]))
 			{
 				err.Format(_T("trans %d: %s"), ch, err.GetString());
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
@@ -332,7 +335,8 @@ BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CStrin
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
 				return FALSE;
 			}
-			if (!M576Read1x64MemsBinOnCurrentTunnel(cmd, path, x64Base, err, cb, user, progressBase, progressTotal))
+			if (!M576Read1x64MemsBinOnCurrentTunnel(
+					cmd, path, x64Base, err, cb, user, progressBase, progressTotal, snTrans[ch - 1]))
 			{
 				err.Format(_T("trans %d: %s"), ch, err.GetString());
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
