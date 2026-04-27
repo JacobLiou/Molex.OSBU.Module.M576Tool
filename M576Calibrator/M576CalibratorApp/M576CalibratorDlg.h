@@ -52,7 +52,7 @@ private:
 	Z4671Command m_dev429f;
 	std::unique_ptr<CRecalSession> m_pRecal;
 
-	/// Trans 1–2：Z4671 LUT；Trans 3–4：1x64 为 4×2K stMemsSwCoef（126S，与 MCS 不共用同结构体）。
+	/// Trans 1-2: Z4671 LUT; Trans 3-4: 1x64 为 4x2K stMemsSwCoef（126S，与 MCS 不共用同结构体）。
 	// 仅 0,1 槽使用 m_lut；2,3 使用 m_mems1x64[0]=1#1x64、 m_mems1x64[1]=2#1x64。
 	stLutSettingZ4671 m_lutByTrans[4];
 	stM576OneX64MemsSwCoef m_mems1x64[2][4];

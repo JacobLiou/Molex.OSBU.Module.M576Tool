@@ -21,7 +21,7 @@ static void M576OneX64CopyAsciiToBytes(BYTE* dest, size_t destLen, const CString
 		memset(dest + n, 0, destLen - n);
 }
 
-// ?? CLutBinWriter ?? stLutSettingZ4671 ?? dwCRC32 ??????i+4<, ~, ??????
+// Same per-block tail CRC as CLutBinWriter/stLutSettingZ4671: feed first sizeof-4 bytes; invert; write last 4 bytes.
 static void M576OneX64FillLutStyleBlockCrc(stM576OneX64MemsSwCoef& blk)
 {
 	const size_t cb = sizeof(stM576OneX64MemsSwCoef);
@@ -168,11 +168,11 @@ BOOL CMems1x64LutBinWriter::ReadMemsFromFile(LPCTSTR szPath, stM576OneX64MemsSwC
 		return FALSE;
 	}
 	if (flen == (__int64)kFull)
-		offPayload = (__int64)LutPayloadOffset();
+		offPayload = (__int64)LutPayloadOffset(); // full Z4671 bundle: 8K MEMS after header
 	else if (flen == (__int64)kPayload)
-		offPayload = 0;
+		offPayload = 0; // raw 8K only
 	else if (flen > (__int64)kFull)
-		offPayload = (__int64)LutPayloadOffset(); // ?????????
+		offPayload = (__int64)LutPayloadOffset(); // file longer than nominal bundle; MEMS at same offset
 	else
 	{
 		fclose(fp);

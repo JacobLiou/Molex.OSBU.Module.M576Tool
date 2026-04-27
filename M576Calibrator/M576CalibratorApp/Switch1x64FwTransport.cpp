@@ -234,7 +234,7 @@ static BOOL MemDrainHexResponse(
 		else if (!acc.empty())
 		{
 			// If we already have 64+ hex digits, stop after a short RX idle. If not, do NOT end early: a 2nd chunk
-			// may arrive >500ms after the first (log: dwr=19) ?? only maxWaitMs caps the wait.
+			// may arrive >500ms after the first (log: dwr=19); only maxWaitMs caps the wait.
 			const DWORD idle = GetTickCount() - lastDataTick;
 			if (MemCountHexInString(acc) >= needHex && idle >= idleOkMs)
 				break;
@@ -560,7 +560,7 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		const unsigned maxBurn = (unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE;
 		if (dwFile > (DWORD)maxBurn)
 			cmd.TraceInfo(
-				_T("FW-1x64"), _T("File is %lu B; XMODEM burns first %u B (4×2K MemsSw) only."),
+				_T("FW-1x64"), _T("File is %lu B; XMODEM burns first %u B (4x2K MemsSw) only."),
 				(unsigned long)dwFile, maxBurn);
 	}
 	const DWORD kFull1x64 = (DWORD)CMems1x64LutBinWriter::FullBundleFileSize();

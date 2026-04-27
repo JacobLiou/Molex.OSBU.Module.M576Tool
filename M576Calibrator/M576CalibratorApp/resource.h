@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ ?????????????
-// ?? M576CalibratorApp.rc ???
+// Microsoft Visual C++ generated include file.
+// Used by M576CalibratorApp.rc
 //
 #define ID_SEPARATOR                    0
 #define VS_VERSION_INFO                 1
