@@ -92,6 +92,7 @@ constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
 constexpr UINT WM_M576_PATH_FINISHED = WM_APP + 103;
 constexpr UINT WM_M576_READ_BACKUP_FINISHED = WM_APP + 104;
 constexpr UINT WM_M576_READ_SN_FINISHED = WM_APP + 105;
+constexpr UINT WM_M576_BURN_FLASH_FINISHED = WM_APP + 106;
 
 /// RECAL 3/5 一行：`[轴上 DAC 或首列][P1..Pn]`。功率个数 N = ceil((2*range)/step)，与固件一致（例 range=64 step=5 → N=26，整行 1+26=27 个数）。
 static int RecalSweepPowerSampleCount(int dacRange, int dacStep)
@@ -314,6 +315,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_pmRangeIndex(M576_DEFAULT_PM_RANGE)
 	, m_readBackupLastOk(FALSE)
 	, m_readSnLastOk(FALSE)
+	, m_burnFlashLastOk(FALSE)
 {
 	for (int i = 0; i < 4; ++i)
 	{
@@ -380,6 +382,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_MESSAGE(WM_M576_PATH_FINISHED, &CM576CalibratorDlg::OnPathFinished)
 	ON_MESSAGE(WM_M576_READ_BACKUP_FINISHED, &CM576CalibratorDlg::OnReadBackupFinished)
 	ON_MESSAGE(WM_M576_READ_SN_FINISHED, &CM576CalibratorDlg::OnReadAllSnFinished)
+	ON_MESSAGE(WM_M576_BURN_FLASH_FINISHED, &CM576CalibratorDlg::OnBurnFlashFinished)
 END_MESSAGE_MAP()
 
 BOOL CM576CalibratorDlg::OnInitDialog()
@@ -605,7 +608,7 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 	if (!m_hWnd || !::IsWindow(m_hWnd))
 		return;
 	const BOOL open = IsSerialPortOpen();
-	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load();
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load();
 	if (CWnd* p = GetDlgItem(IDC_BTN_OPEN_PORTS))
 		p->EnableWindow(!open && !busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_CLOSE_PORT))
@@ -734,6 +737,31 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 	return 0;
 }
 
+LRESULT CM576CalibratorDlg::OnBurnFlashFinished(WPARAM, LPARAM)
+{
+	if (m_burnFlashThread.joinable())
+		m_burnFlashThread.join();
+	m_burnFlashRunning = false;
+	SetPathActionButtonsEnabled(TRUE);
+	if (m_burnFlashLastOk)
+	{
+		AppendLog(_T("Flash completed: trans1-2 via MCS update stream, trans3-4 via 1x64 XMODEM (per-file from output base)."));
+		AfxMessageBox(
+			_T("Burn Flash completed successfully.\n\nMCS and 1x64 paths finished for the configured .bin set."),
+			MB_OK | MB_ICONINFORMATION);
+	}
+	else
+	{
+		CString m;
+		m.Format(_T("Flash failed: %s"), (LPCTSTR)m_burnFlashLastMsg);
+		AppendLog(m);
+		CString box;
+		box.Format(_T("Burn Flash failed:\n\n%s"), (LPCTSTR)m_burnFlashLastMsg);
+		AfxMessageBox(box, MB_OK | MB_ICONERROR);
+	}
+	return 0;
+}
+
 // --- 定标路径后台线程：按 PM/PD 调 RunPath*，结束 Post WM_M576_PATH_FINISHED ---
 
 void CM576CalibratorDlg::PathWorkerEntry()
@@ -800,6 +828,26 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_READ_SN_FINISHED, 0, 0);
+}
+
+void CM576CalibratorDlg::BurnFlashWorkerEntry(CString absOutBin)
+{
+	CString err;
+	SafeSetProgressRange(0, 100);
+	SafeSetProgressPos(0);
+	if (!McsFwUploadBinEx(m_dev429f, absOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	{
+		m_burnFlashLastOk = FALSE;
+		m_burnFlashLastMsg = err;
+	}
+	else
+	{
+		m_burnFlashLastOk = TRUE;
+		m_burnFlashLastMsg.Empty();
+		SafeSetProgressPos(100);
+	}
+	if (m_hWnd && ::IsWindow(m_hWnd))
+		::PostMessage(m_hWnd, WM_M576_BURN_FLASH_FINISHED, 0, 0);
 }
 
 void CM576CalibratorDlg::WriteLogFileLine(const CString& line)
@@ -963,6 +1011,11 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 {
 	if (m_readBackupRunning.load())
 		return;
+	if (m_burnFlashRunning.load())
+	{
+		AppendLog(_T("Burn Flash in progress; wait before reading Flash backup."));
+		return;
+	}
 	if (m_pathRunning.load())
 	{
 		AppendLog(_T("Path run in progress; wait for it to finish before reading Flash backup."));
@@ -1144,6 +1197,11 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 {
 	if (m_pathRunning.load())
 		return;
+	if (m_burnFlashRunning.load())
+	{
+		AppendLog(_T("Burn Flash in progress; wait before running path."));
+		return;
+	}
 	if (m_readBackupRunning.load())
 	{
 		AppendLog(_T("Read Flash backup in progress; wait for it to finish before running path."));
@@ -1238,9 +1296,30 @@ void CM576CalibratorDlg::OnDestroy()
 		}
 		m_readSnThread.join();
 	}
+	if (m_burnFlashThread.joinable())
+	{
+		HANDLE h = (HANDLE)m_burnFlashThread.native_handle();
+		for (;;)
+		{
+			const DWORD w = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+			if (w == WAIT_OBJECT_0)
+				break;
+			MSG msg;
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				if (!IsDialogMessage(&msg))
+				{
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
+			}
+		}
+		m_burnFlashThread.join();
+	}
 	m_pathRunning = false;
 	m_readBackupRunning = false;
 	m_readSnRunning = false;
+	m_burnFlashRunning = false;
 	m_suppressPathProgress = false;
 	CDialogEx::OnDestroy();
 }
@@ -1986,6 +2065,11 @@ void CM576CalibratorDlg::OnBnClickedReadAllSn()
 {
 	if (m_readSnRunning.load())
 		return;
+	if (m_burnFlashRunning.load())
+	{
+		AppendLog(_T("Burn Flash in progress; wait before reading SN."));
+		return;
+	}
 	if (m_pathRunning.load())
 	{
 		AppendLog(_T("Path run in progress; wait for it to finish before reading SN."));
@@ -2024,7 +2108,19 @@ void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)
 
 void CM576CalibratorDlg::OnBnClickedFlash()
 {
+	if (m_burnFlashRunning.load())
+		return;
 	UpdateData(TRUE);
+	if (m_pathRunning.load())
+	{
+		AppendLog(_T("Path run in progress; wait before burning flash."));
+		return;
+	}
+	if (m_readSnRunning.load())
+	{
+		AppendLog(_T("Read SN in progress; wait before burning flash."));
+		return;
+	}
 	if (m_readBackupRunning.load())
 	{
 		AppendLog(_T("Read Flash backup in progress; wait before burning flash."));
@@ -2080,20 +2176,10 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("Burn Flash cancelled by user."));
 		return;
 	}
-	CString err;
-	m_progress.SetRange(0, 100);
-	if (!McsFwUploadBinEx(m_dev429f, absOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
-	{
-		CString m;
-		m.Format(_T("Flash failed: %s"), (LPCTSTR)err);
-		AppendLog(m);
-		CString box;
-		box.Format(_T("Burn Flash failed:\n\n%s"), (LPCTSTR)err);
-		AfxMessageBox(box, MB_OK | MB_ICONERROR);
-		return;
-	}
-	AppendLog(_T("Flash completed: trans1-2 via MCS update stream, trans3-4 via 1x64 XMODEM (per-file from output base)."));
-	AfxMessageBox(
-		_T("Burn Flash completed successfully.\n\nMCS and 1x64 paths finished for the configured .bin set."),
-		MB_OK | MB_ICONINFORMATION);
+	if (m_burnFlashThread.joinable())
+		m_burnFlashThread.join();
+	m_burnFlashRunning = true;
+	SetPathActionButtonsEnabled(FALSE);
+	AppendLog(_T("Burn Flash started in background..."));
+	m_burnFlashThread = std::thread([this, absOutBin]() { BurnFlashWorkerEntry(absOutBin); });
 }

@@ -64,9 +64,11 @@ private:
 	std::thread m_pathThread;
 	std::thread m_readBackupThread;
 	std::thread m_readSnThread;
+	std::thread m_burnFlashThread;
 	std::atomic<bool> m_pathRunning{ false };
 	std::atomic<bool> m_readBackupRunning{ false };
 	std::atomic<bool> m_readSnRunning{ false };
+	std::atomic<bool> m_burnFlashRunning{ false };
 	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
 	// 用户点停止后，路径线程未退出前忽略子线程的进度回写，防 UI 抖动。
 	std::atomic<bool> m_suppressPathProgress{ false };
@@ -84,6 +86,8 @@ private:
 	BOOL m_readSnLastOk;
 	CString m_readSnLastMsg;
 	CString m_readSnLastValues[4];
+	BOOL m_burnFlashLastOk;
+	CString m_burnFlashLastMsg;
 
 	// --- 定标模式与 RECAL 步参 ---
 	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
@@ -119,6 +123,7 @@ private:
 	void PathWorkerEntry();
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void ReadAllSnWorkerEntry();
+	void BurnFlashWorkerEntry(CString absOutBin);
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -167,4 +172,5 @@ private:
 	afx_msg LRESULT OnPathFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnReadBackupFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnReadAllSnFinished(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnBurnFlashFinished(WPARAM wParam, LPARAM lParam);
 };
