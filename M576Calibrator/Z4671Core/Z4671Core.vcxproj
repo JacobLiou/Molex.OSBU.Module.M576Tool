@@ -85,6 +85,8 @@
     <ClInclude Include="ByteSwap.h" />
     <ClInclude Include="CommPort.h" />
     <ClInclude Include="LutBinWriter.h" />
+    <ClInclude Include="M576OneX64Coef.h" />
+    <ClInclude Include="Mems1x64LutBinWriter.h" />
     <ClInclude Include="OpComm.h" />
     <ClInclude Include="OpCRC32.h" />
     <ClInclude Include="stdafx.h" />
@@ -94,6 +96,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="LutBinWriter.cpp" />
+    <ClCompile Include="Mems1x64LutBinWriter.cpp" />
     <ClCompile Include="OpComm.cpp" />
     <ClCompile Include="OpCRC32.cpp" />
     <ClCompile Include="stdafx.cpp">
