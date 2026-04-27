@@ -326,7 +326,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	m_strBackupBin  = _T("output\\backup.bin");
 	m_strCommLogPath = _T("output\\comm.log");
 	for (int i = 0; i < 4; ++i)
-		m_strSnTrans[i] = _T("SN000000");
+		m_strSnTrans[i].Empty();
 }
 
 // 控件与 PM/PD 单选、路径框绑定等。
