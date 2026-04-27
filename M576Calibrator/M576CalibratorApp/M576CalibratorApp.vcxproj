@@ -133,6 +133,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CalibWriteMeta.h" />
     <ClInclude Include="Board439fTransTunnel.h" />
     <ClInclude Include="CalibConstants.h" />
     <ClInclude Include="LutMerge1310.h" />
@@ -151,6 +152,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Board439fTransTunnel.cpp" />
+    <ClCompile Include="CalibWriteMeta.cpp" />
     <ClCompile Include="LutMerge1310.cpp" />
     <ClCompile Include="LutPeakApply.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />

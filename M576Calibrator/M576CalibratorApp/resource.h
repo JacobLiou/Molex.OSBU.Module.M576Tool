@@ -43,6 +43,7 @@
 #define IDC_GROUP_ACTIONS               1020
 #define IDC_GROUP_LOG                   1021
 #define IDC_BTN_READ_FLASH_BACKUP       1022
+#define IDC_BTN_EXPORT_CALIB_STATS      1040
 #define IDC_RADIO_CAL_PM                1023
 #define IDC_RADIO_CAL_PD                1024
 #define IDC_EDIT_RECAL_DELAY            1025

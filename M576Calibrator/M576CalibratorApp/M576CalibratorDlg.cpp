@@ -364,6 +364,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
+	ON_BN_CLICKED(IDC_BTN_EXPORT_CALIB_STATS, &CM576CalibratorDlg::OnBnClickedExportCalibStats)
 	ON_WM_SYSCOMMAND()
 	ON_WM_DESTROY()
 	ON_MESSAGE(WM_M576_PATH_LOG_FLUSH, &CM576CalibratorDlg::OnPathLogFlush)
@@ -451,6 +452,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	AppendLog(_T("Backup BIN: Read Flash — trans1–2 (MCS): 0xC4 LUT bundle; trans3–4 (1x64): 4×2K MEM (8KB from 0x0E000, four switch coef); files *_mcs1/2.bin, *_1x64_1/2.bin."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
+	SyncExportStatsButton();
 	return TRUE;
 }
 
@@ -552,7 +554,33 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_STOP))
 		p->EnableWindow(enable);
+	if (enable)
+		SyncExportStatsButton();
+	else if (CWnd* p = GetDlgItem(IDC_BTN_EXPORT_CALIB_STATS))
+		p->EnableWindow(FALSE);
 	SyncSerialPortUi();
+}
+
+void CM576CalibratorDlg::ClearCalibStats()
+{
+	std::lock_guard<std::mutex> lock(m_statsRowsMutex);
+	m_statsRows.clear();
+}
+
+void CM576CalibratorDlg::PushCalibStatRow(const SCalibrationStatRow& r)
+{
+	std::lock_guard<std::mutex> lock(m_statsRowsMutex);
+	m_statsRows.push_back(r);
+}
+
+void CM576CalibratorDlg::SyncExportStatsButton()
+{
+	if (!m_hWnd || !::IsWindow(m_hWnd))
+		return;
+	std::lock_guard<std::mutex> lock(m_statsRowsMutex);
+	const BOOL en = !m_statsRows.empty() && !m_pathRunning.load();
+	if (CWnd* p = GetDlgItem(IDC_BTN_EXPORT_CALIB_STATS))
+		p->EnableWindow(en);
 }
 
 BOOL CM576CalibratorDlg::IsSerialPortOpen() const
@@ -907,6 +935,49 @@ void CM576CalibratorDlg::OnBnClickedStop()
 	}
 }
 
+void CM576CalibratorDlg::OnBnClickedExportCalibStats()
+{
+	std::vector<SCalibrationStatRow> copy;
+	{
+		std::lock_guard<std::mutex> lock(m_statsRowsMutex);
+		if (m_statsRows.empty())
+		{
+			AfxMessageBox(
+				_T("No calibration statistics to export. Run a path (PM or PD) first."),
+				MB_OK | MB_ICONINFORMATION);
+			return;
+		}
+		copy = m_statsRows;
+	}
+	CTime t = CTime::GetCurrentTime();
+	CString defName;
+	defName.Format(
+		_T("m576_calib_stats_%04d%02d%02d_%02d%02d%02d.csv"),
+		(int)t.GetYear(),
+		(int)t.GetMonth(),
+		(int)t.GetDay(),
+		(int)t.GetHour(),
+		(int)t.GetMinute(),
+		(int)t.GetSecond());
+	CFileDialog dlg(
+		FALSE,
+		_T("csv"),
+		defName,
+		OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST,
+		_T("CSV files (*.csv)|*.csv|All files (*.*)|*.*||"),
+		this);
+	if (dlg.DoModal() != IDOK)
+		return;
+	CString err;
+	if (!WriteCalibrationStatsCsv(dlg.GetPathName(), copy, err))
+	{
+		CString m = err.IsEmpty() ? _T("Failed to write CSV.") : err;
+		AfxMessageBox(m, MB_OK | MB_ICONERROR);
+		return;
+	}
+	AppendLog(_T("Calibration stats CSV written."));
+}
+
 void CM576CalibratorDlg::OnBnClickedCalPm()
 {
 	UpdateData(TRUE);
@@ -1136,6 +1207,7 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 
 void CM576CalibratorDlg::RunPathPowerMeter()
 {
+	ClearCalibStats();
 	CString err;
 	int totalAll = 0;
 	for (int fs = 0; fs < 4; ++fs)
@@ -1225,6 +1297,13 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		RunPathPowerMeterFile(fs, steps, globalProgress, totalAll, occT3, occT4);
 	}
 	SafeAppendLog(_T("Path run finished (PM all slots)."));
+	{
+		std::lock_guard<std::mutex> lock(m_statsRowsMutex);
+		CString m;
+		m.Format(
+			_T("Calibration stats rows recorded: %d (use Export calib stats CSV)."), (int)m_statsRows.size());
+		SafeAppendLog(m);
+	}
 }
 
 // 单路 pm_*.csv：RECAL1/3 扫点、双轴寻峰、回写 m_lutByTrans[fileSlot] 与 trans3/4 占用计数。
@@ -1389,11 +1468,24 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 3 0 / 3 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
+			SDacU16 dacU;
+			PeakGridToDacWord(br, bc, nLut, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
+			{
 				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+				SCalibrationStatRow srow;
+				if (CalibBuildStatRowPmLut(
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+					PushCalibStatRow(srow);
+			}
 			else
+			{
 				ApplyRecalPeakToMems1x64(
 					st, idxOcc3, idxOcc4, nLut, br, bc, m_mems1x64[fileSlot - 2]);
+				SCalibrationStatRow srow;
+				if (CalibBuildStatRowPmMems(st, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+					PushCalibStatRow(srow);
+			}
 		}
 
 		++globalProgress;
@@ -1406,6 +1498,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 
 void CM576CalibratorDlg::RunPathPd()
 {
+	ClearCalibStats();
 	CString err;
 	int totalAll = 0;
 	for (int fs = 0; fs < 4; ++fs)
@@ -1471,6 +1564,13 @@ void CM576CalibratorDlg::RunPathPd()
 		RunPathPdFile(fs, steps, globalProgress, totalAll, occT3, occT4);
 	}
 	SafeAppendLog(_T("Path run finished (PD all slots)."));
+	{
+		std::lock_guard<std::mutex> lock(m_statsRowsMutex);
+		CString m;
+		m.Format(
+			_T("Calibration stats rows recorded: %d (use Export calib stats CSV)."), (int)m_statsRows.size());
+		SafeAppendLog(m);
+	}
 }
 
 // 单路 pd_*.csv：RECAL2/5、Apply 到 m_lutByTrans[fileSlot]（PD 目标语义）。
@@ -1627,11 +1727,24 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 5 0 / 5 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
+			SDacU16 dacU;
+			PeakGridToDacWord(br, bc, nLut, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
+			{
 				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+				SCalibrationStatRow srow;
+				if (CalibBuildStatRowPdLut(
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+					PushCalibStatRow(srow);
+			}
 			else
+			{
 				ApplyRecalPeakToMems1x64Pd(
 					st, idxOcc3, idxOcc4, nLut, br, bc, m_mems1x64[fileSlot - 2]);
+				SCalibrationStatRow srow;
+				if (CalibBuildStatRowPdMems(st, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+					PushCalibStatRow(srow);
+			}
 		}
 
 		++globalProgress;

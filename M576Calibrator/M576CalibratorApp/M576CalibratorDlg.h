@@ -14,6 +14,7 @@
 #include "PathCsvDriver.h"
 #include "McsFwTransport.h"
 #include "TransLutRoute.h"
+#include "CalibWriteMeta.h"
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
@@ -90,6 +91,13 @@ private:
 	/// PM range 0-4 -> combo index.
 	int m_pmRangeIndex;
 
+	/// 本会话定标步统计（供 CSV 导出）；与路径线程用 `m_statsRowsMutex` 同步。
+	std::vector<SCalibrationStatRow> m_statsRows;
+	std::mutex m_statsRowsMutex;
+	void ClearCalibStats();
+	void PushCalibStatRow(const SCalibrationStatRow& r);
+	void SyncExportStatsButton();
+
 	// --- 日志与 UI 安全调用（可跨线程）---
 	void AppendLog(LPCTSTR sz);
 	void SafeAppendLog(LPCTSTR sz);
@@ -142,6 +150,7 @@ private:
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedStop();
+	afx_msg void OnBnClickedExportCalibStats();
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg LRESULT OnPathLogFlush(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathProgressRange(WPARAM wParam, LPARAM lParam);
