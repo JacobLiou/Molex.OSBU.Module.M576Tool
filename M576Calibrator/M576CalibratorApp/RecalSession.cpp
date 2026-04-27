@@ -51,35 +51,44 @@ void CRecalSession::TraceReceive(const CStringA& payload, DWORD elapsedMs, BOOL 
 	}
 	else if (!isFinalFailure)
 	{
+		// 有 partial 时失败多为「有回复但非预期」：应显示 elapsed 与读预算 budget，勿把 budget 标成 waited。
 		if (!payload.IsEmpty())
 		{
-			line.Format(_T("[RETRY] [RECAL] #%lu TIMEOUT %s | partial=%s | waited=%lums (will retry)"),
+			line.Format(
+				_T("[RETRY] [RECAL] #%lu UNEXPECTED %s | partial=%s | elapsed=%lums budget=%lums (will retry)"),
 				seq,
 				command.GetString(),
 				M576EscapeAscii(payload).GetString(),
+				elapsedMs,
 				timeoutMs);
 		}
 		else
 		{
-			line.Format(_T("[RETRY] [RECAL] #%lu TIMEOUT %s | waited=%lums (will retry)"),
+			line.Format(
+				_T("[RETRY] [RECAL] #%lu TIMEOUT %s | elapsed=%lums budget=%lums (will retry)"),
 				seq,
 				command.GetString(),
+				elapsedMs,
 				timeoutMs);
 		}
 	}
 	else if (!payload.IsEmpty())
 	{
-		line.Format(_T("[ERROR] [RECAL] #%lu TIMEOUT %s | partial=%s | waited=%lums"),
+		line.Format(
+			_T("[ERROR] [RECAL] #%lu UNEXPECTED %s | partial=%s | elapsed=%lums budget=%lums"),
 			seq,
 			command.GetString(),
 			M576EscapeAscii(payload).GetString(),
+			elapsedMs,
 			timeoutMs);
 	}
 	else
 	{
-		line.Format(_T("[ERROR] [RECAL] #%lu TIMEOUT %s | waited=%lums"),
+		line.Format(
+			_T("[ERROR] [RECAL] #%lu TIMEOUT %s | elapsed=%lums budget=%lums"),
 			seq,
 			command.GetString(),
+			elapsedMs,
 			timeoutMs);
 	}
 	m_logTarget.Emit(line);
@@ -429,15 +438,20 @@ BOOL CRecalSession::ExchangeRecal0ReadLine(
 			return FALSE;
 		}
 		const DWORD t0 = GetTickCount();
-		const BOOL okL = ReadLineBlocking(outLine, timeoutMs);
-		TraceReceive(outLine, GetTickCount() - t0, okL, timeoutMs, isFinal);
-		if (okL)
+		const BOOL gotLine = ReadLineBlocking(outLine, timeoutMs);
+		const DWORD elapsed0 = GetTickCount() - t0;
+		if (gotLine)
+			outLine.Trim();
+		// 仅首行 = OK 视为本命令成功；FAIL/其它/超时 与可重试（下位机有回复但不符合协议）
+		const BOOL good = gotLine && (outLine.CompareNoCase("OK") == 0);
+		TraceReceive(outLine, elapsed0, good, timeoutMs, isFinal);
+		if (good)
 			return TRUE;
 		if (!isFinal)
 			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
 	}
 	if (err.IsEmpty())
-		err = _T("RECAL 0: no response after retries.");
+		err = _T("RECAL 0: no OK line after retries.");
 	return FALSE;
 }
 
@@ -458,9 +472,13 @@ BOOL CRecalSession::ExchangeRecal1ReadLine(const SPathStep& step, CStringA& outL
 			return FALSE;
 		}
 		const DWORD t0 = GetTickCount();
-		const BOOL okL = ReadLineBlocking(outLine, timeoutMs);
-		TraceReceive(outLine, GetTickCount() - t0, okL, timeoutMs, isFinal);
-		if (okL)
+		const BOOL gotLine = ReadLineBlocking(outLine, timeoutMs);
+		const DWORD elapsed1 = GetTickCount() - t0;
+		if (gotLine)
+			outLine.Trim();
+		const BOOL good = gotLine && (outLine.CompareNoCase("OK") == 0);
+		TraceReceive(outLine, elapsed1, good, timeoutMs, isFinal);
+		if (good)
 			return TRUE;
 		if (!isFinal)
 			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
@@ -487,9 +505,13 @@ BOOL CRecalSession::ExchangeRecal2ReadLine(const SPathStepPd& step, CStringA& ou
 			return FALSE;
 		}
 		const DWORD t0 = GetTickCount();
-		const BOOL okL = ReadLineBlocking(outLine, timeoutMs);
-		TraceReceive(outLine, GetTickCount() - t0, okL, timeoutMs, isFinal);
-		if (okL)
+		const BOOL gotLine = ReadLineBlocking(outLine, timeoutMs);
+		const DWORD elapsed2 = GetTickCount() - t0;
+		if (gotLine)
+			outLine.Trim();
+		const BOOL good = gotLine && (outLine.CompareNoCase("OK") == 0);
+		TraceReceive(outLine, elapsed2, good, timeoutMs, isFinal);
+		if (good)
 			return TRUE;
 		if (!isFinal)
 			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
@@ -527,15 +549,24 @@ BOOL CRecalSession::ExchangeRecal3ReadSweep(
 			return FALSE;
 		}
 		const DWORD t0 = GetTickCount();
-		const BOOL okL = ReadSweepLineBlocking(outLine, readTimeoutMs);
-		TraceReceive(outLine, GetTickCount() - t0, okL, readTimeoutMs, isFinal);
-		if (okL)
+		const BOOL gotSweep = ReadSweepLineBlocking(outLine, readTimeoutMs);
+		const DWORD elapsed3 = GetTickCount() - t0;
+		if (gotSweep)
+			outLine.Trim();
+		double axTmp = 0.0;
+		std::vector<double> pTmp;
+		// 超时无行、显式 FAIL、或样点行解析失败 均不视为成功，可整包重发
+		const BOOL good = gotSweep
+			&& (outLine.CompareNoCase("FAIL") != 0)
+			&& ParseRecal3SweepLine(outLine, axTmp, pTmp);
+		TraceReceive(outLine, elapsed3, good, readTimeoutMs, isFinal);
+		if (good)
 			return TRUE;
 		if (!isFinal)
 			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
 	}
 	if (err.IsEmpty())
-		err = _T("RECAL 3: no sweep line after retries.");
+		err = _T("RECAL 3: no valid sweep line after retries.");
 	return FALSE;
 }
 
@@ -558,15 +589,23 @@ BOOL CRecalSession::ExchangeRecal5ReadSweep(
 			return FALSE;
 		}
 		const DWORD t0 = GetTickCount();
-		const BOOL okL = ReadSweepLineBlocking(outLine, readTimeoutMs);
-		TraceReceive(outLine, GetTickCount() - t0, okL, readTimeoutMs, isFinal);
-		if (okL)
+		const BOOL gotSweep = ReadSweepLineBlocking(outLine, readTimeoutMs);
+		const DWORD elapsed5 = GetTickCount() - t0;
+		if (gotSweep)
+			outLine.Trim();
+		double ax5 = 0.0;
+		std::vector<double> p5;
+		const BOOL good = gotSweep
+			&& (outLine.CompareNoCase("FAIL") != 0)
+			&& ParseRecal3SweepLine(outLine, ax5, p5);
+		TraceReceive(outLine, elapsed5, good, readTimeoutMs, isFinal);
+		if (good)
 			return TRUE;
 		if (!isFinal)
 			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
 	}
 	if (err.IsEmpty())
-		err = _T("RECAL 5: no sweep line after retries.");
+		err = _T("RECAL 5: no valid sweep line after retries.");
 	return FALSE;
 }
 

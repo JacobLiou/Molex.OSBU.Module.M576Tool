@@ -1426,7 +1426,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		if (!m_pRecal->ExchangeRecal0ReadLine(tlsSource, wavelengthNm, pmRange, line0, 3000, err))
 		{
 			if (err.IsEmpty())
-				SafeAppendLog(_T("RECAL 0: no response after retries."));
+				SafeAppendLog(_T("RECAL 0: no OK line after retries."));
 			else
 				SafeAppendLog(err);
 			return;
