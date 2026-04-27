@@ -63,8 +63,10 @@ private:
 	// --- 工作线程与进度（路径、读备份）---
 	std::thread m_pathThread;
 	std::thread m_readBackupThread;
+	std::thread m_readSnThread;
 	std::atomic<bool> m_pathRunning{ false };
 	std::atomic<bool> m_readBackupRunning{ false };
+	std::atomic<bool> m_readSnRunning{ false };
 	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
 	// 用户点停止后，路径线程未退出前忽略子线程的进度回写，防 UI 抖动。
 	std::atomic<bool> m_suppressPathProgress{ false };
@@ -79,6 +81,9 @@ private:
 	// 读 Flash 备份线程结果，由主线程在 OnReadBackupFinished 中展示。
 	BOOL m_readBackupLastOk;
 	CString m_readBackupLastMsg;
+	BOOL m_readSnLastOk;
+	CString m_readSnLastMsg;
+	CString m_readSnLastValues[4];
 
 	// --- 定标模式与 RECAL 步参 ---
 	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
@@ -113,6 +118,7 @@ private:
 	// 后台：跑完整定标路径 / 只读 Flash 备份
 	void PathWorkerEntry();
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
+	void ReadAllSnWorkerEntry();
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -160,4 +166,5 @@ private:
 	afx_msg LRESULT OnPathProgressPos(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnReadBackupFinished(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnReadAllSnFinished(WPARAM wParam, LPARAM lParam);
 };

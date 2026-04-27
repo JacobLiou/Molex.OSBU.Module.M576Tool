@@ -91,6 +91,7 @@ constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
 constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
 constexpr UINT WM_M576_PATH_FINISHED = WM_APP + 103;
 constexpr UINT WM_M576_READ_BACKUP_FINISHED = WM_APP + 104;
+constexpr UINT WM_M576_READ_SN_FINISHED = WM_APP + 105;
 
 /// RECAL 3/5 一行：`[轴上 DAC 或首列][P1..Pn]`。功率个数 N = ceil((2*range)/step)，与固件一致（例 range=64 step=5 → N=26，整行 1+26=27 个数）。
 static int RecalSweepPowerSampleCount(int dacRange, int dacStep)
@@ -312,6 +313,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_strWavelength(_T("1310"))
 	, m_pmRangeIndex(M576_DEFAULT_PM_RANGE)
 	, m_readBackupLastOk(FALSE)
+	, m_readSnLastOk(FALSE)
 {
 	for (int i = 0; i < 4; ++i)
 	{
@@ -377,6 +379,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_MESSAGE(WM_M576_PATH_PROGRESS_POS, &CM576CalibratorDlg::OnPathProgressPos)
 	ON_MESSAGE(WM_M576_PATH_FINISHED, &CM576CalibratorDlg::OnPathFinished)
 	ON_MESSAGE(WM_M576_READ_BACKUP_FINISHED, &CM576CalibratorDlg::OnReadBackupFinished)
+	ON_MESSAGE(WM_M576_READ_SN_FINISHED, &CM576CalibratorDlg::OnReadAllSnFinished)
 END_MESSAGE_MAP()
 
 BOOL CM576CalibratorDlg::OnInitDialog()
@@ -558,6 +561,8 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_READ_FLASH_BACKUP))
 		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_READ_ALL_SN))
+		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_STOP))
 		p->EnableWindow(enable);
 	if (enable)
@@ -600,7 +605,7 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 	if (!m_hWnd || !::IsWindow(m_hWnd))
 		return;
 	const BOOL open = IsSerialPortOpen();
-	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load();
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load();
 	if (CWnd* p = GetDlgItem(IDC_BTN_OPEN_PORTS))
 		p->EnableWindow(!open && !busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_CLOSE_PORT))
@@ -697,6 +702,38 @@ LRESULT CM576CalibratorDlg::OnReadBackupFinished(WPARAM, LPARAM)
 	return 0;
 }
 
+LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
+{
+	if (m_readSnThread.joinable())
+		m_readSnThread.join();
+	m_readSnRunning = false;
+	SetPathActionButtonsEnabled(TRUE);
+	if (m_readSnLastOk)
+	{
+		for (int i = 0; i < 4; ++i)
+			m_strSnTrans[i] = m_readSnLastValues[i];
+		UpdateData(FALSE);
+		AppendLog(
+			_T("Read SN: trans1-2 = MCS GetProductSN (0xA2); trans3-4 = 1x64 MEM (see M576_1X64_SN_MEM_ADDR in CalibConstants)."));
+		for (int i = 0; i < 4; ++i)
+		{
+			CString line;
+			line.Format(_T("  trans %d: %s"), i + 1, m_strSnTrans[i].GetString());
+			AppendLog(line);
+		}
+	}
+	else
+	{
+		CString m;
+		m.Format(_T("Read SN failed: %s"), (LPCTSTR)m_readSnLastMsg);
+		AppendLog(m);
+		CString box;
+		box.Format(_T("Read SN (trans 1-4) failed:\n\n%s"), (LPCTSTR)m_readSnLastMsg);
+		AfxMessageBox(box, MB_OK | MB_ICONERROR);
+	}
+	return 0;
+}
+
 // --- 定标路径后台线程：按 PM/PD 调 RunPath*，结束 Post WM_M576_PATH_FINISHED ---
 
 void CM576CalibratorDlg::PathWorkerEntry()
@@ -743,6 +780,26 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_READ_BACKUP_FINISHED, 0, 0);
+}
+
+void CM576CalibratorDlg::ReadAllSnWorkerEntry()
+{
+	CString sn4[4];
+	CString err;
+	if (!McsReadAllTransProductSn(m_dev429f, sn4, err))
+	{
+		m_readSnLastOk = FALSE;
+		m_readSnLastMsg = err;
+	}
+	else
+	{
+		m_readSnLastOk = TRUE;
+		m_readSnLastMsg.Empty();
+		for (int i = 0; i < 4; ++i)
+			m_readSnLastValues[i] = sn4[i];
+	}
+	if (m_hWnd && ::IsWindow(m_hWnd))
+		::PostMessage(m_hWnd, WM_M576_READ_SN_FINISHED, 0, 0);
 }
 
 void CM576CalibratorDlg::WriteLogFileLine(const CString& line)
@@ -1161,8 +1218,29 @@ void CM576CalibratorDlg::OnDestroy()
 		}
 		m_readBackupThread.join();
 	}
+	if (m_readSnThread.joinable())
+	{
+		HANDLE h = (HANDLE)m_readSnThread.native_handle();
+		for (;;)
+		{
+			const DWORD w = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+			if (w == WAIT_OBJECT_0)
+				break;
+			MSG msg;
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				if (!IsDialogMessage(&msg))
+				{
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
+			}
+		}
+		m_readSnThread.join();
+	}
 	m_pathRunning = false;
 	m_readBackupRunning = false;
+	m_readSnRunning = false;
 	m_suppressPathProgress = false;
 	CDialogEx::OnDestroy();
 }
@@ -1906,6 +1984,18 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 
 void CM576CalibratorDlg::OnBnClickedReadAllSn()
 {
+	if (m_readSnRunning.load())
+		return;
+	if (m_pathRunning.load())
+	{
+		AppendLog(_T("Path run in progress; wait for it to finish before reading SN."));
+		return;
+	}
+	if (m_readBackupRunning.load())
+	{
+		AppendLog(_T("Read Flash backup in progress; wait before reading SN."));
+		return;
+	}
 	UpdateData(TRUE);
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
 	{
@@ -1913,29 +2003,12 @@ void CM576CalibratorDlg::OnBnClickedReadAllSn()
 			return;
 		SyncSerialPortUi();
 	}
-	CString sn4[4];
-	CString err;
-	if (!McsReadAllTransProductSn(m_dev429f, sn4, err))
-	{
-		CString m;
-		m.Format(_T("Read SN failed: %s"), (LPCTSTR)err);
-		AppendLog(m);
-		CString box;
-		box.Format(_T("Read SN (trans 1-4) failed:\n\n%s"), (LPCTSTR)err);
-		AfxMessageBox(box, MB_OK | MB_ICONERROR);
-		return;
-	}
-	for (int i = 0; i < 4; ++i)
-		m_strSnTrans[i] = sn4[i];
-	UpdateData(FALSE);
-	AppendLog(
-		_T("Read SN: trans1-2 = MCS GetProductSN (0xA2); trans3-4 = 1x64 MEM (see M576_1X64_SN_MEM_ADDR in CalibConstants)."));
-	for (int i = 0; i < 4; ++i)
-	{
-		CString line;
-		line.Format(_T("  trans %d: %s"), i + 1, m_strSnTrans[i].GetString());
-		AppendLog(line);
-	}
+	if (m_readSnThread.joinable())
+		m_readSnThread.join();
+	m_readSnRunning = true;
+	SetPathActionButtonsEnabled(FALSE);
+	AppendLog(_T("Read SN started in background..."));
+	m_readSnThread = std::thread([this]() { ReadAllSnWorkerEntry(); });
 }
 
 void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)
