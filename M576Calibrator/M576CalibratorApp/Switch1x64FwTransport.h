@@ -16,3 +16,8 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 
 int M5761x64MemReadStepCount(); // MEM 分步读总步数
 int M5761x64XmodemChunkCountForFileSize(DWORD fileBytes); // 给定文件长度需多少 XMODEM 块
+
+/// Read ASCII SN: one `MEM` at `M576_1X64_SN_MEM_ADDR` (32 B), same line format as coef MEM dump (per site).
+// 在已 `BeginTrans` 的 1x64 隧道上：单地址 MEM 回 32B，按可打印串解析（与 MCS 0xA2 不同）。
+BOOL M576Read1x64SnStringOnCurrentTunnel(
+	Z4671Command& cmd, DWORD memAddr, CString& outSn, CString& err);

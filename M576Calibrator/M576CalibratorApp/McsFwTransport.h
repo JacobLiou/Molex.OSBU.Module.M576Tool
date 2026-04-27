@@ -23,3 +23,7 @@ CString M576TransBinPathForRead(LPCTSTR szBasePath, int transChannel);
 /// Read LUT from each trans channel; szOutPathBase is base (e.g. out\backup.bin -> out\backup_mcs1.bin …).
 // 从各 trans 将设备 LUT 读回为多个分文件（如 out\foo.bin → out\foo_mcs1.bin …）。
 BOOL McsReadLutBundleFromDevice(Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user);
+
+/// trans 1~2: Z4671 `GetProductSN` (0xA2). trans 3~4: 1x64 `MEM` @ `M576_1X64_SN_MEM_ADDR` → string. One end-to-end 439F `trans`/`$$` per index.
+// 四路从机各读 SN；MCS 与 1x64 协议不同；snOut4[0..3] 对应 trans1~4（与 g_m576TransLutBinSuffix 顺序一致）。
+BOOL McsReadAllTransProductSn(Z4671Command& cmd, CString snOut4[4], CString& err);

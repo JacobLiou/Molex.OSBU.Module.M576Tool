@@ -282,6 +282,73 @@ int M5761x64XmodemChunkCountForFileSize(DWORD fileBytes)
 	return c;
 }
 
+BOOL M576Read1x64SnStringOnCurrentTunnel(
+	Z4671Command& cmd, DWORD memAddr, CString& outSn, CString& err)
+{
+	// 单步 MEM 32B + ParseMemHexLine，与同文件 8K 回读一致；地址见 M576_1X64_SN_MEM_ADDR。
+	err.Empty();
+	outSn.Empty();
+	BYTE chunk[32];
+	ZeroMemory(chunk, sizeof(chunk));
+	char readBuf[4096];
+	const int needPayload = 32;
+	BOOL gotPayload = FALSE;
+	for (int att = 0; !gotPayload && att <= 2; att++)
+	{
+		CStringA line;
+		if (att == 0)
+			line.Format("MEM %u\r", (unsigned)memAddr);
+		else if (att == 1)
+			line.Format("MEM 0x%X\r", (unsigned)memAddr);
+		else
+			line.Format("mem 0x%x\r", (unsigned)memAddr);
+		if (!cmd.WriteBuffer((char*)(LPCSTR)line, (DWORD)line.GetLength()))
+		{
+			err = _T("1x64 MEM (SN) TX failed.");
+			cmd.TraceError(_T("FW-1x64"), _T("MEM (SN) @0x%08X write failed"), (unsigned)memAddr);
+			return FALSE;
+		}
+		Sleep((DWORD)M576_439F_POST_TRANS_MS);
+		Sleep((DWORD)M576_1X64_MEM_AFTER_CMD_MS);
+		ZeroMemory(readBuf, sizeof(readBuf));
+		DWORD dwr = 0;
+		if (!MemDrainHexResponse(cmd, readBuf, sizeof(readBuf) - 1, &dwr, needPayload, (DWORD)M576_1X64_MEM_READ_MAX_MS)
+			|| dwr == 0)
+			continue;
+		readBuf[dwr] = 0;
+		if (ParseMemHexLine(readBuf, (int)dwr, chunk, needPayload) == needPayload)
+			gotPayload = TRUE;
+	}
+	if (!gotPayload)
+	{
+		err.Format(
+			_T("1x64 MEM (SN) @0x%08X: no 32B from hex (tried MEM / MEM 0x / mem 0x)."),
+			(unsigned)memAddr);
+		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
+		return FALSE;
+	}
+	CStringA a;
+	for (int i = 0; i < 32; i++)
+	{
+		const unsigned char c = chunk[i];
+		if (c == 0)
+			break;
+		if (c < 0x20u || c > 0x7Eu)
+			break;
+		a += (char)c;
+	}
+	a.Trim();
+	outSn = CString(a);
+	if (outSn.IsEmpty())
+	{
+		cmd.TraceInfo(
+			_T("FW-1x64"),
+			_T("SN @0x%08X: empty after trim (unprogrammed or non-printable)"),
+			(unsigned)memAddr);
+	}
+	return TRUE;
+}
+
 // 已在 trans 隧道上：从 flashBase 起 MEM 拼满 M576_1X64_MEMS_BACKUP_TOTAL_SIZE 写入 szOutPath。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szOutPath, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal)

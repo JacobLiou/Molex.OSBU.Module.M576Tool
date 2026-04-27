@@ -203,6 +203,11 @@
 #ifndef M576_1X64_MEM_AFTER_CMD_MS
 #define M576_1X64_MEM_AFTER_CMD_MS 120u
 #endif
+/// 1x64: SN string stored in flash; read via one `MEM` line at this address, 32 B payload, interpret as printable ASCII.
+// 1x64 序列号区：与 MCS `GetProductSN`（0xA2）不同，走 MEM 十六进制行读 32 字节再当字符串用。
+#ifndef M576_1X64_SN_MEM_ADDR
+#define M576_1X64_SN_MEM_ADDR 0x0000D800u
+#endif
 /// Per-tunnel 1x64 local flash: read starts at first switch block (0x0E000..0x0F800 = 4×2K). trans3/trans4 are different devices via 439F `trans`.
 // 经 439F 不同 trans 隧道连到不同 1x64 设备时，其本地 Flash 读起址（与 ADDR_SWITCH* 区一致）。
 #ifndef M576_1X64_FLASH_BASE_TRANS3

@@ -321,7 +321,8 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	m_strOutBin     = _T("output\\standard.bin");
 	m_strBackupBin  = _T("output\\backup.bin");
 	m_strCommLogPath = _T("output\\comm.log");
-	m_strSn         = _T("429F1 Tester");
+	for (int i = 0; i < 4; ++i)
+		m_strSnTrans[i] = _T("SN000000");
 }
 
 // 控件与 PM/PD 单选、路径框绑定等。
@@ -341,7 +342,10 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_PROGRESS_MAIN, m_progress);
 	DDX_Text(pDX, IDC_EDIT_BACKUP_BIN, m_strBackupBin);
 	DDX_Text(pDX, IDC_EDIT_OUT_BIN, m_strOutBin);
-	DDX_Text(pDX, IDC_EDIT_SN, m_strSn);
+	DDX_Text(pDX, IDC_EDIT_SN_MCS1, m_strSnTrans[0]);
+	DDX_Text(pDX, IDC_EDIT_SN_MCS2, m_strSnTrans[1]);
+	DDX_Text(pDX, IDC_EDIT_SN_1X64_1, m_strSnTrans[2]);
+	DDX_Text(pDX, IDC_EDIT_SN_1X64_2, m_strSnTrans[3]);
 	DDX_Radio(pDX, IDC_RADIO_CAL_PM, m_nCalMode);
 	DDX_Text(pDX, IDC_EDIT_RECAL_DELAY, m_delayMs);
 	DDV_MinMaxInt(pDX, m_delayMs, M576_MIN_RECAL_DELAY_MS, M576_MAX_RECAL_DELAY_MS);
@@ -362,6 +366,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_RUN_PATH, &CM576CalibratorDlg::OnBnClickedRunPath)
 	ON_BN_CLICKED(IDC_BTN_CLEAR_LOG, &CM576CalibratorDlg::OnBnClickedClearLog)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
+	ON_BN_CLICKED(IDC_BTN_READ_ALL_SN, &CM576CalibratorDlg::OnBnClickedReadAllSn)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
 	ON_BN_CLICKED(IDC_BTN_EXPORT_CALIB_STATS, &CM576CalibratorDlg::OnBnClickedExportCalibStats)
@@ -1768,9 +1773,6 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	}
 	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
 	const CString absOutBase = ResolveFilePath(m_strOutBin);
-	CString sn = m_strSn;
-	if (sn.IsEmpty())
-		sn = _T("SN000000");
 
 	for (int i = 0; i < 4; ++i)
 	{
@@ -1813,7 +1815,12 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			SLutBinWriteParams p;
 			p.strOutputPath = absOutOne;
 			p.pLut = &merged;
-			p.strBundleSN = sn;
+			{
+				CString sn = m_strSnTrans[i].Trim();
+				if (sn.IsEmpty())
+					sn = _T("SN000000");
+				p.strBundleSN = sn;
+			}
 			if (!CLutBinWriter::Write(p))
 			{
 				CString m;
@@ -1862,7 +1869,12 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			SMems1x64BinWriteParams p;
 			p.strOutputPath = absOutOne;
 			p.pSw4 = merged4;
-			p.strBundleSN = sn;
+			{
+				CString sn = m_strSnTrans[i].Trim();
+				if (sn.IsEmpty())
+					sn = _T("SN000000");
+				p.strBundleSN = sn;
+			}
 			if (!CMems1x64LutBinWriter::Write(p))
 			{
 				CString m;
@@ -1884,6 +1896,40 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	AfxMessageBox(
 		_T("Write BIN completed.\n\nAll four per-trans .bin files were written successfully."),
 		MB_OK | MB_ICONINFORMATION);
+}
+
+void CM576CalibratorDlg::OnBnClickedReadAllSn()
+{
+	UpdateData(TRUE);
+	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
+	{
+		if (!OpenPort())
+			return;
+		SyncSerialPortUi();
+	}
+	CString sn4[4];
+	CString err;
+	if (!McsReadAllTransProductSn(m_dev429f, sn4, err))
+	{
+		CString m;
+		m.Format(_T("Read SN failed: %s"), (LPCTSTR)err);
+		AppendLog(m);
+		CString box;
+		box.Format(_T("Read SN (trans 1-4) failed:\n\n%s"), (LPCTSTR)err);
+		AfxMessageBox(box, MB_OK | MB_ICONERROR);
+		return;
+	}
+	for (int i = 0; i < 4; ++i)
+		m_strSnTrans[i] = sn4[i];
+	UpdateData(FALSE);
+	AppendLog(
+		_T("Read SN: trans1-2 = MCS GetProductSN (0xA2); trans3-4 = 1x64 MEM (see M576_1X64_SN_MEM_ADDR in CalibConstants)."));
+	for (int i = 0; i < 4; ++i)
+	{
+		CString line;
+		line.Format(_T("  trans %d: %s"), i + 1, m_strSnTrans[i].GetString());
+		AppendLog(line);
+	}
 }
 
 void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)

@@ -451,3 +451,55 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	cmd.TraceInfo(_T("FW"), _T("Burn finished all configured trans channels."));
 	return TRUE;
 }
+
+BOOL McsReadAllTransProductSn(Z4671Command& cmd, CString snOut4[4], CString& err)
+{
+	err.Empty();
+	CString discard;
+	(void)Board439fTransTunnel::EndTrans(cmd, discard);
+	for (int ti = 0; ti < 4; ++ti)
+	{
+		snOut4[ti].Empty();
+		const int tch = ti + 1;
+		if (!Board439fTransTunnel::BeginTrans(cmd, tch, err))
+		{
+			err.Format(_T("trans %d: %s"), tch, err.GetString());
+			(void)Board439fTransTunnel::EndTrans(cmd, discard);
+			return FALSE;
+		}
+		BOOL stepOk = FALSE;
+		if (tch == 1 || tch == 2)
+		{
+			char pch[80];
+			ZeroMemory(pch, sizeof(pch));
+			if (cmd.GetProductSN(pch))
+			{
+				snOut4[ti] = pch;
+				stepOk = TRUE;
+			}
+			else
+				err = cmd.m_strLogInfo.IsEmpty() ? _T("MCS GetProductSN (0xA2) failed.") : cmd.m_strLogInfo;
+		}
+		else
+		{
+			CString e1;
+			if (M576Read1x64SnStringOnCurrentTunnel(cmd, (DWORD)M576_1X64_SN_MEM_ADDR, snOut4[ti], e1))
+				stepOk = TRUE;
+			else
+				err = e1;
+		}
+		if (!Board439fTransTunnel::EndTrans(cmd, discard))
+		{
+			err = _T("439F $$ at end of trans SN read failed.");
+			return FALSE;
+		}
+		if (!stepOk)
+		{
+			if (err.IsEmpty())
+				err.Format(_T("trans %d: read SN failed."), tch);
+			return FALSE;
+		}
+		cmd.TraceInfo(_T("SN"), _T("trans %d -> %s"), tch, snOut4[ti].GetString());
+	}
+	return TRUE;
+}

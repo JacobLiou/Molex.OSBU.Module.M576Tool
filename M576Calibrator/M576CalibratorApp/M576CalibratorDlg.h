@@ -44,7 +44,9 @@ private:
 	CString m_strCsvPd[4];
 	CString m_strBackupBin;
 	CString m_strOutBin;
-	CString m_strSn;
+	/// Per trans 1~4 bundle header `pBundleSN` when writing MCS/1x64 bins (not 439F main board).
+	// 与 g_m576TransLutBinSuffix 顺序一致：MCS1,MCS2,1x64#1,1x64#2。
+	CString m_strSnTrans[4];
 	CString m_strCommLogPath;
 
 	/// One port: 439F board (RECAL ASCII + MCS LUT transport via trans/$$).
@@ -148,6 +150,7 @@ private:
 	afx_msg void OnBnClickedRunPath();
 	afx_msg void OnBnClickedClearLog();
 	afx_msg void OnBnClickedGenBin();
+	afx_msg void OnBnClickedReadAllSn();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedStop();
 	afx_msg void OnBnClickedExportCalibStats();

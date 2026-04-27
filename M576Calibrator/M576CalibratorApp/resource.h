@@ -24,7 +24,11 @@
 #define AFX_IDC_STRIKEOUT               1004
 #define IDC_EDIT_OUT_BIN                1004
 #define AFX_IDC_UNDERLINE               1005
-#define IDC_EDIT_SN                     1005
+#define IDC_EDIT_SN_MCS1                1005
+#define IDC_EDIT_SN_MCS2                1050
+#define IDC_EDIT_SN_1X64_1              1051
+#define IDC_EDIT_SN_1X64_2              1052
+#define IDC_BTN_READ_ALL_SN             1053
 #define AFX_IDC_SAMPLEBOX               1006
 #define IDC_EDIT_LOG                    1006
 #define IDC_PROGRESS_MAIN               1007
