@@ -46,6 +46,9 @@
 #define IDC_GROUP_PATHS                 1019
 #define IDC_GROUP_ACTIONS               1020
 #define IDC_GROUP_LOG                   1021
+#define IDC_GROUP_BACKUP                1054
+#define IDC_GROUP_BK_READ_SN            1055
+#define IDC_GROUP_BK_READ_BIN           1056
 #define IDC_BTN_READ_FLASH_BACKUP       1022
 #define IDC_BTN_EXPORT_CALIB_STATS      1040
 #define IDC_RADIO_CAL_PM                1023
