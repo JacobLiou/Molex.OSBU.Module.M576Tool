@@ -129,14 +129,14 @@ static int AxisPointCount(int dacRange, int dacStep)
 	return RecalSweepPowerSampleCount(dacRange, dacStep);
 }
 
-/// After `RECAL 3 0` / `RECAL 5 0` (moving Y) with Base=FW-read, map peak index to Y-axis DAC for `RECAL 3 1` / `RECAL 5 1` Base.
-/// Same symmetric indexing as `PeakGridToDacWord` / UI half-range, with nominal center `M576_PEAK_GRID_DAC_BASE`.
-static int RecalYBaseDacFromYPeakIndex(int peakRow, int sampleCount, int halfRange)
+/// After `RECAL 3 0` / `RECAL 5 0` with Base=9999, firmware returns the **first sweep cell** in col0; the moving-axis
+/// DAC at peak = col0 + peakIndex * (2*halfRange/(n-1)) — *not* `M576_PEAK_GRID_DAC_BASE` ± range (avoids 2048 vs 2289).
+static int RecalDacAtPeakIndexFromSweepCol0(int peakIndex, int sampleCount, int halfRange, double sweepLineCol0)
 {
 	if (sampleCount <= 1)
 		return M576_RECAL_FW_READ_BASE_DAC;
 	const double step = (2.0 * halfRange) / (double)(sampleCount - 1);
-	const double y = (double)M576_PEAK_GRID_DAC_BASE - halfRange + (double)peakRow * step;
+	const double y = sweepLineCol0 + (double)peakIndex * step;
 	int iy = (int)floor(y + 0.5);
 	if (iy < 0)
 		iy = 0;
@@ -328,8 +328,19 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	m_strOutBin     = kM576FixedOutBinRel;
 	m_strBackupBin  = kM576FixedBackupBinRel;
 	m_strCommLogPath = _T("output\\comm.log");
-	for (int i = 0; i < 4; ++i)
-		m_strSnTrans[i].Empty();
+	for (int m = 0; m < 2; ++m)
+	{
+		m_snInfo.mcsSn[m].Empty();
+		m_snInfo.mcsPn[m].Empty();
+	}
+	for (int d = 0; d < 2; ++d)
+	{
+		for (int s = 0; s < 4; ++s)
+		{
+			m_snInfo.oneX64Sn[d][s].Empty();
+			m_snInfo.oneX64Pn[d][s].Empty();
+		}
+	}
 }
 
 // 控件与 PM/PD 单选、路径框绑定等。
@@ -349,10 +360,26 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_PROGRESS_MAIN, m_progress);
 	DDX_Text(pDX, IDC_EDIT_BACKUP_BIN, m_strBackupBin);
 	DDX_Text(pDX, IDC_EDIT_OUT_BIN, m_strOutBin);
-	DDX_Text(pDX, IDC_EDIT_SN_MCS1, m_strSnTrans[0]);
-	DDX_Text(pDX, IDC_EDIT_SN_MCS2, m_strSnTrans[1]);
-	DDX_Text(pDX, IDC_EDIT_SN_1X64_1, m_strSnTrans[2]);
-	DDX_Text(pDX, IDC_EDIT_SN_1X64_2, m_strSnTrans[3]);
+	DDX_Text(pDX, IDC_EDIT_MCS1_SN, m_snInfo.mcsSn[0]);
+	DDX_Text(pDX, IDC_EDIT_MCS1_PN, m_snInfo.mcsPn[0]);
+	DDX_Text(pDX, IDC_EDIT_MCS2_SN, m_snInfo.mcsSn[1]);
+	DDX_Text(pDX, IDC_EDIT_MCS2_PN, m_snInfo.mcsPn[1]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW1_SN, m_snInfo.oneX64Sn[0][0]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW1_PN, m_snInfo.oneX64Pn[0][0]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW2_SN, m_snInfo.oneX64Sn[0][1]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW2_PN, m_snInfo.oneX64Pn[0][1]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW3_SN, m_snInfo.oneX64Sn[0][2]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW3_PN, m_snInfo.oneX64Pn[0][2]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW4_SN, m_snInfo.oneX64Sn[0][3]);
+	DDX_Text(pDX, IDC_EDIT_1X641_SW4_PN, m_snInfo.oneX64Pn[0][3]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW1_SN, m_snInfo.oneX64Sn[1][0]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW1_PN, m_snInfo.oneX64Pn[1][0]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW2_SN, m_snInfo.oneX64Sn[1][1]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW2_PN, m_snInfo.oneX64Pn[1][1]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW3_SN, m_snInfo.oneX64Sn[1][2]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW3_PN, m_snInfo.oneX64Pn[1][2]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW4_SN, m_snInfo.oneX64Sn[1][3]);
+	DDX_Text(pDX, IDC_EDIT_1X642_SW4_PN, m_snInfo.oneX64Pn[1][3]);
 	DDX_Radio(pDX, IDC_RADIO_CAL_PM, m_nCalMode);
 	DDX_Text(pDX, IDC_EDIT_RECAL_DELAY, m_delayMs);
 	DDV_MinMaxInt(pDX, m_delayMs, M576_MIN_RECAL_DELAY_MS, M576_MAX_RECAL_DELAY_MS);
@@ -736,25 +763,43 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	if (m_readSnLastOk)
 	{
-		for (int i = 0; i < 4; ++i)
-			m_strSnTrans[i] = m_readSnLastValues[i];
+		m_snInfo = m_readSnLastValues;
 		UpdateData(FALSE);
 		AppendLog(
-			_T("Read SN: trans1-2 = MCS GetProductSN (0xA2); trans3-4 = 1x64 MEM (see M576_1X64_SN_MEM_ADDR in CalibConstants)."));
-		for (int i = 0; i < 4; ++i)
+			_T("Read SN/PN: MCS trans1-2 = 0xA2 SN + 0xA5 PN; 1x64 trans3-4 = MEM 64B @ 0xD800 (4x SN+PN)."));
+		for (int m = 0; m < 2; ++m)
 		{
 			CString line;
-			line.Format(_T("  trans %d: %s"), i + 1, m_strSnTrans[i].GetString());
+			line.Format(
+				_T("  trans %d: SN=%s PN=%s"),
+				m + 1,
+				m_snInfo.mcsSn[m].GetString(),
+				m_snInfo.mcsPn[m].GetString());
 			AppendLog(line);
+		}
+		for (int d = 0; d < 2; ++d)
+		{
+			const int tch = d + 3;
+			for (int sw = 0; sw < 4; ++sw)
+			{
+				CString line;
+				line.Format(
+					_T("  trans %d sw%d: SN=%s PN=%s"),
+					tch,
+					sw + 1,
+					m_snInfo.oneX64Sn[d][sw].GetString(),
+					m_snInfo.oneX64Pn[d][sw].GetString());
+				AppendLog(line);
+			}
 		}
 	}
 	else
 	{
 		CString m;
-		m.Format(_T("Read SN failed: %s"), (LPCTSTR)m_readSnLastMsg);
+		m.Format(_T("Read SN/PN failed: %s"), (LPCTSTR)m_readSnLastMsg);
 		AppendLog(m);
 		CString box;
-		box.Format(_T("Read SN (trans 1-4) failed:\n\n%s"), (LPCTSTR)m_readSnLastMsg);
+		box.Format(_T("Read SN/PN (trans 1-4) failed:\n\n%s"), (LPCTSTR)m_readSnLastMsg);
 		AfxMessageBox(box, MB_OK | MB_ICONERROR);
 	}
 	return 0;
@@ -804,10 +849,8 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	SafeSetProgressRange(0, 100);
 	SafeSetProgressPos(0);
 	CString err;
-	CString snTrans[4];
-	for (int i = 0; i < 4; ++i)
-		snTrans[i] = m_strSnTrans[i];
-	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this, snTrans))
+	const M576TransSnPnInfo snSnap = m_snInfo;
+	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this, snSnap))
 	{
 		m_readBackupLastOk = FALSE;
 		m_readBackupLastMsg.Format(_T("Read Flash backup failed:\n\n%s"), (LPCTSTR)err);
@@ -820,12 +863,12 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		m_readBackupLastOk = TRUE;
 		m_readBackupLastMsg.Format(
 			_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
-			_T("(Bundle headers use SN from the four SN fields; MCS 0xC4 LUT; 1x64 MEM -> 4x2K per switch.)"),
+			_T("(MCS bundle SN from UI; 1x64 each 2K file uses per-switch SN from UI; MCS 0xC4 LUT; 1x64 MEM -> 4x2K.)"),
 			(LPCTSTR)absBackupBin);
 		SafeSetProgressPos(100);
 		CString ok;
 		ok.Format(
-			_T("Flash backups saved: base=%s (per-trans pBundleSN from UI SN fields; 1x64 is 8x 2K files)."),
+			_T("Flash backups saved: base=%s (pBundleSN from UI SN fields; 1x64 4x2K per trans)."),
 			(LPCTSTR)absBackupBin);
 		SafeAppendLog(ok);
 	}
@@ -835,9 +878,9 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 
 void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 {
-	CString sn4[4];
+	M576TransSnPnInfo sn;
 	CString err;
-	if (!McsReadAllTransProductSn(m_dev429f, sn4, err))
+	if (!McsReadAllTransProductSnPn(m_dev429f, sn, err))
 	{
 		m_readSnLastOk = FALSE;
 		m_readSnLastMsg = err;
@@ -846,8 +889,7 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 	{
 		m_readSnLastOk = TRUE;
 		m_readSnLastMsg.Empty();
-		for (int i = 0; i < 4; ++i)
-			m_readSnLastValues[i] = sn4[i];
+		m_readSnLastValues = sn;
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_READ_SN_FINISHED, 0, 0);
@@ -1050,7 +1092,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	AppendLog(
-		_T("Read Flash: per-trans bins; UI SN fields -> bundle pBundleSN; MCS=0xC4+CLutBinWriter; 1x64=MEM+4x2K CMems1x64LutBinWriter."));
+		_T("Read Flash: per-trans bins; UI SN/PN fields -> MCS bundle SN + 1x64 per-switch SN; MCS=0xC4; 1x64=MEM+4x2K."));
 	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 
@@ -1582,7 +1624,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		}
 		{
 			CString msg;
-			msg.Format(_T("  RECAL 3 0 -> %d power samples, fixed-X DAC=%.4g (from response col0)"),
+			msg.Format(_T("  RECAL 3 0 -> %d power samples, sweep col0=%.4g (first cell; base was 9999)"),
 				(int)powY.size(), xFixedDac);
 			SafeAppendLog(msg);
 		}
@@ -1595,8 +1637,9 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
+		const int nY = (int)powY.size();
 		const int yBaseDacForSweep1 =
-			RecalYBaseDacFromYPeakIndex(brForYBase, (int)powY.size(), m_dacRange);
+			RecalDacAtPeakIndexFromSweepCol0(brForYBase, nY, m_dacRange, xFixedDac);
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 3 1 Base DAC (Y@peak, row=%d)=%d"), brForYBase, yBaseDacForSweep1);
@@ -1615,25 +1658,29 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
-		double yFixedDac = 0.0;
 		std::vector<double> powX;
-		if (!CRecalSession::ParseRecal3SweepLine(lineX, yFixedDac, powX))
+		double sweep1LineCol0 = 0.0;
+		if (!CRecalSession::ParseRecal3SweepLine(lineX, sweep1LineCol0, powX))
 		{
-			SafeAppendLog(_T("RECAL 3 1: could not parse [Y_start] P1..Pn."));
+			SafeAppendLog(_T("RECAL 3 1: could not parse [axis0] P1..Pn."));
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
 			CString msg;
-			msg.Format(_T("  RECAL 3 1 -> %d power samples, fixed-Y DAC=%.4g (from response col0)"),
-				(int)powX.size(), yFixedDac);
+			msg.Format(
+				_T("  RECAL 3 1 -> %d power samples, sweep col0=%.4g (first X cell; grid anchor for column index)"),
+				(int)powX.size(),
+				sweep1LineCol0);
 			SafeAppendLog(msg);
 		}
 		{
 			CString msg;
-			msg.Format(_T("  -> DAC pair (X,Y)=(%.4g,%.4g) (X from RECAL 3 0 header, Y from RECAL 3 1 header)"),
-				xFixedDac, yFixedDac);
+			msg.Format(
+				_T("  -> line anchors: Y-start=%.4g (RECAL 3 0 col0), X-start=%.4g (RECAL 3 1 col0) — cross-peak maps row/col on these"),
+				xFixedDac,
+				sweep1LineCol0);
 			SafeAppendLog(msg);
 		}
 
@@ -1660,11 +1707,14 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 3 0 / 3 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
+			// X/Y grid: raw sweep line col0 as signed anchor, then + index*step (see PeakGridToDacWord 12b ring).
+			const double yGridA = xFixedDac;
+			const double xGridA = sweep1LineCol0;
 			SDacU16 dacU;
-			PeakGridToDacWord(br, bc, nLut, dacU.uX, dacU.uY);
+			PeakGridToDacWord(br, bc, nLut, m_dacRange, yGridA, xGridA, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
 			{
-				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPmLut(
 						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, dacU, srow))
@@ -1673,7 +1723,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 			else
 			{
 				ApplyRecalPeakToMems1x64(
-					st, idxOcc3, idxOcc4, nLut, br, bc, m_mems1x64[fileSlot - 2]);
+					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPmMems(st, fileSlot, i + 1, br, bc, nLut, dacU, srow))
 					PushCalibStatRow(srow);
@@ -1861,8 +1911,9 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
+		const int nYpd = (int)powY.size();
 		const int yBaseDacForSweep1Pd =
-			RecalYBaseDacFromYPeakIndex(brForYBasePd, (int)powY.size(), m_dacRange);
+			RecalDacAtPeakIndexFromSweepCol0(brForYBasePd, nYpd, m_dacRange, xFixedDacPd);
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 5 1 Base DAC (Y@peak, row=%d)=%d"), brForYBasePd, yBaseDacForSweep1Pd);
@@ -1881,18 +1932,21 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
-		double yFixedDacPd = 0.0;
+		double sweep1LineCol0Pd = 0.0;
 		std::vector<double> powX;
-		if (!CRecalSession::ParseRecal3SweepLine(lineX, yFixedDacPd, powX))
+		if (!CRecalSession::ParseRecal3SweepLine(lineX, sweep1LineCol0Pd, powX))
 		{
-			SafeAppendLog(_T("RECAL 5 1: could not parse [Y_start] P1..Pn."));
+			SafeAppendLog(_T("RECAL 5 1: could not parse [axis0] P1..Pn."));
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		{
 			CString msg;
-			msg.Format(_T("  RECAL 5 1 -> %d samples (Y_start=%.4g)"), (int)powX.size(), yFixedDacPd);
+			msg.Format(
+				_T("  RECAL 5 1 -> %d samples, sweep col0=%.4g (first X cell)"),
+				(int)powX.size(),
+				sweep1LineCol0Pd);
 			SafeAppendLog(msg);
 		}
 
@@ -1919,11 +1973,13 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 5 0 / 5 1)"), br, bc);
 			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
+			const double yGridAPd = xFixedDacPd;
+			const double xGridAPd = sweep1LineCol0Pd;
 			SDacU16 dacU;
-			PeakGridToDacWord(br, bc, nLut, dacU.uX, dacU.uY);
+			PeakGridToDacWord(br, bc, nLut, m_dacRange, yGridAPd, xGridAPd, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
 			{
-				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, br, bc, m_lutByTrans[fileSlot]);
+				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPdLut(
 						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, dacU, srow))
@@ -1932,7 +1988,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			else
 			{
 				ApplyRecalPeakToMems1x64Pd(
-					st, idxOcc3, idxOcc4, nLut, br, bc, m_mems1x64[fileSlot - 2]);
+					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPdMems(st, fileSlot, i + 1, br, bc, nLut, dacU, srow))
 					PushCalibStatRow(srow);
@@ -2004,7 +2060,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			p.strOutputPath = absOutOne;
 			p.pLut = &merged;
 			{
-				CString sn = m_strSnTrans[i].Trim();
+				CString sn = m_snInfo.mcsSn[i].Trim();
 				if (sn.IsEmpty())
 					sn = _T("SN000000");
 				p.strBundleSN = sn;
@@ -2059,11 +2115,11 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 					i + 1);
 				AppendLog(m);
 			}
-			CString sn = m_strSnTrans[i].Trim();
-			if (sn.IsEmpty())
-				sn = _T("SN000000");
 			for (int sw = 0; sw < 4; ++sw)
 			{
+				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
+				if (sn.IsEmpty())
+					sn = _T("SN000000");
 				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
 				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
 				{
@@ -2099,17 +2155,17 @@ void CM576CalibratorDlg::OnBnClickedReadAllSn()
 		return;
 	if (m_burnFlashRunning.load())
 	{
-		AppendLog(_T("Burn Flash in progress; wait before reading SN."));
+		AppendLog(_T("Burn Flash in progress; wait before reading SN/PN."));
 		return;
 	}
 	if (m_pathRunning.load())
 	{
-		AppendLog(_T("Path run in progress; wait for it to finish before reading SN."));
+		AppendLog(_T("Path run in progress; wait for it to finish before reading SN/PN."));
 		return;
 	}
 	if (m_readBackupRunning.load())
 	{
-		AppendLog(_T("Read Flash backup in progress; wait before reading SN."));
+		AppendLog(_T("Read Flash backup in progress; wait before reading SN/PN."));
 		return;
 	}
 	UpdateData(TRUE);
@@ -2123,7 +2179,7 @@ void CM576CalibratorDlg::OnBnClickedReadAllSn()
 		m_readSnThread.join();
 	m_readSnRunning = true;
 	SetPathActionButtonsEnabled(FALSE);
-	AppendLog(_T("Read SN started in background..."));
+	AppendLog(_T("Read SN/PN started in background..."));
 	m_readSnThread = std::thread([this]() { ReadAllSnWorkerEntry(); });
 }
 
@@ -2151,7 +2207,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (m_readSnRunning.load())
 	{
-		AppendLog(_T("Read SN in progress; wait before burning flash."));
+		AppendLog(_T("Read SN/PN in progress; wait before burning flash."));
 		return;
 	}
 	if (m_readBackupRunning.load())

@@ -1,6 +1,6 @@
 #pragma once
-// 1x64 MEMS layout matches 126S_45V_Switch_App (stMemsSwCoef, per-2K flash) for 1X64 trans + write-bin.
-// Four switches = four separate 2K files; device backup is 8KB contiguous MEM (4×2K). XMODEM burns one 2K per `fwdl` session.
+// 1x64 MEMS layout matches 126S_45V_Switch_App `tagMemsSwCoef`: file = BUNDLEHEADER[160] + body[2048] = 2208 B (dwBundleSize 0x8A0).
+// Flash body only is 2048 B/switch (stride 0x800); four switches = 8192 B MEM read; host synth header then writes four bin files. XMODEM burns one file per `fwdl`.
 
 #include "Z4767StructDefine.h"
 
@@ -15,9 +15,9 @@
 #define M576_1X64_TEMPT_SWITCH_NUM 4u
 #endif
 
-// Cal/backup: four 2K stM576OneX64MemsSwCoef per 1x64 (see M576_1X64_MEMS_FILE_PAYLOAD_BYTES)
+// Cal/backup: four files × 2208 B each (4 × (160 + 2048)).
 #ifndef M576_1X64_MEMS_FILE_PAYLOAD_BYTES
-#define M576_1X64_MEMS_FILE_PAYLOAD_BYTES (4u * 2048u)
+#define M576_1X64_MEMS_FILE_PAYLOAD_BYTES (4u * 2208u)
 #endif
 
 #include <cstddef>
@@ -62,8 +62,8 @@ typedef struct tagM576OneX64MemsSwCoef
 	unsigned short wSwitchIL[M576_1X64_MAX_CHANNEL_NUM];
 	unsigned char bReserved3[44];
 	stM576OneX64MidPointsMatrix pstMidPointsMatrix;
-	// bReserved6[76]: padding for 2K block; #pragma pack(1) per 126S; st totals 2048B (sizeof / static_assert).
-	unsigned char bReserved6[76];
+	// bReserved6[236]: padding to match 126S `tagMemsSwCoef` body size 2048 B after BUNDLEHEADER.
+	unsigned char bReserved6[236];
 	stM576OneX64ChnDAC stCalibDAC[M576_1X64_TEMPT_SWITCH_NUM];
 	unsigned char bReserved7[28];
 	unsigned int dwCRC32; // little-endian 4B in file
@@ -72,6 +72,6 @@ typedef struct tagM576OneX64MemsSwCoef
 #pragma pack(pop)
 
 #if defined(_MSC_VER)
-static_assert(sizeof(stM576OneX64MemsSwCoef) == 2048u, "stMemsSwCoef must be 2048 bytes (126S).");
-static_assert(M576_1X64_MEMS_FILE_PAYLOAD_BYTES == 8192u, "4*2048=8192");
+static_assert(sizeof(stM576OneX64MemsSwCoef) == 2208u, "BUNDLEHEADER[160]+body[2048]=2208 (126S tagMemsSwCoef file).");
+static_assert(M576_1X64_MEMS_FILE_PAYLOAD_BYTES == 8832u, "4*2208=8832");
 #endif

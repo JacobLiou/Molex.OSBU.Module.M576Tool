@@ -3,6 +3,16 @@
 
 #include "Z4671Command.h"
 
+/// Per-trans SN/PN from devices: MCS trans1–2 (one SN + PN each); 1x64 trans3–4 (four switches × SN + PN).
+// UI / 写 bin 头用：MCS 各一路 SN+PN；1x64 每片四开关 SN+PN（Flash 0xD800 起 64B MEM）。
+struct M576TransSnPnInfo
+{
+	CString mcsSn[2];
+	CString mcsPn[2];
+	CString oneX64Sn[2][4];
+	CString oneX64Pn[2][4];
+};
+
 /// LUT BIN over 439F: ASCII "trans <n>" / "$$" then Z4671 binary on the same COM.
 /// Channel tables: CalibConstants.h (g_m576FlashReadTransChannels, g_m576FlashBurnTransChannels).
 // 先 ASCII 进 trans 通道、再 Z4671；读写通道表见 CalibConstants。
@@ -25,10 +35,9 @@ CString M576TransBinPathForSwitch(LPCTSTR szBasePath, int transChannel, int swId
 
 /// Read LUT from each trans channel; szOutPathBase is base (e.g. out\backup.bin -> out\backup_mcs1.bin …).
 // 从各 trans 将设备 LUT 读回为多个分文件（如 out\foo.bin → out\foo_mcs1.bin …）。
-/// snTrans[0..3] 与 trans1~4 对应，写入各 bin 的 Z4671 bundle 头 `pBundleSN`（MCS 经 CLutBinWriter；1x64 经 CMems1x64LutBinWriter 每路 2K）。
+/// `snInfo`：MCS 用 mcsSn[i] 写 LUT bundle SN；1x64 用 oneX64Sn[dev][sw] 写各 2K 头（dev 0=t3, 1=t4）。
 BOOL McsReadLutBundleFromDevice(
-	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const CString snTrans[4]);
+	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const M576TransSnPnInfo& snInfo);
 
-/// trans 1~2: Z4671 `GetProductSN` (0xA2). trans 3~4: 1x64 `MEM` @ `M576_1X64_SN_MEM_ADDR` → string. One end-to-end 439F `trans`/`$$` per index.
-// 四路从机各读 SN；MCS 与 1x64 协议不同；snOut4[0..3] 对应 trans1~4（与 g_m576TransLutBinSuffix 顺序一致）。
-BOOL McsReadAllTransProductSn(Z4671Command& cmd, CString snOut4[4], CString& err);
+/// trans 1~2: Z4671 GetProductSN (0xA2) + GetProductPN (0xA5). trans 3~4: 1x64 MEM @ `M576_1X64_SNPN_BASE_ADDR` 64B → 4×(SN,PN).
+BOOL McsReadAllTransProductSnPn(Z4671Command& cmd, M576TransSnPnInfo& out, CString& err);

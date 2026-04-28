@@ -3,7 +3,6 @@
 #include "Mems1x64LutBinWriter.h"
 #include "OpCRC32.h"
 #include <algorithm>
-#include <memory>
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -22,6 +21,17 @@ static void M576OneX64CopyAsciiToBytes(BYTE* dest, size_t destLen, const CString
 		memset(dest + n, 0, destLen - n);
 }
 
+/// Fixed-width ASCII: copy up to destLen bytes (no destLen-1 NUL guard); pad remainder with 0.
+static void M576OneX64WriteAsciiFixed(BYTE* dest, size_t destLen, const CString& s)
+{
+	CStringA sa(s);
+	size_t n = (std::min)(destLen, (size_t)sa.GetLength());
+	if (n > 0)
+		memcpy(dest, (LPCSTR)sa, n);
+	if (n < destLen)
+		memset(dest + n, 0, destLen - n);
+}
+
 static void M576OneX64PutBe32(BYTE* p, DWORD v)
 {
 	p[0] = (BYTE)(v >> 24);
@@ -36,21 +46,6 @@ static void M576OneX64PutBe16(BYTE* p, WORD v)
 	p[1] = (BYTE)v;
 }
 
-// Same per-block tail CRC as CLutBinWriter/stLutSettingZ4671: feed first sizeof-4 bytes; invert; write last 4 bytes.
-static void M576OneX64FillLutStyleBlockCrc(stM576OneX64MemsSwCoef& blk)
-{
-	const size_t cb = sizeof(stM576OneX64MemsSwCoef);
-	std::unique_ptr<BYTE[]> pby(new BYTE[cb]);
-	memcpy(pby.get(), &blk, cb);
-	COpCRC32 crc;
-	DWORD dwCRC32Value = 0;
-	crc.InitCRC32();
-	for (size_t i = 0; i + 4 < cb; ++i)
-		dwCRC32Value = crc.GetThisCRC(pby[i]);
-	dwCRC32Value = ~dwCRC32Value;
-	blk.dwCRC32 = (unsigned int)dwCRC32Value;
-}
-
 // Flash bases for four MEMS switches (CalibConstants.h / 126S).
 static DWORD M576OneX64SwitchFlashBase(int swIndex)
 {
@@ -60,23 +55,27 @@ static DWORD M576OneX64SwitchFlashBase(int swIndex)
 	return kAddr[swIndex];
 }
 
-/// BUNDLEHEADER[0..151] per 126S CreateSwitchPointBin (remainder of [160] left zero).
+/// BUNDLEHEADER[0..159] per 126S CreateSwitchPointBin; CRC slots @16 and @148 remain 0 until WriteSingleSwitch CRC steps.
 static void M576OneX64FillLegacy126sBundleHeader(
-	stM576OneX64MemsSwCoef& sw, int swIndex, const CString& bundleSnVer, const CString& bundleTime)
+	stM576OneX64MemsSwCoef& sw,
+	int swIndex,
+	const CString& bundleSnVer,
+	const CString& bundleTime,
+	const SYSTEMTIME& stUtc)
 {
 	ZeroMemory(sw.BUNDLEHEADER, sizeof(sw.BUNDLEHEADER));
 
 	M576OneX64CopyAsciiToBytes(sw.BUNDLEHEADER + 0, 8, CString(_T("OPLINK")));
 	M576OneX64CopyAsciiToBytes(sw.BUNDLEHEADER + 8, 8, CString(_T("SWITCH")));
-	// 16..19 dwBundleHdrCRC32 = 0 (already zero)
+	// 16..19 dwBundleHdrCRC32 = 0 (filled in CRC#3)
 	M576OneX64PutBe32(sw.BUNDLEHEADER + 20, 0x000008A0u); // dwBundleSize
 	M576OneX64PutBe16(sw.BUNDLEHEADER + 24, 128); // wBundleHdrSize
 	M576OneX64PutBe16(sw.BUNDLEHEADER + 26, 1); // wImageCount
 
-	M576OneX64CopyAsciiToBytes(sw.BUNDLEHEADER + 32, 16, bundleSnVer);
-	M576OneX64CopyAsciiToBytes(sw.BUNDLEHEADER + 48, 32, CString(_T("14538_1x64MemsSw")));
-	M576OneX64CopyAsciiToBytes(sw.BUNDLEHEADER + 80, 32, CString(_T("SUPERSN")));
-	M576OneX64CopyAsciiToBytes(sw.BUNDLEHEADER + 112, 16, bundleTime);
+	M576OneX64WriteAsciiFixed(sw.BUNDLEHEADER + 32, 16, bundleSnVer);
+	M576OneX64WriteAsciiFixed(sw.BUNDLEHEADER + 48, 32, CString(_T("14538_1x64MemsSw")));
+	M576OneX64WriteAsciiFixed(sw.BUNDLEHEADER + 80, 32, CString(_T("SUPERSN")));
+	M576OneX64WriteAsciiFixed(sw.BUNDLEHEADER + 112, 16, bundleTime);
 
 	sw.BUNDLEHEADER[128] = 0x49;
 	sw.BUNDLEHEADER[129] = 0x42;
@@ -87,21 +86,38 @@ static void M576OneX64FillLegacy126sBundleHeader(
 	sw.BUNDLEHEADER[134] = 0x01; // StorageID
 	sw.BUNDLEHEADER[135] = 0x01; // ImageIndex
 	// 136..139 dwImageVersion = 0
-	SYSTEMTIME st = {};
-	GetLocalTime(&st);
-	sw.BUNDLEHEADER[140] = (BYTE)(st.wMonth);
-	sw.BUNDLEHEADER[141] = (BYTE)(st.wDay);
-	sw.BUNDLEHEADER[142] = (BYTE)(st.wHour);
-	sw.BUNDLEHEADER[143] = (BYTE)(st.wMinute);
+	sw.BUNDLEHEADER[140] = (BYTE)(stUtc.wMonth);
+	sw.BUNDLEHEADER[141] = (BYTE)(stUtc.wDay);
+	sw.BUNDLEHEADER[142] = (BYTE)(stUtc.wHour);
+	sw.BUNDLEHEADER[143] = (BYTE)(stUtc.wMinute);
 
 	M576OneX64PutBe32(sw.BUNDLEHEADER + 144, M576OneX64SwitchFlashBase(swIndex));
-	// 148..151 dwImageCRC32 = 0
+	// 148..151 dwImageCRC32 placeholder (CRC#2); must be 0 while CRC#1 runs
+	M576OneX64PutBe32(sw.BUNDLEHEADER + 148, 0u);
+	// 152..155 dwImageSize = 2048 (legacy: dwBinsize - 160)
+	M576OneX64PutBe32(sw.BUNDLEHEADER + 152, 2048u);
+	// 156..159 fixed magic
+	sw.BUNDLEHEADER[156] = 0x01;
+	sw.BUNDLEHEADER[157] = 0x00;
+	sw.BUNDLEHEADER[158] = 0x00;
+	sw.BUNDLEHEADER[159] = 0x00;
+}
+
+static void M576OneX64FillBodyTailIdentity(
+	stM576OneX64MemsSwCoef& sw, const CString& snAscii, const SYSTEMTIME& stUtc)
+{
+	ZeroMemory(sw.bReserved7, sizeof(sw.bReserved7));
+	M576OneX64WriteAsciiFixed(sw.bReserved7 + 0, 16, snAscii);
+	CString tCompact;
+	tCompact.Format(_T("%04d%02d%02d%02d%02d"),
+		stUtc.wYear, stUtc.wMonth, stUtc.wDay, stUtc.wHour, stUtc.wMinute);
+	M576OneX64WriteAsciiFixed(sw.bReserved7 + 16, 12, tCompact);
 }
 
 } // namespace
 
-static_assert(sizeof(stM576OneX64MemsSwCoef) == 2048u, "1x64 single switch bin");
-static_assert(M576_1X64_MEMS_FILE_PAYLOAD_BYTES == 8192u, "4*2048=8192");
+static_assert(sizeof(stM576OneX64MemsSwCoef) == 2208u, "1x64 single-switch file BUNDLEHEADER+body");
+static_assert(M576_1X64_MEMS_FILE_PAYLOAD_BYTES == 8832u, "4*2208=8832");
 
 BOOL CMems1x64LutBinWriter::WriteSingleSwitch(
 	const stM576OneX64MemsSwCoef& sw,
@@ -113,20 +129,57 @@ BOOL CMems1x64LutBinWriter::WriteSingleSwitch(
 	if (outPath == NULL || swIndex < 0 || swIndex > 3)
 		return FALSE;
 
+	SYSTEMTIME stUtc = {};
+	GetSystemTime(&stUtc);
+
+	CString snVer = bundleSnVer;
+	if (snVer.IsEmpty())
+		snVer = _T("SN000000");
+	CString tDot = bundleTime;
+	if (tDot.IsEmpty())
+		tDot.Format(_T("%04d.%02d.%02d.%02d.%02d"),
+			stUtc.wYear, stUtc.wMonth, stUtc.wDay, stUtc.wHour, stUtc.wMinute);
+
 	stM576OneX64MemsSwCoef blk = sw;
-	// 126S: BUNDLEHEADER[32..47] uses product SN (CreateSwitchPointBin: m_strSN in bBundleVersion field).
-	CString ver = bundleSnVer;
-	if (ver.IsEmpty())
-		ver = _T("SN000000");
-	CString t = bundleTime;
-	if (t.IsEmpty())
+
+	M576OneX64FillLegacy126sBundleHeader(blk, swIndex, snVer, tDot, stUtc);
+	M576OneX64FillBodyTailIdentity(blk, snVer, stUtc);
+
+	// CRC#1: body [160..2203] -> dwCRC32 LE @ offsetof(dwCRC32)
 	{
-		SYSTEMTIME st = {};
-		GetLocalTime(&st);
-		t.Format(_T("%04d.%02d.%02d.%02d.%02d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
+		const BYTE* p = reinterpret_cast<const BYTE*>(&blk);
+		COpCRC32 crc;
+		crc.InitCRC32();
+		DWORD v = 0;
+		for (size_t i = 160; i < 2204; ++i)
+			v = crc.GetThisCRC(p[i]);
+		v = ~v;
+		blk.dwCRC32 = (unsigned int)v;
 	}
-	M576OneX64FillLegacy126sBundleHeader(blk, swIndex, ver, t);
-	M576OneX64FillLutStyleBlockCrc(blk);
+
+	// CRC#2: body [160..2207] -> BUNDLEHEADER[148..151] BE32
+	{
+		const BYTE* p = reinterpret_cast<const BYTE*>(&blk);
+		COpCRC32 crc;
+		crc.InitCRC32();
+		DWORD v = 0;
+		for (size_t i = 160; i < 2208; ++i)
+			v = crc.GetThisCRC(p[i]);
+		v = ~v;
+		M576OneX64PutBe32(blk.BUNDLEHEADER + 148, v);
+	}
+
+	// CRC#3: BUNDLEHEADER [20..127] -> BUNDLEHEADER[16..19] BE32
+	{
+		const BYTE* p = reinterpret_cast<const BYTE*>(&blk);
+		COpCRC32 crc;
+		crc.InitCRC32();
+		DWORD v = 0;
+		for (size_t i = 20; i < 128; ++i)
+			v = crc.GetThisCRC(p[i]);
+		v = ~v;
+		M576OneX64PutBe32(blk.BUNDLEHEADER + 16, v);
+	}
 
 	FILE* fp = NULL;
 	if (_tfopen_s(&fp, outPath, _T("wb")) != 0 || fp == NULL)

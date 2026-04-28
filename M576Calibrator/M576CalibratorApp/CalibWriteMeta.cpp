@@ -27,8 +27,9 @@ static BOOL Mems1x64OffsetsIn8k(int block, int inBlk, SIZE_T& oX, SIZE_T& oY)
 {
 	if (block < 0 || block > 3 || inBlk < 0 || inBlk >= (int)M576_1X64_MAX_CHANNEL_NUM)
 		return FALSE;
-	SIZE_T base = (SIZE_T)block * 2048u
+	SIZE_T base = (SIZE_T)block * (SIZE_T)M576_1X64_MEMS_BODY_SIZE
 		+ offsetof(stM576OneX64MemsSwCoef, stCalibDAC[0])
+		- offsetof(stM576OneX64MemsSwCoef, bSWTypeChanNum)
 		+ offsetof(stM576OneX64ChnDAC, stChnDAC)
 		+ (SIZE_T)inBlk * sizeof(stM576OneX64AxisDAC);
 	oX = base;

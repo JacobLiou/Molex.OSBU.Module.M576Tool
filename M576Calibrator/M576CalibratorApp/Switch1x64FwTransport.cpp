@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstring>
 #include <cctype>
+#include <cstddef>
 #include <string>
 // 1x64 设备：MEM 十六进制行读 8KB 系数、XMODEM fwdl 烧回；与 MCS 0xC4 LUT 不同路径。
 
@@ -161,13 +162,15 @@ static int ParseMemHexLine(const char* s, int len, BYTE* out, int needBytes)
 	return needBytes;
 }
 
-static CString M5761x64ChunkHeadHex8(const BYTE* p)
+/// One MEM read returns `nBytes` (32) bytes; log as one continuous hex line (64 chars), same style as device echo.
+static CString M5761x64MemPayloadHexLine(const BYTE* p, int nBytes)
 {
-	if (!p)
+	if (!p || nBytes < 1)
 		return _T("?");
 	CString s;
-	for (int b = 0; b < 8; ++b)
-		s.AppendFormat(_T("%02X"), p[b]);
+	s.Preallocate(nBytes * 2 + 4);
+	for (int b = 0; b < nBytes; ++b)
+		s.AppendFormat(_T("%02X"), (unsigned)p[b]);
 	return s;
 }
 
@@ -282,30 +285,46 @@ int M5761x64XmodemChunkCountForFileSize(DWORD fileBytes)
 	return c;
 }
 
-BOOL M576Read1x64SnStringOnCurrentTunnel(
-	Z4671Command& cmd, DWORD memAddr, CString& outSn, CString& err)
+static void M5761x64AsciiFieldFromBytes(const BYTE* p, int n, CString& out)
 {
-	// 单步 MEM 32B + ParseMemHexLine，与同文件 8K 回读一致；地址见 M576_1X64_SN_MEM_ADDR。
+	out.Empty();
+	CStringA a;
+	for (int i = 0; i < n; ++i)
+	{
+		const unsigned char c = p[i];
+		if (c == 0)
+			break;
+		if (c < 0x20u || c > 0x7Eu)
+			break;
+		a += (char)c;
+	}
+	a.Trim();
+	out = CString(a);
+}
+
+BOOL M576Read1x64SnPnAllOnCurrentTunnel(
+	Z4671Command& cmd, CString outSn[4], CString outPn[4], CString& err)
+{
+	const DWORD memAddr = (DWORD)M576_1X64_SNPN_BASE_ADDR;
 	err.Empty();
-	outSn.Empty();
-	BYTE chunk[32];
+	for (int s = 0; s < 4; ++s)
+	{
+		outSn[s].Empty();
+		outPn[s].Empty();
+	}
+	BYTE chunk[64];
 	ZeroMemory(chunk, sizeof(chunk));
 	char readBuf[4096];
-	const int needPayload = 32;
+	const int needPayload = (int)M576_1X64_SNPN_BLOCK_BYTES;
 	BOOL gotPayload = FALSE;
-	for (int att = 0; !gotPayload && att <= 2; att++)
+	for (int attempt = 0; !gotPayload && attempt < 3; attempt++)
 	{
 		CStringA line;
-		if (att == 0)
-			line.Format("MEM %u\r", (unsigned)memAddr);
-		else if (att == 1)
-			line.Format("MEM 0x%X\r", (unsigned)memAddr);
-		else
-			line.Format("mem 0x%x\r", (unsigned)memAddr);
+		line.Format("mem %u\r", (unsigned)memAddr);
 		if (!cmd.WriteBuffer((char*)(LPCSTR)line, (DWORD)line.GetLength()))
 		{
-			err = _T("1x64 MEM (SN) TX failed.");
-			cmd.TraceError(_T("FW-1x64"), _T("MEM (SN) @0x%08X write failed"), (unsigned)memAddr);
+			err = _T("1x64 MEM (SN/PN) TX failed.");
+			cmd.TraceError(_T("FW-1x64"), _T("MEM (SN/PN) @%u write failed"), (unsigned)memAddr);
 			return FALSE;
 		}
 		Sleep((DWORD)M576_439F_POST_TRANS_MS);
@@ -322,277 +341,221 @@ BOOL M576Read1x64SnStringOnCurrentTunnel(
 	if (!gotPayload)
 	{
 		err.Format(
-			_T("1x64 MEM (SN) @0x%08X: no 32B from hex (tried MEM / MEM 0x / mem 0x)."),
-			(unsigned)memAddr);
+			_T("1x64 MEM (SN/PN) @%u: no %d B in MEM reply (decimal `mem` addr only)."),
+			(unsigned)memAddr,
+			needPayload);
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
-	CStringA a;
-	for (int i = 0; i < 32; i++)
+	for (int sw = 0; sw < M576_1X64_SNPN_SWITCHES; ++sw)
 	{
-		const unsigned char c = chunk[i];
-		if (c == 0)
-			break;
-		if (c < 0x20u || c > 0x7Eu)
-			break;
-		a += (char)c;
-	}
-	a.Trim();
-	outSn = CString(a);
-	if (outSn.IsEmpty())
-	{
-		cmd.TraceInfo(
-			_T("FW-1x64"),
-			_T("SN @0x%08X: empty after trim (unprogrammed or non-printable)"),
-			(unsigned)memAddr);
+		const BYTE* base = chunk + (size_t)sw * (size_t)M576_1X64_SNPN_STRIDE;
+		M5761x64AsciiFieldFromBytes(base + M576_1X64_SN_OFFSET_IN_SW, M576_1X64_SN_BYTES, outSn[sw]);
+		M5761x64AsciiFieldFromBytes(base + M576_1X64_PN_OFFSET_IN_SW, M576_1X64_PN_BYTES, outPn[sw]);
 	}
 	return TRUE;
 }
 
-// 已在 trans 隧道上：从 flashBase 起 MEM 拼满 8K，再写出四路 2K 文件 `M576TransBinPathForSwitch( base, transChannel, sw )`。
+// 已在 trans 隧道上：按 ADDR_SWITCH1..4_COEF 各读 2048 B body（64×32B），合成 BUNDLEHEADER 后写四路 2208 B 文件。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szOutPathBase, int transChannel, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal,
-	const CString& strBundleSn)
+	const CString swSn[4])
 {
 	err.Empty();
+	static const DWORD kSwBase[4] = {
+		(DWORD)ADDR_SWITCH1_COEF,
+		(DWORD)ADDR_SWITCH2_COEF,
+		(DWORD)ADDR_SWITCH3_COEF,
+		(DWORD)ADDR_SWITCH4_COEF,
+	};
+	if (flashBase != kSwBase[0])
 	{
-		const unsigned numBlocks2k = (unsigned)(M576_1X64_MEMS_BACKUP_TOTAL_SIZE / M576_1X64_MEMS_BIN_SIZE);
 		cmd.TraceInfo(
 			_T("FW-1x64"),
-			_T("Read 1x64 (MEM) start: trans=%d base=0x%08lX total=%u B (%u x %u B) -> 4x2K from %s"),
-			transChannel,
-			(unsigned long)flashBase,
-			(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE,
-			numBlocks2k,
-			(unsigned)M576_1X64_MEMS_BIN_SIZE,
-			szOutPathBase);
+			_T("Read 1x64 (MEM): flashBase_arg=%lu ignored (using ADDR_SWITCH1..4_COEF per switch)."),
+			(unsigned long)flashBase);
 	}
+	cmd.TraceInfo(
+		_T("FW-1x64"),
+		_T("Read 1x64 (MEM) start: trans=%d MEM body total=%u B (4 x %u B); file %u B/sw (160 hdr + body); out base=%s"),
+		transChannel,
+		(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE,
+		(unsigned)M576_1X64_MEMS_BODY_SIZE,
+		(unsigned)M576_1X64_MEMS_BIN_SIZE,
+		szOutPathBase);
 	const int steps = M5761x64MemReadStepCount();
-	if (steps < 1 || (size_t)steps * (size_t)M576_1X64_MEM_ADDR_STEP != (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
+	const int kStepsPerSw = (int)(M576_1X64_MEMS_BODY_SIZE / M576_1X64_MEM_ADDR_STEP);
+	if (steps < 1 || kStepsPerSw < 1 || kStepsPerSw * 4 != steps
+		|| (size_t)steps * (size_t)M576_1X64_MEM_ADDR_STEP != (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
 	{
 		err = _T("Invalid 1x64 MEM step/backup size configuration.");
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
-	const int kStepsPer2k = (int)(M576_1X64_MEMS_BIN_SIZE / M576_1X64_MEM_ADDR_STEP);
-	const int kNum2k = (int)(M576_1X64_MEMS_BACKUP_TOTAL_SIZE / M576_1X64_MEMS_BIN_SIZE);
 	cmd.TraceInfo(
 		_T("FW-1x64"),
-		_T("MEM schedule: %d read steps, addr +0x%X per step, %d x 2K block(s) in range."),
+		_T("MEM schedule: %d total steps (%d steps/sw x 4 sw), addr +%u B/step, %u B/`mem` payload."),
 		steps,
+		kStepsPerSw,
 		(unsigned)M576_1X64_MEM_ADDR_STEP,
-		kNum2k);
-	std::vector<BYTE> buf;
-	buf.resize((size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE);
+		(unsigned)M576_1X64_MEM_PAYLOAD_BYTES);
 	char readBuf[4096];
 	const int needPayload = (int)M576_1X64_MEM_PAYLOAD_BYTES;
-	/// 0..2 = MEM line style; locked after first success.
-	int memCmdAttempt = -1;
-	for (int i = 0; i < steps; i++)
+	BYTE chunk[(size_t)M576_1X64_MEM_PAYLOAD_BYTES];
+	const size_t kBodyOff = offsetof(stM576OneX64MemsSwCoef, bSWTypeChanNum);
+	static_assert(offsetof(stM576OneX64MemsSwCoef, bSWTypeChanNum) == 160u, "BUNDLEHEADER[160] then body");
+
+	BYTE bodyBuf[(size_t)M576_1X64_MEMS_BODY_SIZE];
+	for (int sw = 0; sw < 4; ++sw)
 	{
-		const DWORD addr = flashBase + (DWORD)i * (DWORD)M576_1X64_MEM_ADDR_STEP;
-		if (i % kStepsPer2k == 0)
+		ZeroMemory(bodyBuf, sizeof(bodyBuf));
+		cmd.TraceInfo(
+			_T("FW-1x64"),
+			_T("MEM switch %d/4: flash body base=%u (%u steps x %u B)"),
+			sw + 1,
+			(unsigned)kSwBase[sw],
+			kStepsPerSw,
+			(unsigned)M576_1X64_MEM_ADDR_STEP);
+
+		for (int s = 0; s < kStepsPerSw; ++s)
 		{
-			const int blockIdx = i / kStepsPer2k;
-			cmd.TraceInfo(
-				_T("FW-1x64"),
-				_T("MEM block %d/%d: from @0x%08X (step %d/%d)"),
-				blockIdx + 1,
-				kNum2k,
-				(unsigned)addr,
-				i + 1,
-				steps);
-		}
-		BYTE chunk[32];
-		int pr = 0;
-		int attUsed = -1;
-		BOOL stepOk = FALSE;
-		for (int memPass = 0; !stepOk && memPass < (int)M576_COMM_RETRY_MAX_ATTEMPTS; ++memPass)
-		{
-			if (memPass > 0)
+			const DWORD addr = kSwBase[sw] + (DWORD)s * (DWORD)M576_1X64_MEM_ADDR_STEP;
+			const int globalIdx = sw * kStepsPerSw + s;
+			int pr = 0;
+			BOOL stepOk = FALSE;
+			for (int memPass = 0; !stepOk && memPass < (int)M576_COMM_RETRY_MAX_ATTEMPTS; ++memPass)
 			{
-				cmd.TraceInfo(
-					_T("FW-1x64"),
-					_T("MEM @0x%08X retry pass %d/%d (Polly-style)"),
-					(unsigned)addr,
-					memPass + 1,
-					(int)M576_COMM_RETRY_MAX_ATTEMPTS);
-				Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
-			}
-			ZeroMemory(chunk, sizeof(chunk));
-			pr = 0;
-			DWORD dwr = 0;
-			CStringA line;
-			attUsed = -1;
-			int attLo = 0, attHi = 2;
-			if (i > 0 && memCmdAttempt >= 0)
-			{
-				attLo = attHi = memCmdAttempt;
-			}
-			for (int att = attLo; att <= attHi; att++)
-		{
-			if (att == 0)
-				line.Format("MEM %u\r", (unsigned)addr);
-			else if (att == 1)
-				line.Format("MEM 0x%X\r", (unsigned)addr);
-			else
-				line.Format("mem 0x%x\r", (unsigned)addr);
-			const bool logProbe = (i == 0 && attLo < attHi);
-			if (logProbe)
-			{
-				cmd.TraceInfo(
-					_T("FW-1x64"),
-					_T("MEM[probe step0] try format %d/3, TX (ASCII) -> %hs"),
-					att + 1,
-					(LPCSTR)line);
-			}
-			else
-			{
-				/// Log every 8th step, first 4 steps, and last (fine-grained + bounded volume).
+				if (memPass > 0)
+				{
+					cmd.TraceInfo(
+						_T("FW-1x64"),
+						_T("MEM @%u retry pass %d/%d (Polly-style)"),
+						(unsigned)addr,
+						memPass + 1,
+						(int)M576_COMM_RETRY_MAX_ATTEMPTS);
+					Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+				}
+				ZeroMemory(chunk, sizeof(BYTE) * (size_t)M576_1X64_MEM_PAYLOAD_BYTES);
+				pr = 0;
+				DWORD dwr = 0;
+				CStringA line;
+				line.Format("mem %u\r", (unsigned)addr);
 				const bool logThisStep =
-					(i < 4) || (i + 1 == steps) || ((i % 8) == 0) || (i > 0 && (i % kStepsPer2k) == 0);
+					(globalIdx < 4) || (globalIdx + 1 == steps) || ((globalIdx % 8) == 0) || (s == 0);
 				if (logThisStep)
 				{
 					cmd.TraceInfo(
 						_T("FW-1x64"),
-						_T("MEM step %d/%d @0x%08X TX -> %hs"),
-						i + 1,
+						_T("MEM step %d/%d sw%d @%u TX -> %hs"),
+						globalIdx + 1,
 						steps,
+						sw + 1,
 						(unsigned)addr,
 						(LPCSTR)line);
 				}
-			}
-			if (!cmd.WriteBuffer((char*)(LPCSTR)line, (DWORD)line.GetLength()))
-			{
-				err = _T("MEM write failed.");
-				cmd.TraceError(_T("FW-1x64"), _T("MEM @0x%08X failed: TX (serial write)"), (unsigned)addr);
-				return FALSE;
-			}
-			Sleep((DWORD)M576_439F_POST_TRANS_MS);
-			Sleep((DWORD)M576_1X64_MEM_AFTER_CMD_MS);
-			ZeroMemory(readBuf, sizeof(readBuf));
-			dwr = 0;
-			if (!MemDrainHexResponse(cmd, readBuf, sizeof(readBuf) - 1, &dwr, needPayload, (DWORD)M576_1X64_MEM_READ_MAX_MS) || dwr == 0)
-			{
-				if (i == 0 && att < attHi)
-					cmd.TraceInfo(
-						_T("FW-1x64"),
-						_T("MEM[probe] format %d: no RX or drain empty; next format..."),
-						att + 1);
-				if (att < attHi)
-					continue;
-				if (i > 0)
+				if (!cmd.WriteBuffer((char*)(LPCSTR)line, (DWORD)line.GetLength()))
 				{
-					err = _T("MEM read failed (empty/timeout).");
-					cmd.TraceError(_T("FW-1x64"), _T("MEM @0x%08X no full reply (locked format)"), (unsigned)addr);
+					err = _T("MEM write failed.");
+					cmd.TraceError(_T("FW-1x64"), _T("MEM @%u failed: TX (serial write)"), (unsigned)addr);
 					return FALSE;
 				}
-				err = _T("MEM read failed (empty/timeout) for all MEM line formats (dec, MEM 0x, mem 0x).");
-				cmd.TraceError(_T("FW-1x64"), _T("MEM @0x%08X no full reply (all attempts)"), (unsigned)addr);
+				Sleep((DWORD)M576_439F_POST_TRANS_MS);
+				Sleep((DWORD)M576_1X64_MEM_AFTER_CMD_MS);
+				ZeroMemory(readBuf, sizeof(readBuf));
+				dwr = 0;
+				if (!MemDrainHexResponse(cmd, readBuf, sizeof(readBuf) - 1, &dwr, needPayload, (DWORD)M576_1X64_MEM_READ_MAX_MS) || dwr == 0)
+				{
+					if (memPass + 1 < (int)M576_COMM_RETRY_MAX_ATTEMPTS)
+						continue;
+					err = _T("MEM read failed (empty/timeout) for decimal MEM line.");
+					cmd.TraceError(_T("FW-1x64"), _T("MEM @%u no full reply after %d pass(es)"), (unsigned)addr, (int)M576_COMM_RETRY_MAX_ATTEMPTS);
+					return FALSE;
+				}
+				readBuf[dwr] = 0;
+				const std::string rbs(readBuf, (size_t)dwr);
+				const unsigned nXd = MemCountHexInString(rbs);
+				pr = ParseMemHexLine(readBuf, (int)dwr, chunk, needPayload);
+				{
+					const bool logRx =
+						(globalIdx < 4) || (globalIdx + 1 == steps) || ((globalIdx % 8) == 0) || (s == 0);
+					if (logRx)
+					{
+						if (pr == needPayload)
+						{
+							const CString payloadHex = M5761x64MemPayloadHexLine(chunk, needPayload);
+							cmd.TraceInfo(
+								_T("FW-1x64"),
+								_T("MEM step %d/%d RX: ascii_len=%lu response_xdigits=%u payload_%dB_hex=%s"),
+								globalIdx + 1,
+								steps,
+								(unsigned long)dwr,
+								(unsigned)nXd,
+								needPayload,
+								payloadHex.GetString());
+						}
+						else
+						{
+							cmd.TraceInfo(
+								_T("FW-1x64"),
+								_T("MEM step %d/%d RX: ascii_len=%lu response_xdigits=%u bytes_parsed=%d (expect %d)"),
+								globalIdx + 1,
+								steps,
+								(unsigned long)dwr,
+								(unsigned)nXd,
+								pr,
+								needPayload);
+						}
+					}
+				}
+				if (pr == needPayload)
+					stepOk = TRUE;
+			}
+			if (!stepOk)
+			{
+				err.Format(
+					_T("MEM parse failed at %u (expected %d B payload) after %d pass(es)."),
+					(unsigned)addr,
+					needPayload,
+					(int)M576_COMM_RETRY_MAX_ATTEMPTS);
+				cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 				return FALSE;
 			}
-			readBuf[dwr] = 0;
-			const std::string rbs(readBuf, (size_t)dwr);
-			const unsigned nXd = MemCountHexInString(rbs);
-			pr = ParseMemHexLine(readBuf, (int)dwr, chunk, needPayload);
-			attUsed = att;
-			{
-				const bool logRx =
-					logProbe || (i < 4) || (i + 1 == steps) || ((i % 8) == 0) || (i > 0 && (i % kStepsPer2k) == 0);
-				if (logRx)
-				{
-					if (pr == needPayload)
-					{
-						const CString head8 = M5761x64ChunkHeadHex8(chunk);
-						cmd.TraceInfo(
-							_T("FW-1x64"),
-							_T("MEM step %d/%d RX: ascii_len=%lu hex_chars=%u parse32=OK  head8=%s"),
-							i + 1,
-							steps,
-							(unsigned long)dwr,
-							(unsigned)nXd,
-							head8.GetString());
-					}
-					else
-					{
-						cmd.TraceInfo(
-							_T("FW-1x64"),
-							_T("MEM step %d/%d RX: ascii_len=%lu hex_chars=%u parse32=%d (expect %d)"),
-							i + 1,
-							steps,
-							(unsigned long)dwr,
-							(unsigned)nXd,
-							pr,
-							needPayload);
-					}
-				}
-			}
-			if (pr == needPayload)
-			{
-				if (i == 0)
-				{
-					memCmdAttempt = att;
-					LPCTSTR fmtName = _T("MEM");
-					if (att == 0) fmtName = _T("MEM <decimal> <CR>");
-					else if (att == 1) fmtName = _T("MEM 0x<hex> <CR>");
-					else if (att == 2) fmtName = _T("mem 0x<hex> <CR>");
-					cmd.TraceInfo(
-						_T("FW-1x64"),
-						_T("MEM line style locked: %s (use for next %d steps)."),
-						fmtName,
-						steps - 1);
-				}
-				break;
-			}
-			if (i == 0 && att < attHi)
-				cmd.TraceInfo(
-					_T("FW-1x64"),
-					_T("MEM[probe] format %d: parse not 32B; try next..."),
-					att + 1);
+			memcpy(bodyBuf + (size_t)s * (size_t)M576_1X64_MEM_ADDR_STEP, chunk, (size_t)needPayload);
+			if (cb)
+				cb(progressBase + globalIdx + 1, progressTotal, user);
 		}
-			if (pr == needPayload)
-				stepOk = TRUE;
-		}
-		if (!stepOk)
+
+		stM576OneX64MemsSwCoef one;
+		ZeroMemory(&one, sizeof(one));
+		memcpy(reinterpret_cast<BYTE*>(&one) + kBodyOff, bodyBuf, sizeof(bodyBuf));
+
+		const CString outOne = M576TransBinPathForSwitch(szOutPathBase, transChannel, sw);
+		const CString& snOne = swSn[sw];
+		if (!CMems1x64LutBinWriter::WriteSingleSwitch(one, sw, outOne, snOne, CString()))
 		{
-			err.Format(
-				_T("MEM parse failed at 0x%08X (tried att %d, expected %d payload bytes from hex) after %d pass(es)."),
-				(unsigned)addr,
-				attUsed,
-				needPayload,
-				(int)M576_COMM_RETRY_MAX_ATTEMPTS);
+			err.Format(_T("CMems1x64LutBinWriter::WriteSingleSwitch failed (sw %d): %s"), sw + 1, outOne.GetString());
 			cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 			return FALSE;
 		}
-		memcpy(&buf[(size_t)i * (size_t)M576_1X64_MEM_ADDR_STEP], chunk, (size_t)needPayload);
-		if (cb)
-			cb(progressBase + i + 1, progressTotal, user);
-	}
-	stM576OneX64MemsSwCoef sw4[4];
-	if (buf.size() < (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE)
-	{
-		err = _T("1x64 MEM buffer size mismatch.");
-		return FALSE;
-	}
-	memcpy(sw4, buf.data(), (size_t)M576_1X64_MEMS_BACKUP_TOTAL_SIZE);
-	for (int sw = 0; sw < 4; ++sw)
-	{
-		const CString outOne = M576TransBinPathForSwitch(szOutPathBase, transChannel, sw);
-		if (!CMems1x64LutBinWriter::WriteSingleSwitch(sw4[sw], sw, outOne, strBundleSn, CString()))
-		{
-			err = _T("CMems1x64LutBinWriter::WriteSingleSwitch after MEM read failed.");
-			cmd.TraceError(_T("FW-1x64"), _T("%s (path: %s)"), err.GetString(), outOne.GetString());
-			return FALSE;
-		}
+		cmd.TraceInfo(
+			_T("FW-1x64"),
+			_T("1x64 sw%d: read %u B body @%u, wrote %u B -> %s"),
+			sw + 1,
+			(unsigned)M576_1X64_MEMS_BODY_SIZE,
+			(unsigned)kSwBase[sw],
+			(unsigned)M576_1X64_MEMS_BIN_SIZE,
+			outOne.GetString());
 	}
 	cmd.TraceInfo(
 		_T("FW-1x64"),
-		_T("Read 1x64 (MEM) done: wrote 4x2K to trans=%d (base: %s)"),
-		transChannel, szOutPathBase);
+		_T("Read 1x64 (MEM) done: wrote 4 x %u B files to trans=%d (base: %s)"),
+		(unsigned)M576_1X64_MEMS_BIN_SIZE,
+		transChannel,
+		szOutPathBase);
 	return TRUE;
 }
 
-// 发 fwdl 后按 XMODEM 将**单个 2K** Mems 系数烧入当前 1x64 隧道（多路烧录在 McsFwUploadBinEx 中连发）。
+// 发 fwdl 后按 XMODEM 将**单个 2208 B** Mems 系数文件烧入当前 1x64 隧道（多路烧录在 McsFwUploadBinEx 中连发）。
 BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal, BOOL bSendRset)
 {
@@ -622,7 +585,7 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 	{
 		CloseHandle(hBin);
 		err.Format(
-			_T("1x64 XMODEM expects exactly %u B (one 2K stMemsSwCoef); file has %lu B."),
+			_T("1x64 XMODEM expects exactly %u B (one stMemsSwCoef file); file has %lu B."),
 			(unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)dwFile);
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;

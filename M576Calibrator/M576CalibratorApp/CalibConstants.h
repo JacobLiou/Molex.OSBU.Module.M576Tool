@@ -156,12 +156,16 @@
 #define M576_439F_POST_TRANS_MS 50
 #endif
 
-/// 1x64 MemsSw: one switch coef block = 2K = 0x800 B (CRC@+0x7FC in block); not MCS `stLutSettingZ4671`.
-// 1x64 侧单路 Mems 系数块 2KB（含块尾 CRC），与 MCS 0xC4 读写的 LUT 结构体不同。
+/// 1x64 MemsSw: per-switch **file** size = BUNDLEHEADER[160] + flash body[2048] = 2208 B (`dwBundleSize` 0x8A0); not MCS `stLutSettingZ4671`.
+// 1x64 侧单路 bin 文件 2208 B；Flash 槽位仅 body 2048 B（步进 0x800）。
 #ifndef M576_1X64_MEMS_BIN_SIZE
-#define M576_1X64_MEMS_BIN_SIZE 2048u
+#define M576_1X64_MEMS_BIN_SIZE 2208u
 #endif
-/// 14538: four switch coefficient regions per 1x64; contiguous 4×2K = 8KB from `ADDR_SWITCH1_COEF`.
+/// Flash body only (no BUNDLEHEADER): one switch slot = 2048 B = 0x800 B.
+#ifndef M576_1X64_MEMS_BODY_SIZE
+#define M576_1X64_MEMS_BODY_SIZE 2048u
+#endif
+/// 14538: four switch coefficient regions per 1x64; contiguous MEM read 4×2048 = 8192 B from `ADDR_SWITCH1_COEF`..`ADDR_SWITCH4_COEF`.
 // 每片 1x64 四路开关系数在 Flash 上的起址步进（0x0E000 起每路 0x800）。
 #ifndef ADDR_SWITCH1_COEF
 #define ADDR_SWITCH1_COEF 0x0E000u
@@ -175,10 +179,10 @@
 #ifndef ADDR_SWITCH4_COEF
 #define ADDR_SWITCH4_COEF 0x0F800u
 #endif
-/// Full `MEM` read for one 1x64: 4 × 2K = 8KB from `M576_1X64_FLASH_BASE_TRANS*`. XMODEM burn sends up to this size.
-// 单次备份一片 1x64：4×2K 共 8KB；XMODEM 烧录时对应最大长度亦为此。
+/// Full `MEM` read for one 1x64: 4 × body[2048] = 8192 B (not 4×2208). XMODEM burn sends per-switch **file** `M576_1X64_MEMS_BIN_SIZE` (2208 B).
+// 单次 MEM 备份一片 1x64：4×2048 B body；写盘每路 2208 B（含合成 BUNDLEHEADER）。
 #ifndef M576_1X64_MEMS_BACKUP_TOTAL_SIZE
-#define M576_1X64_MEMS_BACKUP_TOTAL_SIZE (4u * M576_1X64_MEMS_BIN_SIZE)
+#define M576_1X64_MEMS_BACKUP_TOTAL_SIZE (4u * M576_1X64_MEMS_BODY_SIZE)
 #endif
 /// `MEM` read: address step and payload bytes per response (32 B from 64 hex chars; 64 steps * 32 = 2048 B).
 // MEM 回读：地址步进与每回应负载字节数（与十六进制行格式配套）。
@@ -203,10 +207,34 @@
 #ifndef M576_1X64_MEM_AFTER_CMD_MS
 #define M576_1X64_MEM_AFTER_CMD_MS 120u
 #endif
-/// 1x64: SN string stored in flash; read via one `MEM` line at this address, 32 B payload, interpret as printable ASCII.
-// 1x64 序列号区：与 MCS `GetProductSN`（0xA2）不同，走 MEM 十六进制行读 32 字节再当字符串用。
+/// 1x64: SN/PN per switch at flash base (MEM 64B: 4×(8B SN + 8B PN), stride 16B). Legacy name = base of sw0 SN.
+// 1x64：每开关 8B SN + 8B PN，自 0xD800 起每 16B 一段，共 64B 一次 MEM；M576_1X64_SN_MEM_ADDR 与首段 SN 起始相同。
 #ifndef M576_1X64_SN_MEM_ADDR
 #define M576_1X64_SN_MEM_ADDR 0x0000D800u
+#endif
+#ifndef M576_1X64_SNPN_BASE_ADDR
+#define M576_1X64_SNPN_BASE_ADDR M576_1X64_SN_MEM_ADDR
+#endif
+#ifndef M576_1X64_SNPN_STRIDE
+#define M576_1X64_SNPN_STRIDE 0x10u
+#endif
+#ifndef M576_1X64_SN_OFFSET_IN_SW
+#define M576_1X64_SN_OFFSET_IN_SW 0x00u
+#endif
+#ifndef M576_1X64_PN_OFFSET_IN_SW
+#define M576_1X64_PN_OFFSET_IN_SW 0x08u
+#endif
+#ifndef M576_1X64_SN_BYTES
+#define M576_1X64_SN_BYTES 8
+#endif
+#ifndef M576_1X64_PN_BYTES
+#define M576_1X64_PN_BYTES 8
+#endif
+#ifndef M576_1X64_SNPN_SWITCHES
+#define M576_1X64_SNPN_SWITCHES 4
+#endif
+#ifndef M576_1X64_SNPN_BLOCK_BYTES
+#define M576_1X64_SNPN_BLOCK_BYTES ((M576_1X64_SNPN_SWITCHES) * (M576_1X64_SNPN_STRIDE))
 #endif
 /// Per-tunnel 1x64 local flash: read starts at first switch block (0x0E000..0x0F800 = 4×2K). trans3/trans4 are different devices via 439F `trans`.
 // 经 439F 不同 trans 隧道连到不同 1x64 设备时，其本地 Flash 读起址（与 ADDR_SWITCH* 区一致）。

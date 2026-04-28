@@ -290,7 +290,7 @@ BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
 
 // 按 g_m576FlashReadTransChannels 逐路 trans：MCS 用 0xC4+ReadLutBundle，1x64 用 MEM 8KB（见 Switch1x64）。
 BOOL McsReadLutBundleFromDevice(
-	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const CString snTrans[4])
+	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const M576TransSnPnInfo& snInfo)
 {
 	err.Empty();
 	if (g_m576FlashReadTransChannelCount == 0)
@@ -332,7 +332,7 @@ BOOL McsReadLutBundleFromDevice(
 		if (IsMcsTransChannel(ch))
 		{
 			if (!ReadLutBundleOnCurrentTunnel(
-					cmd, path, err, cb, user, progressBase, progressTotal, snTrans[ch - 1]))
+					cmd, path, err, cb, user, progressBase, progressTotal, snInfo.mcsSn[ch - 1]))
 			{
 				err.Format(_T("trans %d: %s"), ch, err.GetString());
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
@@ -349,8 +349,9 @@ BOOL McsReadLutBundleFromDevice(
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
 				return FALSE;
 			}
+			const int devIdx = (ch == 3) ? 0 : 1;
 			if (!M576Read1x64MemsBinOnCurrentTunnel(
-					cmd, szOutPathBase, ch, x64Base, err, cb, user, progressBase, progressTotal, snTrans[ch - 1]))
+					cmd, szOutPathBase, ch, x64Base, err, cb, user, progressBase, progressTotal, snInfo.oneX64Sn[devIdx]))
 			{
 				err.Format(_T("trans %d: %s"), ch, err.GetString());
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
@@ -522,14 +523,26 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	return TRUE;
 }
 
-BOOL McsReadAllTransProductSn(Z4671Command& cmd, CString snOut4[4], CString& err)
+BOOL McsReadAllTransProductSnPn(Z4671Command& cmd, M576TransSnPnInfo& out, CString& err)
 {
 	err.Empty();
+	for (int m = 0; m < 2; ++m)
+	{
+		out.mcsSn[m].Empty();
+		out.mcsPn[m].Empty();
+	}
+	for (int d = 0; d < 2; ++d)
+	{
+		for (int s = 0; s < 4; ++s)
+		{
+			out.oneX64Sn[d][s].Empty();
+			out.oneX64Pn[d][s].Empty();
+		}
+	}
 	CString discard;
 	(void)Board439fTransTunnel::EndTrans(cmd, discard);
 	for (int ti = 0; ti < 4; ++ti)
 	{
-		snOut4[ti].Empty();
 		const int tch = ti + 1;
 		if (!Board439fTransTunnel::BeginTrans(cmd, tch, err))
 		{
@@ -540,36 +553,72 @@ BOOL McsReadAllTransProductSn(Z4671Command& cmd, CString snOut4[4], CString& err
 		BOOL stepOk = FALSE;
 		if (tch == 1 || tch == 2)
 		{
-			char pch[80];
-			ZeroMemory(pch, sizeof(pch));
-			if (cmd.GetProductSN(pch))
+			char snBuf[80];
+			char pnBuf[80];
+			ZeroMemory(snBuf, sizeof(snBuf));
+			ZeroMemory(pnBuf, sizeof(pnBuf));
+			if (!cmd.GetProductSN(snBuf))
+				err = cmd.m_strLogInfo.IsEmpty() ? _T("MCS GetProductSN (0xA2) failed.") : cmd.m_strLogInfo;
+			else
 			{
-				snOut4[ti] = pch;
+				out.mcsSn[tch - 1] = snBuf;
+				if (cmd.GetProductPN(pnBuf))
+					out.mcsPn[tch - 1] = pnBuf;
+				else
+				{
+					out.mcsPn[tch - 1].Empty();
+					cmd.TraceInfo(
+						_T("SN"),
+						_T("trans %d: GetProductPN (0xA5) failed, PN left empty (%s)."),
+						tch,
+						cmd.m_strLogInfo.GetString());
+				}
 				stepOk = TRUE;
 			}
-			else
-				err = cmd.m_strLogInfo.IsEmpty() ? _T("MCS GetProductSN (0xA2) failed.") : cmd.m_strLogInfo;
 		}
 		else
 		{
+			const int dev = (tch == 3) ? 0 : 1;
 			CString e1;
-			if (M576Read1x64SnStringOnCurrentTunnel(cmd, (DWORD)M576_1X64_SN_MEM_ADDR, snOut4[ti], e1))
+			if (M576Read1x64SnPnAllOnCurrentTunnel(cmd, out.oneX64Sn[dev], out.oneX64Pn[dev], e1))
 				stepOk = TRUE;
 			else
 				err = e1;
 		}
 		if (!Board439fTransTunnel::EndTrans(cmd, discard))
 		{
-			err = _T("439F $$ at end of trans SN read failed.");
+			err = _T("439F $$ at end of trans SN/PN read failed.");
 			return FALSE;
 		}
 		if (!stepOk)
 		{
 			if (err.IsEmpty())
-				err.Format(_T("trans %d: read SN failed."), tch);
+				err.Format(_T("trans %d: read SN/PN failed."), tch);
 			return FALSE;
 		}
-		cmd.TraceInfo(_T("SN"), _T("trans %d -> %s"), tch, snOut4[ti].GetString());
+		if (tch == 1 || tch == 2)
+		{
+			cmd.TraceInfo(
+				_T("SN"),
+				_T("trans %d SN=%s PN=%s"),
+				tch,
+				out.mcsSn[tch - 1].GetString(),
+				out.mcsPn[tch - 1].GetString());
+		}
+		else
+		{
+			const int dev = (tch == 3) ? 0 : 1;
+			for (int sw = 0; sw < 4; ++sw)
+			{
+				cmd.TraceInfo(
+					_T("SN"),
+					_T("trans %d sw%d SN=%s PN=%s"),
+					tch,
+					sw + 1,
+					out.oneX64Sn[dev][sw].GetString(),
+					out.oneX64Pn[dev][sw].GetString());
+			}
+		}
 	}
 	return TRUE;
 }

@@ -44,9 +44,8 @@ private:
 	CString m_strCsvPd[4];
 	CString m_strBackupBin;
 	CString m_strOutBin;
-	/// Per trans 1~4 bundle header `pBundleSN` when writing MCS/1x64 bins (not 439F main board).
-	// 与 g_m576TransLutBinSuffix 顺序一致：MCS1,MCS2,1x64#1,1x64#2。
-	CString m_strSnTrans[4];
+	/// MCS trans1–2 SN+PN；1x64 trans3–4 每片四开关 SN+PN（写 bin 头 / 读备份用）。
+	M576TransSnPnInfo m_snInfo;
 	CString m_strCommLogPath;
 
 	/// One port: 439F board (RECAL ASCII + MCS LUT transport via trans/$$).
@@ -85,7 +84,7 @@ private:
 	CString m_readBackupLastMsg;
 	BOOL m_readSnLastOk;
 	CString m_readSnLastMsg;
-	CString m_readSnLastValues[4];
+	M576TransSnPnInfo m_readSnLastValues;
 	BOOL m_burnFlashLastOk;
 	CString m_burnFlashLastMsg;
 
