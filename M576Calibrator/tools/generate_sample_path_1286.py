@@ -91,13 +91,10 @@ def main():
         c1, c2, c3, c4 = to_recal1_four(p8)
         rows.append(",".join(str(x) for x in (2, c1, c2, c3, c4)))
 
-    # 576 — 1# MCS: 32 x 18
+    # 576 — 1# MCS (target 3): FW — ch1=sw 1..32, ch2/ch3 paired 1..18, ch4=ch1+32
     for sw in range(1, 33):
         for ch in range(1, 19):
-            row = path_mcs_grid(3, sw, ch)
-            tgt = row[0]
-            c1, c2, c3, c4 = to_recal1_four(row[1:9])
-            rows.append(",".join(str(x) for x in (tgt, c1, c2, c3, c4)))
+            rows.append(",".join(str(x) for x in (3, sw, ch, ch, sw + 32)))
 
     # 576 — 2# MCS: 32 x 18
     for sw in range(1, 33):

@@ -131,14 +131,22 @@ static int AxisPointCount(int dacRange, int dacStep)
 	return RecalSweepPowerSampleCount(dacRange, dacStep);
 }
 
+/// Same linear grid as `PeakGridToDacWord` / RECAL base math: DAC at peak index along moving axis = col0 + idx * step.
+static double SweepCol0PlusPeakOffsetDac(double sweepLineCol0, int peakIndex, int sampleCount, int halfRange)
+{
+	if (sampleCount <= 1)
+		return sweepLineCol0;
+	const double step = (2.0 * halfRange) / (double)(sampleCount - 1);
+	return sweepLineCol0 + (double)peakIndex * step;
+}
+
 /// After `RECAL 3 0` / `RECAL 5 0` with Base=9999, firmware returns the **first sweep cell** in col0; the moving-axis
 /// DAC at peak = col0 + peakIndex * (2*halfRange/(n-1)) — *not* `M576_PEAK_GRID_DAC_BASE` ± range (avoids 2048 vs 2289).
 static int RecalDacAtPeakIndexFromSweepCol0(int peakIndex, int sampleCount, int halfRange, double sweepLineCol0)
 {
 	if (sampleCount <= 1)
 		return M576_RECAL_FW_READ_BASE_DAC;
-	const double step = (2.0 * halfRange) / (double)(sampleCount - 1);
-	const double y = sweepLineCol0 + (double)peakIndex * step;
+	const double y = SweepCol0PlusPeakOffsetDac(sweepLineCol0, peakIndex, sampleCount, halfRange);
 	int iy = (int)floor(y + 0.5);
 	if (iy < 0)
 		iy = 0;
@@ -1654,16 +1662,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		{
 			CString msg;
 			msg.Format(
-				_T("  RECAL 3 1 -> %d power samples, sweep col0=%.4g (first X cell; grid anchor for column index)"),
+				_T("  RECAL 3 1 -> %d power samples, sweep col0=%.4g (first X cell; peak X DAC uses col0+col*step after cross-peak)"),
 				(int)powX.size(),
-				sweep1LineCol0);
-			SafeAppendLog(msg);
-		}
-		{
-			CString msg;
-			msg.Format(
-				_T("  -> line anchors: Y-start=%.4g (RECAL 3 0 col0), X-start=%.4g (RECAL 3 1 col0); cross-peak uses row/col on these anchors"),
-				xFixedDac,
 				sweep1LineCol0);
 			SafeAppendLog(msg);
 		}
@@ -1687,13 +1687,23 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		}
 		else
 		{
-			CString msg;
-			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 3 0 / 3 1)"), br, bc);
-			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
-			// X/Y grid: raw sweep line col0 as signed anchor, then + index*step (see PeakGridToDacWord 12b ring).
 			const double yGridA = xFixedDac;
 			const double xGridA = sweep1LineCol0;
+			const double rawDacXAtPeak = SweepCol0PlusPeakOffsetDac(xFixedDac, br, nLut, m_dacRange);
+			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, bc, nLut, m_dacRange);
+			{
+				CString msg;
+				msg.Format(
+					_T("  -> peak row=%d col=%d; linear DAC at cross-peak: Y=%.4g (RECAL3 0 col0 + %d*step), X=%.4g (RECAL3 1 col0 + %d*step)"),
+					br,
+					bc,
+					rawDacXAtPeak,
+					br,
+					rawDacYAtPeak,
+					bc);
+				SafeAppendLog(msg);
+			}
 			SDacU16 dacU;
 			PeakGridToDacWord(br, bc, nLut, m_dacRange, yGridA, xGridA, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
@@ -1701,7 +1711,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPmLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, yGridA, xGridA, dacU, srow))
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeak, rawDacYAtPeak, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 			else
@@ -1709,7 +1719,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 				ApplyRecalPeakToMems1x64(
 					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPmMems(st, fileSlot, i + 1, br, bc, nLut, yGridA, xGridA, dacU, srow))
+				if (CalibBuildStatRowPmMems(
+						st, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeak, rawDacYAtPeak, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 		}
@@ -1928,7 +1939,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		{
 			CString msg;
 			msg.Format(
-				_T("  RECAL 5 1 -> %d samples, sweep col0=%.4g (first X cell)"),
+				_T("  RECAL 5 1 -> %d samples, sweep col0=%.4g (first X cell; peak X uses col0+col*step)"),
 				(int)powX.size(),
 				sweep1LineCol0Pd);
 			SafeAppendLog(msg);
@@ -1953,12 +1964,23 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		}
 		else
 		{
-			CString msg;
-			msg.Format(_T("  -> peak row=%d col=%d (0-based, RECAL 5 0 / 5 1)"), br, bc);
-			SafeAppendLog(msg);
 			const int nLut = (int)powY.size();
 			const double yGridAPd = xFixedDacPd;
 			const double xGridAPd = sweep1LineCol0Pd;
+			const double rawDacXAtPeakPd = SweepCol0PlusPeakOffsetDac(xFixedDacPd, br, nLut, m_dacRange);
+			const double rawDacYAtPeakPd = SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, bc, nLut, m_dacRange);
+			{
+				CString msg;
+				msg.Format(
+					_T("  -> peak row=%d col=%d; linear DAC at cross-peak: Y=%.4g (RECAL5 0 col0 + %d*step), X=%.4g (RECAL5 1 col0 + %d*step)"),
+					br,
+					bc,
+					rawDacXAtPeakPd,
+					br,
+					rawDacYAtPeakPd,
+					bc);
+				SafeAppendLog(msg);
+			}
 			SDacU16 dacU;
 			PeakGridToDacWord(br, bc, nLut, m_dacRange, yGridAPd, xGridAPd, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
@@ -1966,7 +1988,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPdLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, yGridAPd, xGridAPd, dacU, srow))
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeakPd, rawDacYAtPeakPd, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 			else
@@ -1974,7 +1996,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				ApplyRecalPeakToMems1x64Pd(
 					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPdMems(st, fileSlot, i + 1, br, bc, nLut, yGridAPd, xGridAPd, dacU, srow))
+				if (CalibBuildStatRowPdMems(
+						st, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeakPd, rawDacYAtPeakPd, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 		}

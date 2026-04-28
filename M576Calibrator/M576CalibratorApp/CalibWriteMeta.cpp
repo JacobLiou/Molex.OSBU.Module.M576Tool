@@ -295,7 +295,7 @@ BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRo
 		= "# MCS: WORD wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0/1] in stLutSettingZ4671. "
 		  "1x64: SHORT stM576OneX64AxisDAC (firmware stAxisDAC) in 8K. "
 		  "MCS off_trans = LutPayloadOffset + off_in_struct. "
-		  "raw_dac_x/raw_dac_y: RECAL 3/5 sweep line col0 (axis0) and col0 (axis1), cross-peak anchor pair (X,Y) before 12b grid->BIN map.";
+		  "raw_dac_x/raw_dac_y: linear DAC at cross-peak = col0 + peakIndex*step per axis (not raw line col0 only), before 12b grid->BIN map.";
 	writeA(legend);
 	const char* hdr = "cal_mode,trans_slot,path_line,primary_cmd,target,peak_r,peak_c,gridN,store_type,"
 		"raw_dac_x,raw_dac_y,dac_x_in_bin,dac_y_in_bin,struct_path_dacX,struct_path_dacY,"

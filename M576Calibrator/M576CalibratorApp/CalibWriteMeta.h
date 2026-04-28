@@ -19,7 +19,7 @@ struct SCalibrationStatRow
 	int peakCol{ 0 };
 	int gridN{ 0 };
 	CString storeType; // WORD (MCS) or SHORT (1x64 stAxisDAC in bin)
-	/// Sweep line col0 anchors before grid->BIN mapping: RECAL 3/5 axis0 then axis1 (same as PeakGridToDacWord yGrid/xGrid inputs), e.g. (2325,-2928).
+	/// Linear DAC at cross-peak (before 12b ring): RECAL3/5 axis0 col0 + row*step, axis1 col0 + col*step (same grid as PeakGridToDacWord).
 	double rawDacX{ 0.0 };
 	double rawDacY{ 0.0 };
 	int dacX{ 0 };
