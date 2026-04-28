@@ -47,6 +47,8 @@ BOOL CalibBuildStatRowPmLut(
 	int peakRow,
 	int peakCol,
 	int gridN,
+	double rawDacX,
+	double rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -64,6 +66,8 @@ BOOL CalibBuildStatRowPmLut(
 	row.peakCol = peakCol;
 	row.gridN = gridN;
 	row.storeType = _T("WORD");
+	row.rawDacX = rawDacX;
+	row.rawDacY = rawDacY;
 	row.dacX = (int)dac.uX;
 	row.dacY = (int)dac.uY;
 	const SIZE_T poff = (SIZE_T)CLutBinWriter::LutPayloadOffset();
@@ -137,6 +141,8 @@ BOOL CalibBuildStatRowPmMems(
 	int peakRow,
 	int peakCol,
 	int gridN,
+	double rawDacX,
+	double rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -156,6 +162,8 @@ BOOL CalibBuildStatRowPmMems(
 	row.peakCol = peakCol;
 	row.gridN = gridN;
 	row.storeType = _T("SHORT");
+	row.rawDacX = rawDacX;
+	row.rawDacY = rawDacY;
 	row.dacX = (int)U16ToShortDac(dac.uX);
 	row.dacY = (int)U16ToShortDac(dac.uY);
 
@@ -198,6 +206,8 @@ BOOL CalibBuildStatRowPdLut(
 	int peakRow,
 	int peakCol,
 	int gridN,
+	double rawDacX,
+	double rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -208,7 +218,7 @@ BOOL CalibBuildStatRowPdLut(
 	if (t == 1 || t == 2)
 		pm.c1 = step.ch1;
 	if (!CalibBuildStatRowPmLut(
-			pm, occT3, occT4, fileSlot, pathLine1Based, peakRow, peakCol, gridN, dac, row))
+			pm, occT3, occT4, fileSlot, pathLine1Based, peakRow, peakCol, gridN, rawDacX, rawDacY, dac, row))
 		return FALSE;
 	row.calMode = _T("PD");
 	CStringA a;
@@ -224,6 +234,8 @@ BOOL CalibBuildStatRowPdMems(
 	int peakRow,
 	int peakCol,
 	int gridN,
+	double rawDacX,
+	double rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -232,7 +244,7 @@ BOOL CalibBuildStatRowPdMems(
 	s.targetSwitchIndex = step.targetSwitchIndex;
 	s.c1 = step.ch1;
 	if (!CalibBuildStatRowPmMems(
-			s, fileSlot, pathLine1Based, peakRow, peakCol, gridN, dac, row))
+			s, fileSlot, pathLine1Based, peakRow, peakCol, gridN, rawDacX, rawDacY, dac, row))
 		return FALSE;
 	row.calMode = _T("PD");
 	CStringA a;
@@ -282,10 +294,11 @@ BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRo
 	const char* legend
 		= "# MCS: WORD wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0/1] in stLutSettingZ4671. "
 		  "1x64: SHORT stM576OneX64AxisDAC (firmware stAxisDAC) in 8K. "
-		  "MCS off_trans = LutPayloadOffset + off_in_struct.";
+		  "MCS off_trans = LutPayloadOffset + off_in_struct. "
+		  "raw_dac_x/raw_dac_y: RECAL 3/5 sweep line col0 (axis0) and col0 (axis1), cross-peak anchor pair (X,Y) before 12b grid->BIN map.";
 	writeA(legend);
 	const char* hdr = "cal_mode,trans_slot,path_line,primary_cmd,target,peak_r,peak_c,gridN,store_type,"
-		"dac_x_in_bin,dac_y_in_bin,struct_path_dacX,struct_path_dacY,"
+		"raw_dac_x,raw_dac_y,dac_x_in_bin,dac_y_in_bin,struct_path_dacX,struct_path_dacY,"
 		"off_lut_or_mem8k_dacX,off_lut_or_mem8k_dacY,off_trans_bin_dacX,off_trans_bin_dacY";
 	writeA(hdr);
 
@@ -330,6 +343,18 @@ BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRo
 		}
 		line += ',';
 		AppendCsvField(line, r.storeType);
+		line += ',';
+		{
+			CStringA t;
+			t.Format("%.15g", r.rawDacX);
+			line += t;
+		}
+		line += ',';
+		{
+			CStringA t;
+			t.Format("%.15g", r.rawDacY);
+			line += t;
+		}
 		line += ',';
 		{
 			CStringA t;

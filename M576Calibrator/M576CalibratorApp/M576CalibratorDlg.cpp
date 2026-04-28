@@ -97,14 +97,16 @@ constexpr UINT WM_M576_READ_BACKUP_FINISHED = WM_APP + 104;
 constexpr UINT WM_M576_READ_SN_FINISHED = WM_APP + 105;
 constexpr UINT WM_M576_BURN_FLASH_FINISHED = WM_APP + 106;
 
-/// RECAL 3/5 一行：`[轴上 DAC 或首列][P1..Pn]`。功率个数 N = ceil((2*range)/step)，与固件一致（例 range=64 step=5 → N=26，整行 1+26=27 个数）。
+/// RECAL 3/5 一行：`[轴上 DAC 或首列][P1..Pn]`。沿动轴在 [-range,+range] 上含端点步进时，功率点数
+/// N = floor((2*range)/step)+1 = (2*range)/step+1（整型除法），与固件一致（例 range=64 step=4 -> N=33；step=5 -> N=26；整行 1+N 个数）。旧式 ceil(2*range/step) 在 2*range 整除 step 时会少 1 点。
 static int RecalSweepPowerSampleCount(int dacRange, int dacStep)
 {
 	if (dacStep < 1)
 		dacStep = 1;
 	if (dacRange < 1)
 		dacRange = 1;
-	const int n = (2 * dacRange + dacStep - 1) / dacStep;
+	const int twoR = 2 * dacRange;
+	const int n = twoR / dacStep + 1;
 	return (n < 1) ? 1 : n;
 }
 
@@ -1660,7 +1662,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		{
 			CString msg;
 			msg.Format(
-				_T("  -> line anchors: Y-start=%.4g (RECAL 3 0 col0), X-start=%.4g (RECAL 3 1 col0) — cross-peak maps row/col on these"),
+				_T("  -> line anchors: Y-start=%.4g (RECAL 3 0 col0), X-start=%.4g (RECAL 3 1 col0); cross-peak uses row/col on these anchors"),
 				xFixedDac,
 				sweep1LineCol0);
 			SafeAppendLog(msg);
@@ -1699,7 +1701,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPmLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, yGridA, xGridA, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 			else
@@ -1707,7 +1709,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 				ApplyRecalPeakToMems1x64(
 					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPmMems(st, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+				if (CalibBuildStatRowPmMems(st, fileSlot, i + 1, br, bc, nLut, yGridA, xGridA, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 		}
@@ -1964,7 +1966,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPdLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, yGridAPd, xGridAPd, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 			else
@@ -1972,7 +1974,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				ApplyRecalPeakToMems1x64Pd(
 					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPdMems(st, fileSlot, i + 1, br, bc, nLut, dacU, srow))
+				if (CalibBuildStatRowPdMems(st, fileSlot, i + 1, br, bc, nLut, yGridAPd, xGridAPd, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 		}
