@@ -523,21 +523,15 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 	return TRUE;
 }
 
-BOOL McsReadAllTransProductSnPn(Z4671Command& cmd, M576TransSnPnInfo& out, CString& err)
+BOOL McsReadAllTransProductSn(Z4671Command& cmd, M576TransSnPnInfo& out, CString& err)
 {
 	err.Empty();
 	for (int m = 0; m < 2; ++m)
-	{
 		out.mcsSn[m].Empty();
-		out.mcsPn[m].Empty();
-	}
 	for (int d = 0; d < 2; ++d)
 	{
 		for (int s = 0; s < 4; ++s)
-		{
 			out.oneX64Sn[d][s].Empty();
-			out.oneX64Pn[d][s].Empty();
-		}
 	}
 	CString discard;
 	(void)Board439fTransTunnel::EndTrans(cmd, discard);
@@ -554,25 +548,12 @@ BOOL McsReadAllTransProductSnPn(Z4671Command& cmd, M576TransSnPnInfo& out, CStri
 		if (tch == 1 || tch == 2)
 		{
 			char snBuf[80];
-			char pnBuf[80];
 			ZeroMemory(snBuf, sizeof(snBuf));
-			ZeroMemory(pnBuf, sizeof(pnBuf));
 			if (!cmd.GetProductSN(snBuf))
 				err = cmd.m_strLogInfo.IsEmpty() ? _T("MCS GetProductSN (0xA2) failed.") : cmd.m_strLogInfo;
 			else
 			{
 				out.mcsSn[tch - 1] = snBuf;
-				if (cmd.GetProductPN(pnBuf))
-					out.mcsPn[tch - 1] = pnBuf;
-				else
-				{
-					out.mcsPn[tch - 1].Empty();
-					cmd.TraceInfo(
-						_T("SN"),
-						_T("trans %d: GetProductPN (0xA5) failed, PN left empty (%s)."),
-						tch,
-						cmd.m_strLogInfo.GetString());
-				}
 				stepOk = TRUE;
 			}
 		}
@@ -580,30 +561,29 @@ BOOL McsReadAllTransProductSnPn(Z4671Command& cmd, M576TransSnPnInfo& out, CStri
 		{
 			const int dev = (tch == 3) ? 0 : 1;
 			CString e1;
-			if (M576Read1x64SnPnAllOnCurrentTunnel(cmd, out.oneX64Sn[dev], out.oneX64Pn[dev], e1))
+			if (M576Read1x64SnAllOnCurrentTunnel(cmd, out.oneX64Sn[dev], e1))
 				stepOk = TRUE;
 			else
 				err = e1;
 		}
 		if (!Board439fTransTunnel::EndTrans(cmd, discard))
 		{
-			err = _T("439F $$ at end of trans SN/PN read failed.");
+			err = _T("439F $$ at end of trans SN read failed.");
 			return FALSE;
 		}
 		if (!stepOk)
 		{
 			if (err.IsEmpty())
-				err.Format(_T("trans %d: read SN/PN failed."), tch);
+				err.Format(_T("trans %d: read SN failed."), tch);
 			return FALSE;
 		}
 		if (tch == 1 || tch == 2)
 		{
 			cmd.TraceInfo(
 				_T("SN"),
-				_T("trans %d SN=%s PN=%s"),
+				_T("trans %d SN=%s"),
 				tch,
-				out.mcsSn[tch - 1].GetString(),
-				out.mcsPn[tch - 1].GetString());
+				out.mcsSn[tch - 1].GetString());
 		}
 		else
 		{
@@ -612,11 +592,10 @@ BOOL McsReadAllTransProductSnPn(Z4671Command& cmd, M576TransSnPnInfo& out, CStri
 			{
 				cmd.TraceInfo(
 					_T("SN"),
-					_T("trans %d sw%d SN=%s PN=%s"),
+					_T("trans %d sw%d SN=%s"),
 					tch,
 					sw + 1,
-					out.oneX64Sn[dev][sw].GetString(),
-					out.oneX64Pn[dev][sw].GetString());
+					out.oneX64Sn[dev][sw].GetString());
 			}
 		}
 	}

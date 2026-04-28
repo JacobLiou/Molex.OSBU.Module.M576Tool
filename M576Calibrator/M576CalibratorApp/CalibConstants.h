@@ -207,34 +207,16 @@
 #ifndef M576_1X64_MEM_AFTER_CMD_MS
 #define M576_1X64_MEM_AFTER_CMD_MS 120u
 #endif
-/// 1x64: SN/PN per switch at flash base (MEM 64B: 4×(8B SN + 8B PN), stride 16B). Legacy name = base of sw0 SN.
-// 1x64：每开关 8B SN + 8B PN，自 0xD800 起每 16B 一段，共 64B 一次 MEM；M576_1X64_SN_MEM_ADDR 与首段 SN 起始相同。
-#ifndef M576_1X64_SN_MEM_ADDR
-#define M576_1X64_SN_MEM_ADDR 0x0000D800u
-#endif
-#ifndef M576_1X64_SNPN_BASE_ADDR
-#define M576_1X64_SNPN_BASE_ADDR M576_1X64_SN_MEM_ADDR
-#endif
-#ifndef M576_1X64_SNPN_STRIDE
-#define M576_1X64_SNPN_STRIDE 0x10u
-#endif
-#ifndef M576_1X64_SN_OFFSET_IN_SW
-#define M576_1X64_SN_OFFSET_IN_SW 0x00u
-#endif
-#ifndef M576_1X64_PN_OFFSET_IN_SW
-#define M576_1X64_PN_OFFSET_IN_SW 0x08u
+/// 1x64: per-switch SN at flash body offset (bReserved7[0..15] in 2048 B body); host reads first 16 B of one `mem` line (32 B payload).
+// 1x64：每开关 SN 在 Flash 系数区基址 + 0x7E0（与 ADDR_SWITCHn_COEF + M576_1X64_SN_FLASH_OFFSET 一致）。
+#ifndef M576_1X64_SN_FLASH_OFFSET
+#define M576_1X64_SN_FLASH_OFFSET 0x7E0u
 #endif
 #ifndef M576_1X64_SN_BYTES
-#define M576_1X64_SN_BYTES 8
+#define M576_1X64_SN_BYTES 16
 #endif
-#ifndef M576_1X64_PN_BYTES
-#define M576_1X64_PN_BYTES 8
-#endif
-#ifndef M576_1X64_SNPN_SWITCHES
-#define M576_1X64_SNPN_SWITCHES 4
-#endif
-#ifndef M576_1X64_SNPN_BLOCK_BYTES
-#define M576_1X64_SNPN_BLOCK_BYTES ((M576_1X64_SNPN_SWITCHES) * (M576_1X64_SNPN_STRIDE))
+#ifndef M576_1X64_SN_SWITCHES
+#define M576_1X64_SN_SWITCHES 4
 #endif
 /// Per-tunnel 1x64 local flash: read starts at first switch block (0x0E000..0x0F800 = 4×2K). trans3/trans4 are different devices via 439F `trans`.
 // 经 439F 不同 trans 隧道连到不同 1x64 设备时，其本地 Flash 读起址（与 ADDR_SWITCH* 区一致）。

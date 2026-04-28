@@ -302,56 +302,55 @@ static void M5761x64AsciiFieldFromBytes(const BYTE* p, int n, CString& out)
 	out = CString(a);
 }
 
-BOOL M576Read1x64SnPnAllOnCurrentTunnel(
-	Z4671Command& cmd, CString outSn[4], CString outPn[4], CString& err)
+BOOL M576Read1x64SnAllOnCurrentTunnel(Z4671Command& cmd, CString outSn[4], CString& err)
 {
-	const DWORD memAddr = (DWORD)M576_1X64_SNPN_BASE_ADDR;
 	err.Empty();
-	for (int s = 0; s < 4; ++s)
-	{
-		outSn[s].Empty();
-		outPn[s].Empty();
-	}
-	BYTE chunk[64];
-	ZeroMemory(chunk, sizeof(chunk));
+	static const DWORD kSwBase[4] = {
+		(DWORD)ADDR_SWITCH1_COEF,
+		(DWORD)ADDR_SWITCH2_COEF,
+		(DWORD)ADDR_SWITCH3_COEF,
+		(DWORD)ADDR_SWITCH4_COEF};
+	for (int sw = 0; sw < M576_1X64_SN_SWITCHES; ++sw)
+		outSn[sw].Empty();
+	BYTE chunk[(size_t)M576_1X64_MEM_PAYLOAD_BYTES];
 	char readBuf[4096];
-	const int needPayload = (int)M576_1X64_SNPN_BLOCK_BYTES;
-	BOOL gotPayload = FALSE;
-	for (int attempt = 0; !gotPayload && attempt < 3; attempt++)
+	const int needPayload = (int)M576_1X64_MEM_PAYLOAD_BYTES;
+	for (int sw = 0; sw < M576_1X64_SN_SWITCHES; ++sw)
 	{
-		CStringA line;
-		line.Format("mem %u\r", (unsigned)memAddr);
-		if (!cmd.WriteBuffer((char*)(LPCSTR)line, (DWORD)line.GetLength()))
+		const DWORD memAddr = kSwBase[sw] + (DWORD)M576_1X64_SN_FLASH_OFFSET;
+		BOOL got = FALSE;
+		for (int attempt = 0; !got && attempt < (int)M576_COMM_RETRY_MAX_ATTEMPTS; ++attempt)
 		{
-			err = _T("1x64 MEM (SN/PN) TX failed.");
-			cmd.TraceError(_T("FW-1x64"), _T("MEM (SN/PN) @%u write failed"), (unsigned)memAddr);
+			CStringA line;
+			line.Format("mem %u\r", (unsigned)memAddr);
+			if (!cmd.WriteBuffer((char*)(LPCSTR)line, (DWORD)line.GetLength()))
+			{
+				err.Format(_T("1x64 MEM (SN) TX failed sw%d @%u"), sw + 1, (unsigned)memAddr);
+				cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
+				return FALSE;
+			}
+			Sleep((DWORD)M576_439F_POST_TRANS_MS);
+			Sleep((DWORD)M576_1X64_MEM_AFTER_CMD_MS);
+			ZeroMemory(readBuf, sizeof(readBuf));
+			DWORD dwr = 0;
+			if (!MemDrainHexResponse(cmd, readBuf, sizeof(readBuf) - 1, &dwr, needPayload, (DWORD)M576_1X64_MEM_READ_MAX_MS)
+				|| dwr == 0)
+				continue;
+			readBuf[dwr] = 0;
+			if (ParseMemHexLine(readBuf, (int)dwr, chunk, needPayload) == needPayload)
+				got = TRUE;
+		}
+		if (!got)
+		{
+			err.Format(
+				_T("1x64 MEM (SN) sw%d @%u: no %d B in MEM reply."),
+				sw + 1,
+				(unsigned)memAddr,
+				needPayload);
+			cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 			return FALSE;
 		}
-		Sleep((DWORD)M576_439F_POST_TRANS_MS);
-		Sleep((DWORD)M576_1X64_MEM_AFTER_CMD_MS);
-		ZeroMemory(readBuf, sizeof(readBuf));
-		DWORD dwr = 0;
-		if (!MemDrainHexResponse(cmd, readBuf, sizeof(readBuf) - 1, &dwr, needPayload, (DWORD)M576_1X64_MEM_READ_MAX_MS)
-			|| dwr == 0)
-			continue;
-		readBuf[dwr] = 0;
-		if (ParseMemHexLine(readBuf, (int)dwr, chunk, needPayload) == needPayload)
-			gotPayload = TRUE;
-	}
-	if (!gotPayload)
-	{
-		err.Format(
-			_T("1x64 MEM (SN/PN) @%u: no %d B in MEM reply (decimal `mem` addr only)."),
-			(unsigned)memAddr,
-			needPayload);
-		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
-		return FALSE;
-	}
-	for (int sw = 0; sw < M576_1X64_SNPN_SWITCHES; ++sw)
-	{
-		const BYTE* base = chunk + (size_t)sw * (size_t)M576_1X64_SNPN_STRIDE;
-		M5761x64AsciiFieldFromBytes(base + M576_1X64_SN_OFFSET_IN_SW, M576_1X64_SN_BYTES, outSn[sw]);
-		M5761x64AsciiFieldFromBytes(base + M576_1X64_PN_OFFSET_IN_SW, M576_1X64_PN_BYTES, outPn[sw]);
+		M5761x64AsciiFieldFromBytes(chunk, M576_1X64_SN_BYTES, outSn[sw]);
 	}
 	return TRUE;
 }

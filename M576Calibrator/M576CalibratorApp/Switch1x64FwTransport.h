@@ -17,6 +17,5 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 int M5761x64MemReadStepCount(); // MEM 分步读总步数
 int M5761x64XmodemChunkCountForFileSize(DWORD fileBytes); // 给定文件长度需多少 XMODEM 块
 
-/// Read 4 switches: one `MEM` at `M576_1X64_SNPN_BASE_ADDR` (64 B), 16B per sw (8 SN + 8 PN ASCII).
-BOOL M576Read1x64SnPnAllOnCurrentTunnel(
-	Z4671Command& cmd, CString outSn[4], CString outPn[4], CString& err);
+/// Read 4 switches: per-switch one `mem <ADDR_SWITCH_COEF + M576_1X64_SN_FLASH_OFFSET>` (32 B), first 16 B = bReserved7[0..15] SN ASCII.
+BOOL M576Read1x64SnAllOnCurrentTunnel(Z4671Command& cmd, CString outSn[4], CString& err);

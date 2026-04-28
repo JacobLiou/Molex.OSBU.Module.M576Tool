@@ -329,17 +329,11 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	m_strBackupBin  = kM576FixedBackupBinRel;
 	m_strCommLogPath = _T("output\\comm.log");
 	for (int m = 0; m < 2; ++m)
-	{
 		m_snInfo.mcsSn[m].Empty();
-		m_snInfo.mcsPn[m].Empty();
-	}
 	for (int d = 0; d < 2; ++d)
 	{
 		for (int s = 0; s < 4; ++s)
-		{
 			m_snInfo.oneX64Sn[d][s].Empty();
-			m_snInfo.oneX64Pn[d][s].Empty();
-		}
 	}
 }
 
@@ -361,25 +355,15 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_EDIT_BACKUP_BIN, m_strBackupBin);
 	DDX_Text(pDX, IDC_EDIT_OUT_BIN, m_strOutBin);
 	DDX_Text(pDX, IDC_EDIT_MCS1_SN, m_snInfo.mcsSn[0]);
-	DDX_Text(pDX, IDC_EDIT_MCS1_PN, m_snInfo.mcsPn[0]);
 	DDX_Text(pDX, IDC_EDIT_MCS2_SN, m_snInfo.mcsSn[1]);
-	DDX_Text(pDX, IDC_EDIT_MCS2_PN, m_snInfo.mcsPn[1]);
 	DDX_Text(pDX, IDC_EDIT_1X641_SW1_SN, m_snInfo.oneX64Sn[0][0]);
-	DDX_Text(pDX, IDC_EDIT_1X641_SW1_PN, m_snInfo.oneX64Pn[0][0]);
 	DDX_Text(pDX, IDC_EDIT_1X641_SW2_SN, m_snInfo.oneX64Sn[0][1]);
-	DDX_Text(pDX, IDC_EDIT_1X641_SW2_PN, m_snInfo.oneX64Pn[0][1]);
 	DDX_Text(pDX, IDC_EDIT_1X641_SW3_SN, m_snInfo.oneX64Sn[0][2]);
-	DDX_Text(pDX, IDC_EDIT_1X641_SW3_PN, m_snInfo.oneX64Pn[0][2]);
 	DDX_Text(pDX, IDC_EDIT_1X641_SW4_SN, m_snInfo.oneX64Sn[0][3]);
-	DDX_Text(pDX, IDC_EDIT_1X641_SW4_PN, m_snInfo.oneX64Pn[0][3]);
 	DDX_Text(pDX, IDC_EDIT_1X642_SW1_SN, m_snInfo.oneX64Sn[1][0]);
-	DDX_Text(pDX, IDC_EDIT_1X642_SW1_PN, m_snInfo.oneX64Pn[1][0]);
 	DDX_Text(pDX, IDC_EDIT_1X642_SW2_SN, m_snInfo.oneX64Sn[1][1]);
-	DDX_Text(pDX, IDC_EDIT_1X642_SW2_PN, m_snInfo.oneX64Pn[1][1]);
 	DDX_Text(pDX, IDC_EDIT_1X642_SW3_SN, m_snInfo.oneX64Sn[1][2]);
-	DDX_Text(pDX, IDC_EDIT_1X642_SW3_PN, m_snInfo.oneX64Pn[1][2]);
 	DDX_Text(pDX, IDC_EDIT_1X642_SW4_SN, m_snInfo.oneX64Sn[1][3]);
-	DDX_Text(pDX, IDC_EDIT_1X642_SW4_PN, m_snInfo.oneX64Pn[1][3]);
 	DDX_Radio(pDX, IDC_RADIO_CAL_PM, m_nCalMode);
 	DDX_Text(pDX, IDC_EDIT_RECAL_DELAY, m_delayMs);
 	DDV_MinMaxInt(pDX, m_delayMs, M576_MIN_RECAL_DELAY_MS, M576_MAX_RECAL_DELAY_MS);
@@ -766,15 +750,14 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 		m_snInfo = m_readSnLastValues;
 		UpdateData(FALSE);
 		AppendLog(
-			_T("Read SN/PN: MCS trans1-2 = 0xA2 SN + 0xA5 PN; 1x64 trans3-4 = MEM 64B @ 0xD800 (4x SN+PN)."));
+			_T("Read SN: MCS trans1-2 = GetProductSN (0xA2); 1x64 trans3-4 = 4x mem (ADDR_SWITCHn_COEF+0x7E0, 16 B SN)."));
 		for (int m = 0; m < 2; ++m)
 		{
 			CString line;
 			line.Format(
-				_T("  trans %d: SN=%s PN=%s"),
+				_T("  trans %d: SN=%s"),
 				m + 1,
-				m_snInfo.mcsSn[m].GetString(),
-				m_snInfo.mcsPn[m].GetString());
+				m_snInfo.mcsSn[m].GetString());
 			AppendLog(line);
 		}
 		for (int d = 0; d < 2; ++d)
@@ -784,11 +767,10 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 			{
 				CString line;
 				line.Format(
-					_T("  trans %d sw%d: SN=%s PN=%s"),
+					_T("  trans %d sw%d: SN=%s"),
 					tch,
 					sw + 1,
-					m_snInfo.oneX64Sn[d][sw].GetString(),
-					m_snInfo.oneX64Pn[d][sw].GetString());
+					m_snInfo.oneX64Sn[d][sw].GetString());
 				AppendLog(line);
 			}
 		}
@@ -796,10 +778,10 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 	else
 	{
 		CString m;
-		m.Format(_T("Read SN/PN failed: %s"), (LPCTSTR)m_readSnLastMsg);
+		m.Format(_T("Read SN failed: %s"), (LPCTSTR)m_readSnLastMsg);
 		AppendLog(m);
 		CString box;
-		box.Format(_T("Read SN/PN (trans 1-4) failed:\n\n%s"), (LPCTSTR)m_readSnLastMsg);
+		box.Format(_T("Read SN (trans 1-4) failed:\n\n%s"), (LPCTSTR)m_readSnLastMsg);
 		AfxMessageBox(box, MB_OK | MB_ICONERROR);
 	}
 	return 0;
@@ -880,7 +862,7 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 {
 	M576TransSnPnInfo sn;
 	CString err;
-	if (!McsReadAllTransProductSnPn(m_dev429f, sn, err))
+	if (!McsReadAllTransProductSn(m_dev429f, sn, err))
 	{
 		m_readSnLastOk = FALSE;
 		m_readSnLastMsg = err;
@@ -1092,7 +1074,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
 	AppendLog(
-		_T("Read Flash: per-trans bins; UI SN/PN fields -> MCS bundle SN + 1x64 per-switch SN; MCS=0xC4; 1x64=MEM+4x2K."));
+		_T("Read Flash: per-trans bins; UI SN fields -> MCS bundle SN + 1x64 per-switch SN; MCS=0xC4; 1x64=MEM+4x2K."));
 	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
 }
 
@@ -2155,17 +2137,17 @@ void CM576CalibratorDlg::OnBnClickedReadAllSn()
 		return;
 	if (m_burnFlashRunning.load())
 	{
-		AppendLog(_T("Burn Flash in progress; wait before reading SN/PN."));
+		AppendLog(_T("Burn Flash in progress; wait before reading SN."));
 		return;
 	}
 	if (m_pathRunning.load())
 	{
-		AppendLog(_T("Path run in progress; wait for it to finish before reading SN/PN."));
+		AppendLog(_T("Path run in progress; wait for it to finish before reading SN."));
 		return;
 	}
 	if (m_readBackupRunning.load())
 	{
-		AppendLog(_T("Read Flash backup in progress; wait before reading SN/PN."));
+		AppendLog(_T("Read Flash backup in progress; wait before reading SN."));
 		return;
 	}
 	UpdateData(TRUE);
@@ -2179,7 +2161,7 @@ void CM576CalibratorDlg::OnBnClickedReadAllSn()
 		m_readSnThread.join();
 	m_readSnRunning = true;
 	SetPathActionButtonsEnabled(FALSE);
-	AppendLog(_T("Read SN/PN started in background..."));
+	AppendLog(_T("Read SN started in background..."));
 	m_readSnThread = std::thread([this]() { ReadAllSnWorkerEntry(); });
 }
 
@@ -2207,7 +2189,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	}
 	if (m_readSnRunning.load())
 	{
-		AppendLog(_T("Read SN/PN in progress; wait before burning flash."));
+		AppendLog(_T("Read SN in progress; wait before burning flash."));
 		return;
 	}
 	if (m_readBackupRunning.load())

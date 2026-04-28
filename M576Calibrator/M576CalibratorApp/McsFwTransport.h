@@ -3,14 +3,12 @@
 
 #include "Z4671Command.h"
 
-/// Per-trans SN/PN from devices: MCS trans1–2 (one SN + PN each); 1x64 trans3–4 (four switches × SN + PN).
-// UI / 写 bin 头用：MCS 各一路 SN+PN；1x64 每片四开关 SN+PN（Flash 0xD800 起 64B MEM）。
+/// Per-trans SN from devices: MCS trans1–2 (GetProductSN); 1x64 trans3–4 (four switches × SN per MEM read).
+// UI / 写 bin 头用：MCS 各一路 SN；1x64 每片四开关 SN（ADDR_SWITCHn_COEF + 0x7E0）。
 struct M576TransSnPnInfo
 {
 	CString mcsSn[2];
-	CString mcsPn[2];
 	CString oneX64Sn[2][4];
-	CString oneX64Pn[2][4];
 };
 
 /// LUT BIN over 439F: ASCII "trans <n>" / "$$" then Z4671 binary on the same COM.
@@ -39,5 +37,5 @@ CString M576TransBinPathForSwitch(LPCTSTR szBasePath, int transChannel, int swId
 BOOL McsReadLutBundleFromDevice(
 	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const M576TransSnPnInfo& snInfo);
 
-/// trans 1~2: Z4671 GetProductSN (0xA2) + GetProductPN (0xA5). trans 3~4: 1x64 MEM @ `M576_1X64_SNPN_BASE_ADDR` 64B → 4×(SN,PN).
-BOOL McsReadAllTransProductSnPn(Z4671Command& cmd, M576TransSnPnInfo& out, CString& err);
+/// trans 1~2: GetProductSN (0xA2). trans 3~4: 4× `mem ADDR_SWITCH{1..4}_COEF+0x7E0` → 16 B SN ASCII each.
+BOOL McsReadAllTransProductSn(Z4671Command& cmd, M576TransSnPnInfo& out, CString& err);
