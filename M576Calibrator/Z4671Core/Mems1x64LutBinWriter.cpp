@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include <cstdio>
+#include "M576OneX64TempMeta.h"
 #include "Mems1x64LutBinWriter.h"
 #include "OpCRC32.h"
 #include <algorithm>
@@ -46,7 +47,7 @@ static void M576OneX64PutBe16(BYTE* p, WORD v)
 	p[1] = (BYTE)v;
 }
 
-// Flash bases for four MEMS switches (CalibConstants.h / 126S).
+// Flash bases for four MEMS switches (126S).
 static DWORD M576OneX64SwitchFlashBase(int swIndex)
 {
 	static const DWORD kAddr[4] = { 0x0E000u, 0x0E800u, 0x0F000u, 0x0F800u };
@@ -119,6 +120,12 @@ static void M576OneX64FillBodyTailIdentity(
 static_assert(sizeof(stM576OneX64MemsSwCoef) == 2208u, "1x64 single-switch file BUNDLEHEADER+body");
 static_assert(M576_1X64_MEMS_FILE_PAYLOAD_BYTES == 8832u, "4*2208=8832");
 
+void M576OneX64ApplyStandardTempMeta(stM576OneX64MemsSwCoef& coef)
+{
+	coef.stCalibDAC[0].sTemperature = (short)M576_1X64_STEMP_CENTI_LOW;
+	coef.stCalibDAC[1].sTemperature = (short)M576_1X64_STEMP_CENTI_ROOM;
+}
+
 BOOL CMems1x64LutBinWriter::WriteSingleSwitch(
 	const stM576OneX64MemsSwCoef& sw,
 	int swIndex,
@@ -139,6 +146,7 @@ BOOL CMems1x64LutBinWriter::WriteSingleSwitch(
 			stUtc.wYear, stUtc.wMonth, stUtc.wDay, stUtc.wHour, stUtc.wMinute);
 
 	stM576OneX64MemsSwCoef blk = sw;
+	M576OneX64ApplyStandardTempMeta(blk);
 
 	M576OneX64FillLegacy126sBundleHeader(blk, swIndex, snVer, tDot, stUtc);
 	M576OneX64FillBodyTailIdentity(blk, snVer, stUtc);

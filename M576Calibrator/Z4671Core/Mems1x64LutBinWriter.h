@@ -2,6 +2,9 @@
 
 #include "M576OneX64Coef.h"
 
+/// Set `stCalibDAC[0/1].sTemperature` to M576_1X64_STEMP_CENTI_* (0.01℃). Used before every 2208 B write.
+void M576OneX64ApplyStandardTempMeta(stM576OneX64MemsSwCoef& coef);
+
 /// Per-switch 2208 B bin (BUNDLEHEADER[160] + body[2048], stMemsSwCoef layout, 126S): no outer Z4671/MCS bundle wrapper.
 class CMems1x64LutBinWriter
 {

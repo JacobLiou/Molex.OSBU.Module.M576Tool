@@ -63,65 +63,73 @@ static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen,
 	if (!cmd.WriteBuffer((char*)pbBinData, wWireLen))
 		return XMODEM_COMMUNICATION_FAIL;
 
-	while (1)
-	{
+	int nTimeOut = 0;
+	while (1) {
 		Sleep(50);
-		int nTimeOut = 0;
 		DWORD dwReadLength = 0;
-		if (cmd.ReadBuffer(byTempBuf, sizeof(byTempBuf) - 1, &dwReadLength) && dwReadLength > 0)
-		{
-			if ((BYTE)byTempBuf[dwReadLength - 1] == XMODEM_ACK)
+		if (cmd.ReadBuffer(byTempBuf, sizeof(byTempBuf) - 1, &dwReadLength) && dwReadLength > 0) {
+			const BYTE lastB = (BYTE)byTempBuf[dwReadLength - 1];
+			if (lastB == XMODEM_ACK)
 				break;
-			if ((BYTE)byTempBuf[dwReadLength - 1] == XMODEM_NAK)
-			{
+			if (lastB == XMODEM_NAK) {
 				if (!cmd.WriteBuffer((char*)pbBinData, wWireLen))
 					return XMODEM_COMMUNICATION_FAIL;
 				nRetry++;
-				if (nRetry > 10)
-				{
+				if (nRetry > 10) {
 					char can[3] = { (char)XMODEM_CAN, (char)XMODEM_CAN, (char)XMODEM_CAN };
 					(void)cmd.WriteBuffer(can, 3);
 					return XMODEM_COMMUNICATION_FAIL;
 				}
+				nTimeOut = 0; // 重发后重新等 ACK
+				continue;
 			}
-			else if ((BYTE)byTempBuf[dwReadLength - 1] == XMODEM_CAN)
+			if (lastB == XMODEM_CAN)
 				return XMODEM_COMMUNICATION_FAIL;
-			else
-				return XMODEM_COMMUNICATION_FAIL;
+			return XMODEM_COMMUNICATION_FAIL;
 		}
 		nTimeOut++;
 		if (nTimeOut >= 210)
 			return XMODEM_COMMUNICATION_FAIL;
 	}
 
-	if (bFileDone)
-	{
-		char eot[3] = { (char)XMODEM_EOT, (char)XMODEM_EOT, (char)XMODEM_EOT };
-		if (!cmd.WriteBuffer(eot, 3))
-			return XMODEM_COMMUNICATION_FAIL;
-		int nEotTo = 0;
-		for (;;)
-		{
-			Sleep(50);
-			ZeroMemory(byTempBuf, sizeof(byTempBuf));
-			DWORD dwr = 0;
-			if (cmd.ReadBuffer(byTempBuf, sizeof(byTempBuf) - 1, &dwr) && dwr > 0)
-			{
-				if ((BYTE)byTempBuf[0] == XMODEM_ACK)
-				{
-					if (dwr > 1 && strncmp(byTempBuf + 1, "Successful", 10) == 0)
+	if (bFileDone) {
+		// EOT：1) 用 `WriteBufferNoPurge` — 普通 `WriteBuffer` 会清 RX，易把**刚到**的 ACK 冲掉导致死循环式重发。
+		// 2) 与块应答一致，用**最后一字节**判 ACK/NAK（防回显/前缀把 [0] 占满）。
+		// 3) 外层有上界，避免无界 for(;;)。
+		const char eot3[3] = { (char)XMODEM_EOT, (char)XMODEM_EOT, (char)XMODEM_EOT };
+		int eotNakResends = 0;
+		for (int eotPass = 0; eotPass < 40; eotPass++) {
+			if (!cmd.WriteBufferNoPurge((char*)eot3, 3))
+				return XMODEM_COMMUNICATION_FAIL;
+			int nEotTo = 0;
+			for (; nEotTo < 210; nEotTo++) {
+				Sleep(50);
+				ZeroMemory(byTempBuf, sizeof(byTempBuf));
+				DWORD dwr = 0;
+				if (cmd.ReadBuffer(byTempBuf, sizeof(byTempBuf) - 1, &dwr) && dwr > 0) {
+					if (dwr < sizeof(byTempBuf) - 1)
+						byTempBuf[dwr] = 0;
+					const BYTE lastB = (BYTE)byTempBuf[dwr - 1];
+					if (lastB == XMODEM_ACK) {
+						if (dwr > 1 && strstr(byTempBuf, "Successful") != nullptr)
+							return XMODEM_DOWNLOAD_SUCCESS;
+						// 单字节 ACK 或 带前后缀的尾部 ACK
 						return XMODEM_DOWNLOAD_SUCCESS;
-					if (dwr == 1)
-						return XMODEM_DOWNLOAD_SUCCESS;
-					return XMODEM_DOWNLOAD_FAIL;
+					}
+					if (lastB == XMODEM_NAK) {
+						eotNakResends++;
+						if (eotNakResends > 32)
+							return XMODEM_DOWNLOAD_FAIL;
+						break; // 下一 eotPass 再发 EOT
+					}
+					if (lastB == XMODEM_CAN)
+						return XMODEM_COMMUNICATION_FAIL;
 				}
-				if ((BYTE)byTempBuf[0] == XMODEM_NAK)
-					return XMODEM_DOWNLOAD_FAIL;
 			}
-			nEotTo++;
 			if (nEotTo >= 210)
 				return XMODEM_COMMUNICATION_FAIL;
 		}
+		return XMODEM_DOWNLOAD_FAIL;
 	}
 	return XMODEM_DOWNLOAD_SUCCESS;
 }
@@ -633,7 +641,11 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		const int xr = XmodemSendOneBlock(cmd, pbBinData, wWire, bFileDone);
 		if (xr != XMODEM_DOWNLOAD_SUCCESS)
 		{
-			err = _T("1x64 XMODEM: block NAK/timeout or EOT failed.");
+			err.Format(
+				_T("1x64 XMODEM: block NAK/timeout or EOT failed (xr=%d, block#%d, eotLast=%d)."),
+				xr,
+				iCount,
+				(int)bFileDone);
 			bFunctionOK = FALSE;
 			break;
 		}

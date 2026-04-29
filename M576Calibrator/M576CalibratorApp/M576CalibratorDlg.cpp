@@ -2360,6 +2360,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			}
 			for (int sw = 0; sw < 4; ++sw)
 			{
+				M576OneX64ApplyStandardTempMeta(merged4[sw]);
 				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
 				if (sn.IsEmpty())
 					sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);

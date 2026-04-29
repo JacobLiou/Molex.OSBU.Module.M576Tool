@@ -166,6 +166,7 @@
 #ifndef M576_1X64_MEMS_BODY_SIZE
 #define M576_1X64_MEMS_BODY_SIZE 2048u
 #endif
+#include "M576OneX64TempMeta.h" // 1x64 sTemperature 0.01C; 要求 app 含 `$(SolutionDir)Z4671Core`
 /// 14538: four switch coefficient regions per 1x64; contiguous MEM read 4×2048 = 8192 B from `ADDR_SWITCH1_COEF`..`ADDR_SWITCH4_COEF`.
 // 每片 1x64 四路开关系数在 Flash 上的起址步进（0x0E000 起每路 0x800）。
 #ifndef ADDR_SWITCH1_COEF

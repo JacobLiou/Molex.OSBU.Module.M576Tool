@@ -86,6 +86,7 @@
     <ClInclude Include="CommPort.h" />
     <ClInclude Include="LutBinWriter.h" />
     <ClInclude Include="M576OneX64Coef.h" />
+    <ClInclude Include="M576OneX64TempMeta.h" />
     <ClInclude Include="Mems1x64LutBinWriter.h" />
     <ClInclude Include="OpComm.h" />
     <ClInclude Include="OpCRC32.h" />
