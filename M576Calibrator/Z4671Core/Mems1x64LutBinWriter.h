@@ -21,4 +21,7 @@ public:
 
 	/// Read one switch file (raw file size must be >= sizeof(stM576OneX64MemsSwCoef); reads full struct).
 	static BOOL ReadMemsFromFile(LPCTSTR szPath, stM576OneX64MemsSwCoef* pOutOne);
+
+	/// Legacy 126S header: 16-byte bundle SN/ver at BUNDLEHEADER+32 (same as Write). Trims spaces/NULs.
+	static CString ReadBundleVer16FromCoef(const stM576OneX64MemsSwCoef& sw);
 };

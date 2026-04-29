@@ -34,6 +34,34 @@ size_t CLutBinWriter::LutDevicePayloadSize()
 	return FullBundleFileSize() - LutPayloadOffset();
 }
 
+BOOL CLutBinWriter::ReadBundleSnFromFile(LPCTSTR szPath, CString& outBundleSn)
+{
+	outBundleSn.Empty();
+	FILE* fp = NULL;
+	if (_tfopen_s(&fp, szPath, _T("rb")) != 0 || fp == NULL)
+		return FALSE;
+	stLutBundleHeader1 h1 = {};
+	stLutBundleHeader2 h2 = {};
+	const size_t n1 = fread(&h1, 1, sizeof(h1), fp);
+	const size_t n2 = fread(&h2, 1, sizeof(h2), fp);
+	fclose(fp);
+	if (n1 != sizeof(h1) || n2 != sizeof(h2))
+		return FALSE;
+	{
+		size_t cch = 0;
+		for (size_t i = 0; i < sizeof(h2.pBundleSN); ++i)
+		{
+			if (h2.pBundleSN[i] == 0)
+				break;
+			++cch;
+		}
+		CStringA sa((LPCSTR)h2.pBundleSN, (int)cch);
+		outBundleSn = CString(sa);
+		outBundleSn.Trim();
+	}
+	return TRUE;
+}
+
 BOOL CLutBinWriter::ReadLutFromFile(LPCTSTR szPath, stLutSettingZ4671& lut)
 {
 	FILE* fp = NULL;

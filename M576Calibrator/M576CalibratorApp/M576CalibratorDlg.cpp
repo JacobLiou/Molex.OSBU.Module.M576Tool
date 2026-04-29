@@ -171,6 +171,40 @@ CString FormatLogTimestamp()
 	return ts;
 }
 
+/// /utf-8 source + MBCS build: CString holds UTF-8; MessageBoxA/SetWindowTextA use system ACP — convert for UI.
+static CStringW M576Utf8ToWideForUi(const CStringA& u8)
+{
+	if (u8.IsEmpty())
+		return L"";
+	int cch = MultiByteToWideChar(CP_UTF8, 0, u8.GetString(), u8.GetLength(), NULL, 0);
+	if (cch > 0)
+	{
+		CStringW w;
+		MultiByteToWideChar(CP_UTF8, 0, u8.GetString(), u8.GetLength(), w.GetBuffer(cch), cch);
+		w.ReleaseBuffer(cch);
+		return w;
+	}
+	cch = MultiByteToWideChar(CP_ACP, 0, u8.GetString(), u8.GetLength(), NULL, 0);
+	if (cch <= 0)
+		return L"(encoding error)";
+	CStringW w;
+	MultiByteToWideChar(CP_ACP, 0, u8.GetString(), u8.GetLength(), w.GetBuffer(cch), cch);
+	w.ReleaseBuffer(cch);
+	return w;
+}
+
+void TrimEditLogTextW(CStringW& text)
+{
+	const int kMaxChars = 200000;
+	const int kKeepChars = 120000;
+	if (text.GetLength() <= kMaxChars)
+		return;
+	text = text.Right(kKeepChars);
+	int firstBreak = text.Find(L"\n");
+	if (firstBreak >= 0 && firstBreak + 1 < text.GetLength())
+		text = text.Mid(firstBreak + 1);
+}
+
 void TrimEditLogText(CString& text)
 {
 	const int kMaxChars = 200000;
@@ -310,6 +344,27 @@ static BOOL ParseWavelengthNm(const CString& raw, int& outNm, CString& err)
 	}
 	outNm = (int)v;
 	return TRUE;
+}
+
+/// Session buffers all zero: no cal path run in this session (or equivalent). Write BIN may preload local `backup*.bin` like run path.
+static bool M576SessionLutMemsAllZero(
+	const stLutSettingZ4671 lut4[4],
+	const stM576OneX64MemsSwCoef mems2[2][4])
+{
+	static const stLutSettingZ4671 zL = {};
+	static const stM576OneX64MemsSwCoef zM = {};
+	for (int i = 0; i < 4; ++i)
+	{
+		if (memcmp(&lut4[i], &zL, sizeof(zL)) != 0)
+			return false;
+	}
+	for (int t = 0; t < 2; ++t)
+		for (int s = 0; s < 4; ++s)
+		{
+			if (memcmp(&mems2[t][s], &zM, sizeof(zM)) != 0)
+				return false;
+		}
+	return true;
 }
 
 } // namespace
@@ -546,6 +601,39 @@ void CM576CalibratorDlg::AppendLog(LPCTSTR sz)
 	WriteLogFileLine(line);
 }
 
+void CM576CalibratorDlg::AppendLogUtf8(const CStringA& lineUtf8WithTimestamp)
+{
+	if (lineUtf8WithTimestamp.IsEmpty())
+		return;
+	HWND hEd = m_editLog.GetSafeHwnd();
+	CStringW t;
+	if (hEd != NULL)
+	{
+		const int cch = GetWindowTextLengthW(hEd);
+		if (cch > 0)
+		{
+			const int nbuf = cch + 1;
+			::GetWindowTextW(hEd, t.GetBuffer(nbuf), nbuf);
+			t.ReleaseBuffer();
+		}
+	}
+	TrimEditLogTextW(t);
+	if (!t.IsEmpty())
+		t += L"\r\n";
+	t += M576Utf8ToWideForUi(lineUtf8WithTimestamp);
+	if (hEd != NULL)
+		::SetWindowTextW(hEd, t);
+	const int n = (hEd != NULL) ? (int)::GetWindowTextLengthW(hEd) : m_editLog.GetWindowTextLength();
+	m_editLog.SetSel(n, n);
+	WriteLogFileLine(CString(lineUtf8WithTimestamp));
+}
+
+void CM576CalibratorDlg::ShowMessageBoxUtf8(const CString& textUtf8, UINT type, const wchar_t* title)
+{
+	CStringW w = M576Utf8ToWideForUi(CStringA(textUtf8));
+	::MessageBoxW(m_hWnd, w, title ? title : L"M576CalibratorApp", type);
+}
+
 void CM576CalibratorDlg::SafeAppendLog(LPCTSTR sz)
 {
 	if (!m_hWnd || !::IsWindow(m_hWnd))
@@ -743,9 +831,9 @@ LRESULT CM576CalibratorDlg::OnReadBackupFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	UpdateData(FALSE);
 	if (m_readBackupLastOk)
-		AfxMessageBox(m_readBackupLastMsg, MB_OK | MB_ICONINFORMATION);
+		ShowMessageBoxUtf8(m_readBackupLastMsg, MB_OK | MB_ICONINFORMATION, L"M576CalibratorApp");
 	else
-		AfxMessageBox(m_readBackupLastMsg, MB_OK | MB_ICONERROR);
+		ShowMessageBoxUtf8(m_readBackupLastMsg, MB_OK | MB_ICONERROR, L"M576CalibratorApp");
 	return 0;
 }
 
@@ -787,12 +875,15 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 	}
 	else
 	{
-		CString m;
-		m.Format(_T("Read SN failed: %s"), (LPCTSTR)m_readSnLastMsg);
-		AppendLog(m);
-		CString box;
-		box.Format(_T("Read SN (trans 1-4) failed:\n\n%s"), (LPCTSTR)m_readSnLastMsg);
-		AfxMessageBox(box, MB_OK | MB_ICONERROR);
+		CStringA lineA;
+		lineA.Format(
+			"%s Read SN failed: %s",
+			CStringA(FormatLogTimestamp()).GetString(),
+			CStringA(m_readSnLastMsg).GetString());
+		AppendLogUtf8(lineA);
+		CStringA boxA;
+		boxA.Format("Read SN (trans 1-4) failed:\n\n%s", m_readSnLastMsg.GetString());
+		ShowMessageBoxUtf8(CString(boxA), MB_OK | MB_ICONERROR, L"M576CalibratorApp");
 	}
 	return 0;
 }
@@ -812,12 +903,15 @@ LRESULT CM576CalibratorDlg::OnBurnFlashFinished(WPARAM, LPARAM)
 	}
 	else
 	{
-		CString m;
-		m.Format(_T("Flash failed: %s"), (LPCTSTR)m_burnFlashLastMsg);
-		AppendLog(m);
-		CString box;
-		box.Format(_T("Burn Flash failed:\n\n%s"), (LPCTSTR)m_burnFlashLastMsg);
-		AfxMessageBox(box, MB_OK | MB_ICONERROR);
+		CStringA lineA;
+		lineA.Format(
+			"%s Flash failed: %s",
+			CStringA(FormatLogTimestamp()).GetString(),
+			CStringA(m_burnFlashLastMsg).GetString());
+		AppendLogUtf8(lineA);
+		CStringA boxA;
+		boxA.Format("Burn Flash failed:\n\n%s", m_burnFlashLastMsg.GetString());
+		ShowMessageBoxUtf8(CString(boxA), MB_OK | MB_ICONERROR, L"M576CalibratorApp");
 	}
 	return 0;
 }
@@ -2025,6 +2119,12 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
 	const CString absOutBase = ResolveFilePath(m_strOutBin);
 
+	if (M576SessionLutMemsAllZero(m_lutByTrans, m_mems1x64))
+	{
+		AppendLog(_T("Write BIN: session LUT/Mems empty; preloading from local backup base (if present)."));
+		TryPreloadLutFromPerTransBackup();
+	}
+
 	for (int i = 0; i < 4; ++i)
 	{
 		if (i < 2)
@@ -2032,16 +2132,26 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			stLutSettingZ4671 merged;
 			ZeroMemory(&merged, sizeof(merged));
 			BOOL haveBackup = FALSE;
+			CString mcsBundleSrcPath;
 			if (!m_strBackupBin.IsEmpty())
 			{
 				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
 				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
-					haveBackup = CLutBinWriter::ReadLutFromFile(perTransBk, merged);
+				{
+					if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
+					{
+						haveBackup = TRUE;
+						mcsBundleSrcPath = perTransBk;
+					}
+				}
 				if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
 				{
-					haveBackup = CLutBinWriter::ReadLutFromFile(absBackupBin, merged);
-					if (haveBackup)
+					if (CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
+					{
+						haveBackup = TRUE;
+						mcsBundleSrcPath = absBackupBin;
 						AppendLog(_T("Trans1: read legacy single backup file for merge."));
+					}
 				}
 			}
 			if (haveBackup)
@@ -2068,8 +2178,8 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			p.pLut = &merged;
 			{
 				CString sn = m_snInfo.mcsSn[i].Trim();
-				if (sn.IsEmpty())
-					sn = _T("SN000000");
+				if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
+					(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
 				p.strBundleSN = sn;
 			}
 			if (!CLutBinWriter::Write(p))
@@ -2126,7 +2236,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 			{
 				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
 				if (sn.IsEmpty())
-					sn = _T("SN000000");
+					sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
 				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
 				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
 				{

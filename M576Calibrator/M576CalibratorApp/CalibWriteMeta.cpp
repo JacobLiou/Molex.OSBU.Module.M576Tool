@@ -2,10 +2,15 @@
 #include "CalibWriteMeta.h"
 #include "CalibConstants.h"
 #include <cstdio>
+#include <cmath>
 #include <vector>
 
 namespace
 {
+static int RoundDacDoubleToIntForCsv(double v)
+{
+	return static_cast<int>(std::lround(v));
+}
 static short U16ToShortDac(unsigned short w)
 {
 	if (w > 0x7FFFu)
@@ -295,7 +300,7 @@ BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRo
 		= "# MCS: WORD wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0/1] in stLutSettingZ4671. "
 		  "1x64: SHORT stM576OneX64AxisDAC (firmware stAxisDAC) in 8K. "
 		  "MCS off_trans = LutPayloadOffset + off_in_struct. "
-		  "raw_dac_x/raw_dac_y: linear DAC at cross-peak = col0 + peakIndex*step per axis (not raw line col0 only), before 12b grid->BIN map.";
+		  "raw_dac_x/raw_dac_y: same linear cross-peak DAC (col0 + peakIndex*step) as before 12b grid->BIN map; exported as decimal-rounded integers.";
 	writeA(legend);
 	const char* hdr = "cal_mode,trans_slot,path_line,primary_cmd,target,peak_r,peak_c,gridN,store_type,"
 		"raw_dac_x,raw_dac_y,dac_x_in_bin,dac_y_in_bin,struct_path_dacX,struct_path_dacY,"
@@ -346,13 +351,13 @@ BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRo
 		line += ',';
 		{
 			CStringA t;
-			t.Format("%.15g", r.rawDacX);
+			t.Format("%d", RoundDacDoubleToIntForCsv(r.rawDacX));
 			line += t;
 		}
 		line += ',';
 		{
 			CStringA t;
-			t.Format("%.15g", r.rawDacY);
+			t.Format("%d", RoundDacDoubleToIntForCsv(r.rawDacY));
 			line += t;
 		}
 		line += ',';

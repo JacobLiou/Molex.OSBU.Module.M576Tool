@@ -50,7 +50,7 @@
 #define M576_MAX_RECAL_DELAY_MS 100
 #endif
 #ifndef M576_DEFAULT_RECAL_DELAY_MS
-#define M576_DEFAULT_RECAL_DELAY_MS 40
+#define M576_DEFAULT_RECAL_DELAY_MS 80
 #endif
 #ifndef M576_MIN_DAC_RANGE
 #define M576_MIN_DAC_RANGE 1
@@ -79,14 +79,15 @@
 
 /// `RECAL 3` / `RECAL 5` sweep line read: `min(n*delay + margin, max)` — one global cap for PM/PD (not per opcode).
 // 读 RECAL 3/5 扫频行总超时上界（PM/PD 共用，非按指令分别配）。
+// 固件联调：临时将 min/max 均置 8000，使一维扫频读固定 8s 预算；量产前恢复为 1500/5000 等原值。
 #ifndef M576_RECAL_SWEEP_READ_MARGIN_MS
 #define M576_RECAL_SWEEP_READ_MARGIN_MS 2000
 #endif
 #ifndef M576_MAX_RECAL_SWEEP_READ_MS
-#define M576_MAX_RECAL_SWEEP_READ_MS 5000
+#define M576_MAX_RECAL_SWEEP_READ_MS 8000U
 #endif
 #ifndef M576_MIN_RECAL_SWEEP_READ_MS
-#define M576_MIN_RECAL_SWEEP_READ_MS 1500
+#define M576_MIN_RECAL_SWEEP_READ_MS 8000U
 #endif
 
 /// Peak grid → DAC: symmetric around mid DAC; PRD often uses base ± range (e.g. ±64). Tune with firmware.

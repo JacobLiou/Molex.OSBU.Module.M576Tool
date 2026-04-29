@@ -132,9 +132,7 @@ BOOL CMems1x64LutBinWriter::WriteSingleSwitch(
 	SYSTEMTIME stUtc = {};
 	GetSystemTime(&stUtc);
 
-	CString snVer = bundleSnVer;
-	if (snVer.IsEmpty())
-		snVer = _T("SN000000");
+	const CString& snVer = bundleSnVer;
 	CString tDot = bundleTime;
 	if (tDot.IsEmpty())
 		tDot.Format(_T("%04d.%02d.%02d.%02d.%02d"),
@@ -187,6 +185,22 @@ BOOL CMems1x64LutBinWriter::WriteSingleSwitch(
 	const size_t n = fwrite(&blk, 1, sizeof(blk), fp);
 	fclose(fp);
 	return n == sizeof(blk);
+}
+
+CString CMems1x64LutBinWriter::ReadBundleVer16FromCoef(const stM576OneX64MemsSwCoef& sw)
+{
+	const BYTE* p = sw.BUNDLEHEADER + 32;
+	CStringA sa;
+	for (int i = 0; i < 16; ++i)
+	{
+		if (p[i] == 0)
+			break;
+		sa += (char)p[i];
+	}
+	// Use = to avoid most-vexing-parse: CString o(CString(sa)) declares a function, not a variable.
+	CString o = CString(sa);
+	o.Trim();
+	return o;
 }
 
 BOOL CMems1x64LutBinWriter::ReadMemsFromFile(LPCTSTR szPath, stM576OneX64MemsSwCoef* pOutOne)
