@@ -8,6 +8,7 @@
 #include "PeakFinder2D.h"
 #include "LutPeakApply.h"
 #include "M576GlobalException.h"
+#include "M576Version.h"
 #include <math.h>
 #include <cmath>
 #include <algorithm>
@@ -548,7 +549,8 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		SetIcon(hIcon, TRUE);
 		SetIcon(hIcon, FALSE);
 	}
-	SetWindowText(_T("M576 / 1310 Calibrator (439F)"));
+	SetWindowText(M576_APP_WINDOW_TITLE);
+	::SetDlgItemText(m_hWnd, IDC_STATIC_VERSION, M576_APP_VERSION_TAG);
 	::SetDlgItemText(m_hWnd, IDC_GROUP_CONN, _T("Connection"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_PATHS, _T("Config"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_ACTIONS, _T("Actions"));

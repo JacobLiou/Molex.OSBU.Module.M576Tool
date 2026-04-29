@@ -135,6 +135,7 @@
     <ClInclude Include="LutMerge1310.h" />
     <ClInclude Include="LutPeakApply.h" />
     <ClInclude Include="M576GlobalException.h" />
+    <ClInclude Include="M576Version.h" />
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576BurnSelectDlg.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
