@@ -2,20 +2,25 @@
 #include "CalibWriteMeta.h"
 #include "CalibConstants.h"
 #include <cstdio>
-#include <cmath>
 #include <vector>
 
 namespace
 {
-static int RoundDacDoubleToIntForCsv(double v)
+// WORD on disk is int16 two's-complement (same for MCS wCalibPtrDAC and 1x64 sDAC*).
+static short DacU16ToSigned16(unsigned short w)
 {
-	return static_cast<int>(std::lround(v));
+	return (short)w;
 }
-static short U16ToShortDac(unsigned short w)
+
+/// Four uppercase hex digits: low byte then high byte (LE on-disk order for WORD/SHORT in trans .bin).
+static CStringA FormatInt16LeHex4(int v)
 {
-	if (w > 0x7FFFu)
-		return 0x7FFF;
-	return (short)(int)w;
+	const unsigned short w = (unsigned short)(short)v;
+	const unsigned lo = (unsigned)(w & 0xFFu);
+	const unsigned hi = (unsigned)((w >> 8) & 0xFFu);
+	CStringA a;
+	a.Format("%02X%02X", lo, hi);
+	return a;
 }
 
 static SIZE_T McsWCalibByteOffsetInLut(int swIdx, int tempIdx, int chIdx, int axis01)
@@ -52,8 +57,8 @@ BOOL CalibBuildStatRowPmLut(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -73,8 +78,8 @@ BOOL CalibBuildStatRowPmLut(
 	row.storeType = _T("WORD");
 	row.rawDacX = rawDacX;
 	row.rawDacY = rawDacY;
-	row.dacX = (int)dac.uX;
-	row.dacY = (int)dac.uY;
+	row.dacX = (int)DacU16ToSigned16(dac.uX);
+	row.dacY = (int)DacU16ToSigned16(dac.uY);
 	const SIZE_T poff = (SIZE_T)CLutBinWriter::LutPayloadOffset();
 	int swIdx = 0, chIdx = 0, tempI = (int)IDX_TEMP_LOW;
 	SIZE_T bx = 0, by = 0;
@@ -121,21 +126,22 @@ BOOL CalibBuildStatRowPmLut(
 	{
 		return FALSE;
 	}
-	bx = McsWCalibByteOffsetInLut(swIdx, tempI, chIdx, 0);
-	by = McsWCalibByteOffsetInLut(swIdx, tempI, chIdx, 1);
-	if (bx == (SIZE_T)-1 || by == (SIZE_T)-1)
+	const SIZE_T offY = McsWCalibByteOffsetInLut(swIdx, tempI, chIdx, 0);
+	const SIZE_T offX = McsWCalibByteOffsetInLut(swIdx, tempI, chIdx, 1);
+	if (offY == (SIZE_T)-1 || offX == (SIZE_T)-1)
 		return FALSE;
-	CStringA pathXA, pathYA;
-	pathXA.Format(
-		"wCalibPtrDAC[%d][%d(=IDX_TEMP_LOW) low temp][%d][0]  ; 1b channel=%d  swIdx(MCS)=%d",
+	CStringA pathYword, pathXword;
+	pathYword.Format(
+		"wCalibPtrDAC[%d][%d(=IDX_TEMP_LOW) low temp][%d][0]  ; 1b channel=%d  swIdx(MCS)=%d  (Y word)",
 		swIdx, (int)IDX_TEMP_LOW, chIdx, chIdx + 1, swIdx + 1);
-	pathYA.Format("wCalibPtrDAC[%d][%d(=IDX_TEMP_LOW) low temp][%d][1]", swIdx, (int)IDX_TEMP_LOW, chIdx);
-	row.structPathDacX = CString(pathXA);
-	row.structPathDacY = CString(pathYA);
-	row.offsetLutOrMems8kDacX = bx;
-	row.offsetLutOrMems8kDacY = by;
-	row.offsetTransBinDacX = poff + bx;
-	row.offsetTransBinDacY = poff + by;
+	pathXword.Format(
+		"wCalibPtrDAC[%d][%d(=IDX_TEMP_LOW) low temp][%d][1]  (X word)", swIdx, (int)IDX_TEMP_LOW, chIdx);
+	row.structPathDacX = CString(pathXword);
+	row.structPathDacY = CString(pathYword);
+	row.offsetLutOrMems8kDacX = offX;
+	row.offsetLutOrMems8kDacY = offY;
+	row.offsetTransBinDacX = poff + offX;
+	row.offsetTransBinDacY = poff + offY;
 	return TRUE;
 }
 
@@ -146,8 +152,8 @@ BOOL CalibBuildStatRowPmMems(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -169,8 +175,8 @@ BOOL CalibBuildStatRowPmMems(
 	row.storeType = _T("SHORT");
 	row.rawDacX = rawDacX;
 	row.rawDacY = rawDacY;
-	row.dacX = (int)U16ToShortDac(dac.uX);
-	row.dacY = (int)U16ToShortDac(dac.uY);
+	row.dacX = (int)DacU16ToSigned16(dac.uX);
+	row.dacY = (int)DacU16ToSigned16(dac.uY);
 
 	auto go = [&](int ch1to64)
 	{
@@ -182,16 +188,17 @@ BOOL CalibBuildStatRowPmMems(
 		SIZE_T oX, oY;
 		if (!Mems1x64OffsetsIn8k(block, inBlk, oX, oY))
 			return FALSE;
-		CStringA sx, sy;
-		sx.Format("stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACx  ; 1#1x64 ch(1b)=%d",
+		// oX = sDACx (Y value in bin), oY = sDACy (X value); see LutPeakApply mems write.
+		CStringA pathSdacXfield, pathSdacYfield;
+		pathSdacXfield.Format("stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACx  (Y)  ; 1#1x64 ch(1b)=%d",
 			block, inBlk, ch1to64);
-		sy.Format("stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACy", block, inBlk);
-		row.structPathDacX = CString(sx);
-		row.structPathDacY = CString(sy);
-		row.offsetLutOrMems8kDacX = oX;
-		row.offsetLutOrMems8kDacY = oY;
-		row.offsetTransBinDacX = oX;
-		row.offsetTransBinDacY = oY;
+		pathSdacYfield.Format("stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACy (X)", block, inBlk);
+		row.structPathDacX = CString(pathSdacYfield);
+		row.structPathDacY = CString(pathSdacXfield);
+		row.offsetLutOrMems8kDacX = oY;
+		row.offsetLutOrMems8kDacY = oX;
+		row.offsetTransBinDacX = oY;
+		row.offsetTransBinDacY = oX;
 		return TRUE;
 	};
 
@@ -211,8 +218,8 @@ BOOL CalibBuildStatRowPdLut(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -239,8 +246,8 @@ BOOL CalibBuildStatRowPdMems(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row)
 {
@@ -259,6 +266,15 @@ BOOL CalibBuildStatRowPdMems(
 }
 
 static void AppendCsvField(CStringA& line, const CString& s)
+{
+	CStringA sa(s);
+	sa.Replace("\"", "\"\"");
+	line += '\"';
+	line += (LPCSTR)sa;
+	line += '\"';
+}
+
+static void AppendCsvQuotedCStringA(CStringA& line, const CStringA& s)
 {
 	CStringA sa(s);
 	sa.Replace("\"", "\"\"");
@@ -297,10 +313,10 @@ BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRo
 	};
 
 	const char* legend
-		= "# MCS: WORD wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0/1] in stLutSettingZ4671. "
-		  "1x64: SHORT stM576OneX64AxisDAC (firmware stAxisDAC) in 8K. "
+		= "# MCS: Y at wCalibPtrDAC[][0], X at [][1] (int16 LE in file). 1x64: Y in sDACx, X in sDACy. "
 		  "MCS off_trans = LutPayloadOffset + off_in_struct. "
-		  "raw_dac_x/raw_dac_y: same linear cross-peak DAC (col0 + peakIndex*step) as before 12b grid->BIN map; exported as decimal-rounded integers.";
+		  "raw_dac_x / raw_dac_y: lrounded linear cross-peak DAC. dac_x_in_bin = bytes at [1]/sDACy, dac_y_in_bin = [0]/sDACx. "
+		  "Quoted 4 hex chars LE per field; Excel text.";
 	writeA(legend);
 	const char* hdr = "cal_mode,trans_slot,path_line,primary_cmd,target,peak_r,peak_c,gridN,store_type,"
 		"raw_dac_x,raw_dac_y,dac_x_in_bin,dac_y_in_bin,struct_path_dacX,struct_path_dacY,"
@@ -351,27 +367,19 @@ BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRo
 		line += ',';
 		{
 			CStringA t;
-			t.Format("%d", RoundDacDoubleToIntForCsv(r.rawDacX));
+			t.Format("%d", r.rawDacX);
 			line += t;
 		}
 		line += ',';
 		{
 			CStringA t;
-			t.Format("%d", RoundDacDoubleToIntForCsv(r.rawDacY));
+			t.Format("%d", r.rawDacY);
 			line += t;
 		}
 		line += ',';
-		{
-			CStringA t;
-			t.Format("%d", r.dacX);
-			line += t;
-		}
+		AppendCsvQuotedCStringA(line, FormatInt16LeHex4(r.dacX));
 		line += ',';
-		{
-			CStringA t;
-			t.Format("%d", r.dacY);
-			line += t;
-		}
+		AppendCsvQuotedCStringA(line, FormatInt16LeHex4(r.dacY));
 		line += ',';
 		AppendCsvField(line, r.structPathDacX);
 		line += ',';

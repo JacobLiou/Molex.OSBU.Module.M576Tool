@@ -7,9 +7,12 @@
 #include "CalibConstants.h"
 #include "PeakFinder2D.h"
 #include "LutPeakApply.h"
+#include "M576GlobalException.h"
 #include <math.h>
+#include <cmath>
 #include <algorithm>
 #include <array>
+#include <exception>
 // M576CalibratorDlg.cpp：M576 定标主界面。单 COM 经 429F 发 RECAL、经 trans/$$ 跑 Z4671；后台线程跑路径/读备份，UI 仅收消息刷日志与进度。
 
 #ifdef _DEBUG
@@ -194,7 +197,7 @@ static int AxisPointCount(int dacRange, int dacStep)
 	return RecalSweepPowerSampleCount(dacRange, dacStep);
 }
 
-/// Same linear grid as `PeakGridToDacWord` / RECAL base math: DAC at peak index along moving axis = col0 + idx * step.
+/// Cross-peak uX/uY: `SweepCol0PlusPeakOffsetDac` + lround. MCS: uY->wCalibPtrDAC[][0], uX->[1]. Mems: uY->sDACx, uX->sDACy (LutPeakApply).
 static double SweepCol0PlusPeakOffsetDac(double sweepLineCol0, int peakIndex, int sampleCount, int halfRange)
 {
 	if (sampleCount <= 1)
@@ -890,6 +893,20 @@ LRESULT CM576CalibratorDlg::OnPathFinished(WPARAM, LPARAM)
 	m_pathRunning = false;
 	m_suppressPathProgress = false;
 	SetPathActionButtonsEnabled(TRUE);
+	const BOOL stopped = m_bStop;
+	m_bStop = FALSE;
+	if (stopped)
+	{
+		MessageBoxM576(
+			_T("Run Path ended after Stop was requested.\n\nSome steps may have been skipped; see the log."),
+			MB_OK | MB_ICONWARNING);
+	}
+	else
+	{
+		MessageBoxM576(
+			_T("Run Path completed.\n\nSee the log for details. Use \"Export calib stats CSV\" to save step records if needed."),
+			MB_OK | MB_ICONINFORMATION);
+	}
 	return 0;
 }
 
@@ -986,10 +1003,25 @@ LRESULT CM576CalibratorDlg::OnBurnFlashFinished(WPARAM, LPARAM)
 
 void CM576CalibratorDlg::PathWorkerEntry()
 {
-	if (m_nCalMode == 0)
-		RunPathPowerMeter();
-	else
-		RunPathPd();
+	try
+	{
+		if (m_nCalMode == 0)
+			RunPathPowerMeter();
+		else
+			RunPathPd();
+	}
+	catch (const std::exception& e)
+	{
+		CStringA a;
+		a.Format("Path worker: std::exception: %s", e.what());
+		SafeAppendLog(CString(a));
+		M576AppendFatalLogUtf8(a.GetString());
+	}
+	catch (...)
+	{
+		SafeAppendLog(_T("Path worker: unknown C++ exception (see output\\m576_fatal.log)."));
+		M576AppendFatalLogUtf8("[Path worker] unknown C++ exception");
+	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_PATH_FINISHED, 0, 0);
 }
@@ -998,31 +1030,50 @@ void CM576CalibratorDlg::PathWorkerEntry()
 
 void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 {
-	SafeSetProgressRange(0, 100);
-	SafeSetProgressPos(0);
-	CString err;
-	const M576TransSnPnInfo snSnap = m_snInfo;
-	if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this, snSnap))
+	try
+	{
+		SafeSetProgressRange(0, 100);
+		SafeSetProgressPos(0);
+		CString err;
+		const M576TransSnPnInfo snSnap = m_snInfo;
+		if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this, snSnap))
+		{
+			m_readBackupLastOk = FALSE;
+			m_readBackupLastMsg.Format(_T("Read Flash backup failed:\n\n%s"), (LPCTSTR)err);
+			CString m;
+			m.Format(_T("Read Flash backup failed: %s"), (LPCTSTR)err);
+			SafeAppendLog(m);
+		}
+		else
+		{
+			m_readBackupLastOk = TRUE;
+			m_readBackupLastMsg.Format(
+				_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
+				_T("(MCS bundle SN from UI; 1x64 each 2K file uses per-switch SN from UI; MCS 0xC4 LUT; 1x64 MEM -> 4x2K.)"),
+				(LPCTSTR)absBackupBin);
+			SafeSetProgressPos(100);
+			CString ok;
+			ok.Format(
+				_T("Flash backups saved: base=%s (pBundleSN from UI SN fields; 1x64 4x2K per trans)."),
+				(LPCTSTR)absBackupBin);
+			SafeAppendLog(ok);
+		}
+	}
+	catch (const std::exception& e)
 	{
 		m_readBackupLastOk = FALSE;
-		m_readBackupLastMsg.Format(_T("Read Flash backup failed:\n\n%s"), (LPCTSTR)err);
-		CString m;
-		m.Format(_T("Read Flash backup failed: %s"), (LPCTSTR)err);
-		SafeAppendLog(m);
+		CStringA a;
+		a.Format("Read Flash backup: std::exception: %s", e.what());
+		m_readBackupLastMsg = CString(a);
+		SafeAppendLog(m_readBackupLastMsg);
+		M576AppendFatalLogUtf8(a.GetString());
 	}
-	else
+	catch (...)
 	{
-		m_readBackupLastOk = TRUE;
-		m_readBackupLastMsg.Format(
-			_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
-			_T("(MCS bundle SN from UI; 1x64 each 2K file uses per-switch SN from UI; MCS 0xC4 LUT; 1x64 MEM -> 4x2K.)"),
-			(LPCTSTR)absBackupBin);
-		SafeSetProgressPos(100);
-		CString ok;
-		ok.Format(
-			_T("Flash backups saved: base=%s (pBundleSN from UI SN fields; 1x64 4x2K per trans)."),
-			(LPCTSTR)absBackupBin);
-		SafeAppendLog(ok);
+		m_readBackupLastOk = FALSE;
+		m_readBackupLastMsg = _T("Read Flash backup: unknown C++ exception (see m576_fatal.log).");
+		SafeAppendLog(m_readBackupLastMsg);
+		M576AppendFatalLogUtf8("[Read Flash backup] unknown C++ exception");
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_READ_BACKUP_FINISHED, 0, 0);
@@ -1030,18 +1081,37 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 
 void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 {
-	M576TransSnPnInfo sn;
-	CString err;
-	if (!McsReadAllTransProductSn(m_dev429f, sn, err))
+	try
+	{
+		M576TransSnPnInfo sn;
+		CString err;
+		if (!McsReadAllTransProductSn(m_dev429f, sn, err))
+		{
+			m_readSnLastOk = FALSE;
+			m_readSnLastMsg = err;
+		}
+		else
+		{
+			m_readSnLastOk = TRUE;
+			m_readSnLastMsg.Empty();
+			m_readSnLastValues = sn;
+		}
+	}
+	catch (const std::exception& e)
 	{
 		m_readSnLastOk = FALSE;
-		m_readSnLastMsg = err;
+		CStringA a;
+		a.Format("Read all SN: std::exception: %s", e.what());
+		m_readSnLastMsg = CString(a);
+		SafeAppendLog(m_readSnLastMsg);
+		M576AppendFatalLogUtf8(a.GetString());
 	}
-	else
+	catch (...)
 	{
-		m_readSnLastOk = TRUE;
-		m_readSnLastMsg.Empty();
-		m_readSnLastValues = sn;
+		m_readSnLastOk = FALSE;
+		m_readSnLastMsg = _T("Read all SN: unknown C++ exception (see m576_fatal.log).");
+		SafeAppendLog(m_readSnLastMsg);
+		M576AppendFatalLogUtf8("[Read all SN] unknown C++ exception");
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_READ_SN_FINISHED, 0, 0);
@@ -1050,25 +1120,44 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 void CM576CalibratorDlg::BurnFlashWorkerEntry(
 	CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask)
 {
-	CString err;
-	SafeSetProgressRange(0, 100);
-	SafeSetProgressPos(0);
-	if (!McsFwUploadBinEx(
-			m_dev429f,
-			absOutBin,
-			err,
-			&CM576CalibratorDlg::ProgressThunk,
-			this,
-			burnMask.data()))
+	try
+	{
+		CString err;
+		SafeSetProgressRange(0, 100);
+		SafeSetProgressPos(0);
+		if (!McsFwUploadBinEx(
+				m_dev429f,
+				absOutBin,
+				err,
+				&CM576CalibratorDlg::ProgressThunk,
+				this,
+				burnMask.data()))
+		{
+			m_burnFlashLastOk = FALSE;
+			m_burnFlashLastMsg = err;
+		}
+		else
+		{
+			m_burnFlashLastOk = TRUE;
+			m_burnFlashLastMsg.Empty();
+			SafeSetProgressPos(100);
+		}
+	}
+	catch (const std::exception& e)
 	{
 		m_burnFlashLastOk = FALSE;
-		m_burnFlashLastMsg = err;
+		CStringA a;
+		a.Format("Burn Flash: std::exception: %s", e.what());
+		m_burnFlashLastMsg = CString(a);
+		SafeAppendLog(m_burnFlashLastMsg);
+		M576AppendFatalLogUtf8(a.GetString());
 	}
-	else
+	catch (...)
 	{
-		m_burnFlashLastOk = TRUE;
-		m_burnFlashLastMsg.Empty();
-		SafeSetProgressPos(100);
+		m_burnFlashLastOk = FALSE;
+		m_burnFlashLastMsg = _T("Burn Flash: unknown C++ exception (see m576_fatal.log).");
+		SafeAppendLog(m_burnFlashLastMsg);
+		M576AppendFatalLogUtf8("[Burn Flash] unknown C++ exception");
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_BURN_FLASH_FINISHED, 0, 0);
@@ -1317,7 +1406,7 @@ void CM576CalibratorDlg::OnBnClickedStop()
 		m_suppressPathProgress = true;
 		m_progress.SetRange(0, 100);
 		m_progress.SetPos(0);
-		MessageBoxM576(_T("User Stopped"), MB_OK | MB_ICONINFORMATION);
+		// Completion / notice when the path worker exits: OnPathFinished
 	}
 }
 
@@ -1908,10 +1997,10 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		else
 		{
 			const int nLut = (int)powY.size();
-			const double yGridA = xFixedDac;
-			const double xGridA = sweep1LineCol0;
 			const double rawDacXAtPeak = SweepCol0PlusPeakOffsetDac(xFixedDac, br, nLut, m_dacRange);
 			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, bc, nLut, m_dacRange);
+			const int rawXi = static_cast<int>(std::lround(rawDacXAtPeak));
+			const int rawYi = static_cast<int>(std::lround(rawDacYAtPeak));
 			{
 				CString msg;
 				msg.Format(
@@ -1925,22 +2014,21 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 				SafeAppendLog(msg);
 			}
 			SDacU16 dacU;
-			PeakGridToDacWord(br, bc, nLut, m_dacRange, yGridA, xGridA, dacU.uX, dacU.uY);
+			RawCrossPeakDacToU16Pair((double)rawXi, (double)rawYi, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
 			{
-				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_lutByTrans[fileSlot]);
+				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPmLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeak, rawDacYAtPeak, dacU, srow))
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 			else
 			{
-				ApplyRecalPeakToMems1x64(
-					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridA, xGridA, br, bc, m_mems1x64[fileSlot - 2]);
+				ApplyRecalPeakToMems1x64(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPmMems(
-						st, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeak, rawDacYAtPeak, dacU, srow))
+						st, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 		}
@@ -2185,10 +2273,10 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		else
 		{
 			const int nLut = (int)powY.size();
-			const double yGridAPd = xFixedDacPd;
-			const double xGridAPd = sweep1LineCol0Pd;
 			const double rawDacXAtPeakPd = SweepCol0PlusPeakOffsetDac(xFixedDacPd, br, nLut, m_dacRange);
 			const double rawDacYAtPeakPd = SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, bc, nLut, m_dacRange);
+			const int rawXiPd = static_cast<int>(std::lround(rawDacXAtPeakPd));
+			const int rawYiPd = static_cast<int>(std::lround(rawDacYAtPeakPd));
 			{
 				CString msg;
 				msg.Format(
@@ -2202,22 +2290,21 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				SafeAppendLog(msg);
 			}
 			SDacU16 dacU;
-			PeakGridToDacWord(br, bc, nLut, m_dacRange, yGridAPd, xGridAPd, dacU.uX, dacU.uY);
+			RawCrossPeakDacToU16Pair((double)rawXiPd, (double)rawYiPd, dacU.uX, dacU.uY);
 			if (fileSlot < 2)
 			{
-				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_lutByTrans[fileSlot]);
+				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPdLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeakPd, rawDacYAtPeakPd, dacU, srow))
+						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 			else
 			{
-				ApplyRecalPeakToMems1x64Pd(
-					st, idxOcc3, idxOcc4, nLut, m_dacRange, yGridAPd, xGridAPd, br, bc, m_mems1x64[fileSlot - 2]);
+				ApplyRecalPeakToMems1x64Pd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPdMems(
-						st, fileSlot, i + 1, br, bc, nLut, rawDacXAtPeakPd, rawDacYAtPeakPd, dacU, srow))
+						st, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
 					PushCalibStatRow(srow);
 			}
 		}

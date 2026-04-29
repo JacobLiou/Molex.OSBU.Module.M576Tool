@@ -19,9 +19,9 @@ struct SCalibrationStatRow
 	int peakCol{ 0 };
 	int gridN{ 0 };
 	CString storeType; // WORD (MCS) or SHORT (1x64 stAxisDAC in bin)
-	/// Linear DAC at cross-peak (before 12b ring): RECAL3/5 axis0 col0 + row*step, axis1 col0 + col*step (same grid as PeakGridToDacWord).
-	double rawDacX{ 0.0 };
-	double rawDacY{ 0.0 };
+	/// After lround: uX in MCS wCalibPtrDAC[][1] or mems sDACy; uY in wCalibPtrDAC[][0] or sDACx.
+	int rawDacX{ 0 };
+	int rawDacY{ 0 };
 	int dacX{ 0 };
 	int dacY{ 0 };
 	CString structPathDacX;
@@ -49,8 +49,8 @@ BOOL CalibBuildStatRowPmLut(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row);
 
@@ -61,8 +61,8 @@ BOOL CalibBuildStatRowPmMems(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row);
 
@@ -75,8 +75,8 @@ BOOL CalibBuildStatRowPdLut(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row);
 
@@ -87,8 +87,8 @@ BOOL CalibBuildStatRowPdMems(
 	int peakRow,
 	int peakCol,
 	int gridN,
-	double rawDacX,
-	double rawDacY,
+	int rawDacX,
+	int rawDacY,
 	SDacU16 dac,
 	SCalibrationStatRow& row);
 

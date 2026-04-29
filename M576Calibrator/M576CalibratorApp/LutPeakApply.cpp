@@ -1,81 +1,48 @@
 #include "stdafx.h"
 #include "LutPeakApply.h"
 #include "CalibConstants.h"
-// Grid index to DAC: MCS -> Z4671 LUT; 1x64 -> 126S stMemsSwCoef (four 2K blocks, low-temp stChnDAC).
+#include <algorithm>
+#include <cmath>
+// MCS -> Z4671 LUT; 1x64 -> 126S stMemsSwCoef (four 2K blocks, low-temp stChnDAC).
+// Clamped to int16, stored as 16-bit two's-complement in WORD/SHORT (MCS and 1x64).
 
 static short U16ToShortDac(unsigned short w)
 {
-	if (w > 0x7FFFu)
-		return 0x7FFF;
-	return (short)(int)w;
+	return (short)w;
 }
 
-static int ClampWord(int v)
+// Clamp to int16 range, then re-interpret as U16 (two's-complement bit pattern) for wCalibPtrDAC and mems sDAC* writes.
+static unsigned short ClampedS16ToU16(int v)
 {
-	if (v < 0)
-		return 0;
-	if (v > 65535)
-		return 65535;
-	return v;
+	v = std::clamp(v, -32768, 32767);
+	return (unsigned short)(short)v;
 }
 
-// RECAL sweep col0 may be negative: map linear (anchor + index*step) to 0..4095 (12-bit ring), then store as U16.
-static int LinearToDac12(int v)
+void RawCrossPeakDacToU16Pair(double rawDacX, double rawDacY, unsigned short& outDacX, unsigned short& outDacY)
 {
-	const int m = 4096;
-	int w = v % m;
-	if (w < 0)
-		w += m;
-	return w;
+	outDacX = ClampedS16ToU16((int)std::lround(rawDacX));
+	outDacY = ClampedS16ToU16((int)std::lround(rawDacY));
 }
 
-void PeakGridToDacWord(
-	int peakRow,
-	int peakCol,
-	int n,
-	int halfRange,
-	double yGridStart,
-	double xGridStart,
-	unsigned short& outDacX,
-	unsigned short& outDacY)
-{
-	if (n <= 1)
-	{
-		outDacX = outDacY = (unsigned short)ClampWord(M576_PEAK_GRID_DAC_BASE);
-		return;
-	}
-	const double step = (2.0 * (double)halfRange) / (double)(n - 1);
-	const int x = (int)floor(xGridStart + (double)peakCol * step + 0.5);
-	const int y = (int)floor(yGridStart + (double)peakRow * step + 0.5);
-	outDacX = (unsigned short)ClampWord(LinearToDac12(x));
-	outDacY = (unsigned short)ClampWord(LinearToDac12(y));
-}
-
+// Logical cross-peak dacX/dacY from RECAL0/1 sweeps. Firmware: [0] and sDACx hold Y; [1] and sDACy hold X.
 static void WriteDacPair(stLutSettingZ4671& lut, int swIdx, int chIdx, unsigned short dacX, unsigned short dacY)
 {
 	if (swIdx < 0 || swIdx >= 34)
 		return;
 	if (chIdx < 0 || chIdx >= PORT_MAX_COUNT + MID_MAX_COUNT)
 		return;
-	lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][0] = dacX;
-	lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][1] = dacY;
+	lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][0] = dacY;
+	lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][1] = dacX;
 }
 
 void ApplyRecalPeakToLut(
 	const SPathStep& step,
 	int occTarget3,
 	int occTarget4,
-	int gridN,
-	int halfRange,
-	double yGridStart,
-	double xGridStart,
-	int peakRow,
-	int peakCol,
+	unsigned short dacX,
+	unsigned short dacY,
 	stLutSettingZ4671& lut)
 {
-	unsigned short dacX = 0, dacY = 0;
-	PeakGridToDacWord(peakRow, peakCol, gridN, halfRange, yGridStart, xGridStart, dacX, dacY);
-
 	const int t = step.targetSwitchIndex;
 
 	if (t == 3)
@@ -132,18 +99,12 @@ void ApplyRecalPeakToMems1x64(
 	const SPathStep& step,
 	int /*occTarget3*/,
 	int /*occTarget4*/,
-	int gridN,
-	int halfRange,
-	double yGridStart,
-	double xGridStart,
-	int peakRow,
-	int peakCol,
+	unsigned short dacX,
+	unsigned short dacY,
 	stM576OneX64MemsSwCoef* pSw4)
 {
 	if (pSw4 == NULL)
 		return;
-	unsigned short dacX = 0, dacY = 0;
-	PeakGridToDacWord(peakRow, peakCol, gridN, halfRange, yGridStart, xGridStart, dacX, dacY);
 	const int t = step.targetSwitchIndex;
 	// 1x64: targets 1,2,5,6 only (pm_1x64_*.csv); 3/4 are MCS
 	if (t == 3 || t == 4)
@@ -159,8 +120,8 @@ void ApplyRecalPeakToMems1x64(
 		if (block < 0 || block > 3)
 			return;
 		stM576OneX64ChnDAC& d = pSw4[block].stCalibDAC[0];
-		d.stChnDAC[inBlk].sDACx = U16ToShortDac(dacX);
-		d.stChnDAC[inBlk].sDACy = U16ToShortDac(dacY);
+		d.stChnDAC[inBlk].sDACx = U16ToShortDac(dacY);
+		d.stChnDAC[inBlk].sDACy = U16ToShortDac(dacX);
 		(void)d.wValid;
 		(void)d.sTemperature;
 	};
@@ -175,17 +136,10 @@ void ApplyRecalPeakToLutPd(
 	const SPathStepPd& step,
 	int occTarget3,
 	int occTarget4,
-	int gridN,
-	int halfRange,
-	double yGridStart,
-	double xGridStart,
-	int peakRow,
-	int peakCol,
+	unsigned short dacX,
+	unsigned short dacY,
 	stLutSettingZ4671& lut)
 {
-	unsigned short dacX = 0, dacY = 0;
-	PeakGridToDacWord(peakRow, peakCol, gridN, halfRange, yGridStart, xGridStart, dacX, dacY);
-
 	const int t = step.targetSwitchIndex;
 
 	if (t == 3)
@@ -230,18 +184,12 @@ void ApplyRecalPeakToMems1x64Pd(
 	const SPathStepPd& step,
 	int /*occTarget3*/,
 	int /*occTarget4*/,
-	int gridN,
-	int halfRange,
-	double yGridStart,
-	double xGridStart,
-	int peakRow,
-	int peakCol,
+	unsigned short dacX,
+	unsigned short dacY,
 	stM576OneX64MemsSwCoef* pSw4)
 {
 	if (pSw4 == NULL)
 		return;
-	unsigned short dacX = 0, dacY = 0;
-	PeakGridToDacWord(peakRow, peakCol, gridN, halfRange, yGridStart, xGridStart, dacX, dacY);
 	const int t = step.targetSwitchIndex;
 	if (t == 3 || t == 4)
 		return;
@@ -255,6 +203,6 @@ void ApplyRecalPeakToMems1x64Pd(
 	if (block < 0 || block > 3)
 		return;
 	stM576OneX64ChnDAC& d = pSw4[block].stCalibDAC[0];
-	d.stChnDAC[inBlk].sDACx = U16ToShortDac(dacX);
-	d.stChnDAC[inBlk].sDACy = U16ToShortDac(dacY);
+	d.stChnDAC[inBlk].sDACx = U16ToShortDac(dacY);
+	d.stChnDAC[inBlk].sDACy = U16ToShortDac(dacX);
 }

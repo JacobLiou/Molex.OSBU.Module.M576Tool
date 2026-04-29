@@ -134,6 +134,7 @@
     <ClInclude Include="CalibConstants.h" />
     <ClInclude Include="LutMerge1310.h" />
     <ClInclude Include="LutPeakApply.h" />
+    <ClInclude Include="M576GlobalException.h" />
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576BurnSelectDlg.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
@@ -152,6 +153,7 @@
     <ClCompile Include="CalibWriteMeta.cpp" />
     <ClCompile Include="LutMerge1310.cpp" />
     <ClCompile Include="LutPeakApply.cpp" />
+    <ClCompile Include="M576GlobalException.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576BurnSelectDlg.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
