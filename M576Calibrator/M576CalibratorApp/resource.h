@@ -9,6 +9,7 @@
 #define AFX_IDC_CHANGE                  101
 #define AFX_IDC_BROWSER                 102
 #define IDD_M576CALIBRATOR_DIALOG       102
+#define IDD_M576_BURN_SELECT            110
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -57,6 +58,7 @@
 #define IDC_GROUP_BK_READ_BIN           1056
 #define IDC_BTN_READ_FLASH_BACKUP       1022
 #define IDC_BTN_EXPORT_CALIB_STATS      1040
+#define IDC_BTN_TEST_CONNECTION         1041
 #define IDC_RADIO_CAL_PM                1023
 #define IDC_RADIO_CAL_PD                1024
 #define IDC_EDIT_RECAL_DELAY            1025
@@ -75,6 +77,17 @@
 #define IDC_BTN_CLOSE_PORT              1038
 #define IDC_BTN_CLEAR_LOG               1039
 #define IDC_STATIC_PATH_CSV_HINT        2116
+#define IDC_BURN_CHECK_MCS1             2140
+#define IDC_BURN_CHECK_MCS2             2141
+#define IDC_BURN_CHECK_1X64_1_SW1      2142
+#define IDC_BURN_CHECK_1X64_1_SW2      2143
+#define IDC_BURN_CHECK_1X64_1_SW3      2144
+#define IDC_BURN_CHECK_1X64_1_SW4      2145
+#define IDC_BURN_CHECK_1X64_2_SW1      2146
+#define IDC_BURN_CHECK_1X64_2_SW2      2147
+#define IDC_BURN_CHECK_1X64_2_SW3      2148
+#define IDC_BURN_CHECK_1X64_2_SW4      2149
+#define IDC_STATIC_BURN_BASE_HINT      2139
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102

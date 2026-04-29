@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576CalibratorDlg.h"
+#include "M576BurnSelectDlg.h"
 #include "LutMerge1310.h"
 #include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
@@ -8,6 +9,7 @@
 #include "LutPeakApply.h"
 #include <math.h>
 #include <algorithm>
+#include <array>
 // M576CalibratorDlg.cpp：M576 定标主界面。单 COM 经 429F 发 RECAL、经 trans/$$ 跑 Z4671；后台线程跑路径/读备份，UI 仅收消息刷日志与进度。
 
 #ifdef _DEBUG
@@ -89,6 +91,67 @@ static bool M576CommErrIsSerialWriteFailure(const CString& e)
 	return t.Find(_T("write")) >= 0;
 }
 
+/// 439F 管理口文本：发送 `info<CR>`，在超时内收齐应答（空闲 200ms 或最长 3s 结束），用于“测试连接”。
+static BOOL M576Try439fInfoTest(Z4671Command& comm, CString& outResponseOneLine, CString& err)
+{
+	outResponseOneLine.Empty();
+	err.Empty();
+	HANDLE h = comm.GetPortHandle();
+	if (!h || h == INVALID_HANDLE_VALUE)
+	{
+		err = _T("Port is not open.");
+		return FALSE;
+	}
+	(void)PurgeComm(h, PURGE_RXCLEAR);
+	static const char kInfoCmd[] = "info\r";
+	if (!comm.WriteBufferNoPurge((char*)kInfoCmd, (DWORD)sizeof(kInfoCmd) - 1u))
+	{
+		err = _T("Serial write failed (info<CR>).");
+		return FALSE;
+	}
+	::Sleep(20);
+	CStringA acc;
+	const DWORD t0 = ::GetTickCount();
+	DWORD lastDataTick = 0;
+	for (;;)
+	{
+		const DWORD now = ::GetTickCount();
+		if (comm.RxBytesWaiting() > 0)
+		{
+			BYTE buf[600];
+			DWORD rd = 0;
+			if (comm.ReadBuffer(buf, sizeof(buf), &rd) && rd > 0u)
+			{
+				acc += CStringA(reinterpret_cast<const char*>(buf), (int)rd);
+				lastDataTick = now;
+			}
+		}
+		else
+		{
+			if (!acc.IsEmpty() && (now - lastDataTick) >= 200u)
+				break;
+			if (acc.IsEmpty() && (now - t0) > 3000u)
+			{
+				err = _T("Timeout: no reply to info<CR> (3s).");
+				return FALSE;
+			}
+		}
+		if (!acc.IsEmpty() && (now - t0) > 3000u)
+			break;
+		::Sleep(5);
+	}
+	acc.Replace("\r", " ");
+	acc.Replace("\n", " ");
+	acc.Trim();
+	if (acc.IsEmpty())
+	{
+		err = _T("No text in reply to info<CR> (device silent).");
+		return FALSE;
+	}
+	outResponseOneLine = CString(acc);
+	return TRUE;
+}
+
 constexpr UINT WM_M576_PATH_LOG_FLUSH = WM_APP + 100;
 constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
 constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
@@ -148,8 +211,7 @@ static int RecalDacAtPeakIndexFromSweepCol0(int peakIndex, int sampleCount, int 
 		return M576_RECAL_FW_READ_BASE_DAC;
 	const double y = SweepCol0PlusPeakOffsetDac(sweepLineCol0, peakIndex, sampleCount, halfRange);
 	int iy = (int)floor(y + 0.5);
-	if (iy < 0)
-		iy = 0;
+	// col0+idx*gridStep is a signed linear coordinate; do not map negatives to 0.
 	if (iy > 65535)
 		iy = 65535;
 	return iy;
@@ -386,6 +448,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_readBackupLastOk(FALSE)
 	, m_readSnLastOk(FALSE)
 	, m_burnFlashLastOk(FALSE)
+	, m_burnFlashLastPartial(FALSE)
 {
 	for (int i = 0; i < 4; ++i)
 	{
@@ -442,6 +505,7 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 
 BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
+	ON_BN_CLICKED(IDC_BTN_TEST_CONNECTION, &CM576CalibratorDlg::OnBnClickedTestConnection)
 	ON_BN_CLICKED(IDC_BTN_CLOSE_PORT, &CM576CalibratorDlg::OnBnClickedClosePort)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
@@ -741,6 +805,8 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 		p->EnableWindow(open && !busy);
 	if (CWnd* p = GetDlgItem(IDC_COMBO_COM))
 		p->EnableWindow(!open);
+	if (CWnd* p = GetDlgItem(IDC_BTN_TEST_CONNECTION))
+		p->EnableWindow(!busy);
 }
 
 LRESULT CM576CalibratorDlg::OnPathLogFlush(WPARAM, LPARAM)
@@ -898,6 +964,8 @@ LRESULT CM576CalibratorDlg::OnBurnFlashFinished(WPARAM, LPARAM)
 	if (m_burnFlashLastOk)
 	{
 		AppendLog(_T("Flash completed: trans1-2 via MCS update stream, trans3-4 via 1x64 XMODEM (per-file from output base)."));
+		if (m_burnFlashLastPartial)
+			AppendLog(_T("Partial burn: only the selected per-trans .bin files were programmed."));
 		MessageBoxM576(
 			_T("Burn Flash completed successfully.\n\nMCS and 1x64 paths finished for the configured .bin set."),
 			MB_OK | MB_ICONINFORMATION);
@@ -979,12 +1047,19 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 		::PostMessage(m_hWnd, WM_M576_READ_SN_FINISHED, 0, 0);
 }
 
-void CM576CalibratorDlg::BurnFlashWorkerEntry(CString absOutBin)
+void CM576CalibratorDlg::BurnFlashWorkerEntry(
+	CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask)
 {
 	CString err;
 	SafeSetProgressRange(0, 100);
 	SafeSetProgressPos(0);
-	if (!McsFwUploadBinEx(m_dev429f, absOutBin, err, &CM576CalibratorDlg::ProgressThunk, this))
+	if (!McsFwUploadBinEx(
+			m_dev429f,
+			absOutBin,
+			err,
+			&CM576CalibratorDlg::ProgressThunk,
+			this,
+			burnMask.data()))
 	{
 		m_burnFlashLastOk = FALSE;
 		m_burnFlashLastMsg = err;
@@ -1131,6 +1206,51 @@ void CM576CalibratorDlg::OnBnClickedOpenPorts()
 	if (OpenPort())
 		AppendLog(_T("Open port OK."));
 	SyncSerialPortUi();
+}
+
+void CM576CalibratorDlg::OnBnClickedTestConnection()
+{
+	UpdateData(TRUE);
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load();
+	if (busy)
+	{
+		AppendLog(_T("Test connection: a background task is running; wait for it to finish."));
+		return;
+	}
+	if (!IsSerialPortOpen())
+	{
+		AppendLog(_T("Test connection: opening port, then sending info<CR>…"));
+		if (!OpenPort())
+		{
+			AppendLog(_T("Test connection: failed to open serial port."));
+			return;
+		}
+		SyncSerialPortUi();
+	}
+	else
+		AppendLog(_T("Test connection: sending info<CR>…"));
+	CString resp, e;
+	if (!M576Try439fInfoTest(m_dev429f, resp, e))
+	{
+		CString line;
+		line.Format(_T("Test connection failed: %s"), (LPCTSTR)e);
+		AppendLog(line);
+		CString box;
+		box.Format(_T("439F connection test failed:\n\n%s"), (LPCTSTR)e);
+		MessageBoxM576(box, MB_OK | MB_ICONWARNING);
+		return;
+	}
+	int showLen = resp.GetLength();
+	if (showLen > 500)
+		resp = resp.Left(500) + _T("…");
+	CString ok;
+	ok.Format(_T("Test connection OK. Reply: %s"), (LPCTSTR)resp);
+	AppendLog(ok);
+	{
+		CString box;
+		box.Format(_T("439F connection test OK.\n\ninfo<CR> reply:\n\n%s"), (LPCTSTR)resp);
+		MessageBoxM576(box, MB_OK | MB_ICONINFORMATION);
+	}
 }
 
 void CM576CalibratorDlg::OnBnClickedClosePort()
@@ -2412,10 +2532,36 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("Burn Flash cancelled by user."));
 		return;
 	}
+	CM576BurnSelectDlg burnDlg(this, absOutBin);
+	if (burnDlg.DoModal() != IDOK)
+	{
+		AppendLog(_T("Burn Flash cancelled (file selection)."));
+		return;
+	}
+	std::array<bool, M576_BURN_FILE_COUNT> burnMask = burnDlg.GetMask();
+	bool anySel = false;
+	for (bool b : burnMask) {
+		if (b) {
+			anySel = true;
+			break;
+		}
+	}
+	if (!anySel) {
+		MessageBoxM576(_T("No part selected for burn."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	m_burnFlashLastPartial = false;
+	for (bool b : burnMask) {
+		if (!b) {
+			m_burnFlashLastPartial = TRUE;
+			break;
+		}
+	}
 	if (m_burnFlashThread.joinable())
 		m_burnFlashThread.join();
 	m_burnFlashRunning = true;
 	SetPathActionButtonsEnabled(FALSE);
 	AppendLog(_T("Burn Flash started in background..."));
-	m_burnFlashThread = std::thread([this, absOutBin]() { BurnFlashWorkerEntry(absOutBin); });
+	m_burnFlashThread = std::thread(
+		[this, absOutBin, burnMask]() { BurnFlashWorkerEntry(absOutBin, burnMask); });
 }

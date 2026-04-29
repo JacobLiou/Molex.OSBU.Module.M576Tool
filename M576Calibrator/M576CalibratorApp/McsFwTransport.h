@@ -19,7 +19,16 @@ struct M576TransSnPnInfo
 // 按 trans 上载 MCS 侧 LUT 固件包（400B 分块到结束包）。
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err);
 typedef void (__cdecl *McsFwProgressCb)(int current, int total, void* user); // 上载/读回进度，__cdecl
-BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user);
+/// `standard.bin` 基下 10 个分文件：0–1 `*_mcs1/2.bin`；2–5 trans3 `*_1x64_1_sw1..4`；6–9 trans4 `*_1x64_2_sw1..4`。
+// `pBurnFile10 == NULL`：全部烧录；否则仅 `true` 项计 chunk/上载。
+#define M576_BURN_FILE_COUNT 10
+BOOL McsFwUploadBinEx(
+	Z4671Command& cmd,
+	LPCTSTR szBinPath,
+	CString& err,
+	McsFwProgressCb cb,
+	void* user,
+	const bool* pBurnFile10 = NULL);
 
 /// From base "x.bin" -> "x_mcs1.bin" / "x_mcs2.bin" / "x_1x64_1.bin" + per-switch "x_1x64_1_swN.bin" (trans 1~4; see g_m576TransLutBinSuffix + M576TransBinPathForSwitch).
 // 由用户选的“基名”生成分 trans 备份/输出文件名（后缀 g_m576TransLutBinSuffix）。

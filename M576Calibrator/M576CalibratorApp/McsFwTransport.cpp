@@ -282,10 +282,10 @@ CString M576TransBinPathForSwitch(LPCTSTR szBasePath, int transChannel, int swId
 	return primary.Left(dot) + suf + primary.Mid(dot);
 }
 
-// 无进度回调的 MCS LUT 上载（内部转 McsFwUploadBinEx）。
+// 无进度回调的 MCS LUT 上载（内部转 McsFwUploadBinEx，全量烧录）。
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
 {
-	return McsFwUploadBinEx(cmd, szBinPath, err, NULL, NULL);
+	return McsFwUploadBinEx(cmd, szBinPath, err, NULL, NULL, NULL);
 }
 
 // 按 g_m576FlashReadTransChannels 逐路 trans：MCS 用 0xC4+ReadLutBundle，1x64 用 MEM 8KB（见 Switch1x64）。
@@ -369,8 +369,74 @@ BOOL McsReadLutBundleFromDevice(
 	return TRUE;
 }
 
+// Index 0–1: MCS1–2; 2–5: trans3 sw0–3; 6–9: trans4 sw0–3.
+static int M576BurnFileIndexMcs(int ch) { return ch - 1; }
+static int M576BurnFileIndex1x64(int ch, int sw) {
+	if (ch == 3) return 2 + sw;
+	if (ch == 4) return 6 + sw;
+	return -1;
+}
+static BOOL M576BurnPart(const bool* p, int burnIdx) {
+	if (!p) return TRUE;
+	if (burnIdx < 0 || burnIdx >= M576_BURN_FILE_COUNT) return TRUE;
+	return p[burnIdx] ? TRUE : FALSE;
+}
+static BOOL M576AnyBurnFileSelected(const bool* p) {
+	if (!p) return TRUE;
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i) {
+		if (p[i]) return TRUE;
+	}
+	return FALSE;
+}
+static BOOL M576ValidateBurnSelection(LPCTSTR szBase, const bool* p, CString& err) {
+	if (!p) return TRUE;
+	err.Empty();
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i) {
+		if (!p[i]) continue;
+		if (i <= 1) {
+			const int ch = i + 1;
+			const CString path = M576TransBinPathForRead(szBase, ch);
+			const HANDLE h = CreateFile(
+				path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+			if (h == INVALID_HANDLE_VALUE) {
+				err.Format(
+					_T("Burn selection: file missing (required when checked): %s"), (LPCTSTR)path);
+				return FALSE;
+			}
+			const DWORD szF = GetFileSize(h, NULL);
+			CloseHandle(h);
+			if (szF == 0) {
+				err.Format(_T("Burn selection: file empty: %s"), (LPCTSTR)path);
+				return FALSE;
+			}
+		}
+		else {
+			const int ch = (i < 6) ? 3 : 4;
+			const int sw = (i < 6) ? (i - 2) : (i - 6);
+			const CString path = M576TransBinPathForSwitch(szBase, ch, sw);
+			const HANDLE hP = CreateFile(
+				path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+			if (hP == INVALID_HANDLE_VALUE) {
+				err.Format(
+					_T("Burn selection: file missing (required when checked): %s"), (LPCTSTR)path);
+				return FALSE;
+			}
+			const DWORD fsz = GetFileSize(hP, NULL);
+			CloseHandle(hP);
+			if (fsz != (DWORD)M576_1X64_MEMS_BIN_SIZE) {
+				err.Format(
+					_T("Burn selection: %s expected %u B, got %lu (when checked)."),
+					(LPCTSTR)path, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)fsz);
+				return FALSE;
+			}
+		}
+	}
+	return TRUE;
+}
+
 // 多路烧录：对 g_m576FlashBurnTransChannels 中存在的分 trans bin 上载（MCS 400B 流 / 1x64 XMODEM），合并进度。
-BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user)
+BOOL McsFwUploadBinEx(
+	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user, const bool* pBurnFile10)
 {
 	err.Empty();
 	if (g_m576FlashBurnTransChannelCount == 0)
@@ -378,6 +444,12 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 		err = _T("No burn trans channels configured.");
 		return FALSE;
 	}
+	if (pBurnFile10 && !M576AnyBurnFileSelected(pBurnFile10)) {
+		err = _T("No part selected for burn.");
+		return FALSE;
+	}
+	if (pBurnFile10 && !M576ValidateBurnSelection(szBinPath, pBurnFile10, err))
+		return FALSE;
 	CString discard;
 	(void)Board439fTransTunnel::EndTrans(cmd, discard);
 
@@ -389,48 +461,60 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 		const int pch = g_m576FlashBurnTransChannels[pi];
 		const CString pathProbe = M576TransBinPathForRead(szBinPath, pch);
 		DWORD sz = 0;
-		HANDLE hProbe = CreateFile(pathProbe, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		const HANDLE hProbe = CreateFile(
+			pathProbe, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 		if (hProbe != INVALID_HANDLE_VALUE)
 		{
 			sz = GetFileSize(hProbe, NULL);
 			CloseHandle(hProbe);
 		}
 		int chunks = 0;
-		if (sz > 0)
+		if (IsMcsTransChannel(pch))
 		{
-			if (IsMcsTransChannel(pch))
+			const int bIdx = M576BurnFileIndexMcs(pch);
+			if (!M576BurnPart(pBurnFile10, bIdx))
+			{
+				chunks = 0;
+			}
+			else if (sz > 0)
 			{
 				const int iCnt = (int)(sz / MAX_DATA_LENGTH);
 				chunks = iCnt + 1;
 			}
-			else
+		}
+		else
+		{
+			int c = 0;
+			for (int sw = 0; sw < 4; ++sw)
 			{
-				// 1x64：每路 2K 一个 XMODEM 链；四个 sw 文件 `*_1x64_*_swN.bin` 的块数累加
-				int c = 0;
-				for (int sw = 0; sw < 4; ++sw)
-				{
-					const CString p = M576TransBinPathForSwitch(szBinPath, pch, sw);
-					if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
-						continue;
-					HANDLE hP = CreateFile(
-						p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-					if (hP == INVALID_HANDLE_VALUE)
-						continue;
-					const DWORD fsz = GetFileSize(hP, NULL);
-					CloseHandle(hP);
-					if (fsz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
-						continue;
-					c += M5761x64XmodemChunkCountForFileSize(fsz);
-				}
-				chunks = c;
+				const int bIdx = M576BurnFileIndex1x64(pch, sw);
+				if (!M576BurnPart(pBurnFile10, bIdx))
+					continue;
+				const CString p = M576TransBinPathForSwitch(szBinPath, pch, sw);
+				if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+					continue;
+				const HANDLE hP = CreateFile(
+					p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+				if (hP == INVALID_HANDLE_VALUE)
+					continue;
+				const DWORD fsz = GetFileSize(hP, NULL);
+				CloseHandle(hP);
+				if (fsz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
+					continue;
+				c += M5761x64XmodemChunkCountForFileSize(fsz);
 			}
+			chunks = c;
 		}
 		chunksPerChannel[pi] = chunks;
 		progressTotal += chunks;
 	}
 	if (progressTotal <= 0)
 	{
-		err.Format(_T("No non-empty per-trans .bin (e.g. *_mcs1.bin) from base: %s"), szBinPath);
+		if (pBurnFile10) {
+			err = _T("No valid .bin to burn for the selected items (check files and selection).");
+		} else
+			err.Format(
+				_T("No non-empty per-trans .bin (e.g. *_mcs1.bin) from base: %s"), szBinPath);
 		return FALSE;
 	}
 
@@ -442,7 +526,8 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 		const int chunksThis = chunksPerChannel[i];
 		if (chunksThis <= 0)
 		{
-			cmd.TraceInfo(_T("FW"), _T("Burn skip trans=%d (missing or empty %s)."), ch, binPath.GetString());
+			cmd.TraceInfo(
+				_T("FW"), _T("Burn skip trans=%d (missing, empty, or not selected) %s."), ch, binPath.GetString());
 			continue;
 		}
 		cmd.TraceInfo(_T("FW"), _T("Burn: trans=%d bin=%s (%s)"), ch, binPath.GetString(),
@@ -467,33 +552,26 @@ BOOL McsFwUploadBinEx(Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwP
 			std::vector<CString> x64Paths;
 			for (int sw = 0; sw < 4; ++sw)
 			{
+				const int bIdx = M576BurnFileIndex1x64(ch, sw);
+				if (!M576BurnPart(pBurnFile10, bIdx))
+					continue;
 				const CString p = M576TransBinPathForSwitch(szBinPath, ch, sw);
 				if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
-				{
-					cmd.TraceInfo(
-						_T("FW"), _T("Burn 1x64 trans=%d: skip missing sw %d: %s"), ch, sw + 1, p.GetString());
 					continue;
-				}
-				HANDLE hP = CreateFile(
+				const HANDLE hP = CreateFile(
 					p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 				if (hP == INVALID_HANDLE_VALUE)
 					continue;
 				const DWORD fsz = GetFileSize(hP, NULL);
 				CloseHandle(hP);
 				if (fsz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
-				{
-					cmd.TraceInfo(
-						_T("FW"),
-						_T("Burn 1x64 trans=%d: skip sw %d (expected %u B, got %lu): %s"),
-						ch, sw + 1, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)fsz, p.GetString());
 					continue;
-				}
 				x64Paths.push_back(p);
 			}
 			if (x64Paths.empty())
 			{
 				err.Format(
-					_T("trans %d: no valid 1x64 2K per-switch .bin (*_sw1..4) for base %s"),
+					_T("trans %d: internal: no 1x64 .bin in burn list (base %s)"),
 					ch, szBinPath);
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
 				return FALSE;

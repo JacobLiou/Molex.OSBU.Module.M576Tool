@@ -7,6 +7,8 @@
 #include "resource.h"
 #include "OpComm.h"
 #include "Z4671Command.h"
+#include "McsFwTransport.h"
+#include <array>
 #include "LutBinWriter.h"
 #include "M576OneX64Coef.h"
 #include "Z4767StructDefine.h"
@@ -86,6 +88,8 @@ private:
 	CString m_readSnLastMsg;
 	M576TransSnPnInfo m_readSnLastValues;
 	BOOL m_burnFlashLastOk;
+	/// 上次烧录是否仅部分分文件（勾选掩码非全选）；由烧录前 UI 置位，供成功日志说明。
+	BOOL m_burnFlashLastPartial;
 	CString m_burnFlashLastMsg;
 
 	// --- 定标模式与 RECAL 步参 ---
@@ -125,7 +129,7 @@ private:
 	void PathWorkerEntry();
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void ReadAllSnWorkerEntry();
-	void BurnFlashWorkerEntry(CString absOutBin);
+	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -155,6 +159,7 @@ private:
 
 	// --- 按钮与自定义消息（路径日志/进度/完成）---
 	afx_msg void OnBnClickedOpenPorts();
+	afx_msg void OnBnClickedTestConnection();
 	afx_msg void OnBnClickedClosePort();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();

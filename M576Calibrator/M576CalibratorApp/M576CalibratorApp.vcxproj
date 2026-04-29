@@ -135,6 +135,7 @@
     <ClInclude Include="LutMerge1310.h" />
     <ClInclude Include="LutPeakApply.h" />
     <ClInclude Include="M576Calibrator.h" />
+    <ClInclude Include="M576BurnSelectDlg.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
     <ClInclude Include="McsFwTransport.h" />
     <ClInclude Include="Switch1x64FwTransport.h" />
@@ -152,6 +153,7 @@
     <ClCompile Include="LutMerge1310.cpp" />
     <ClCompile Include="LutPeakApply.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />
+    <ClCompile Include="M576BurnSelectDlg.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />
     <ClCompile Include="Switch1x64FwTransport.cpp" />
