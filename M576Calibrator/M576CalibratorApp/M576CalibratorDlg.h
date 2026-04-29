@@ -110,11 +110,10 @@ private:
 
 	// --- 日志与 UI 安全调用（可跨线程）---
 	void AppendLog(LPCTSTR sz);
-	/// Full line (with timestamp) as UTF-8; updates edit via Unicode + WriteLogFileLine.
-	void AppendLogUtf8(const CStringA& lineUtf8WithTimestamp);
+	/// MessageBoxW；窄串先按 UTF-8（Z4671 /utf-8 错文）解码，失败再按系统 ACP（本机路径等）。
+	int MessageBoxM576(const CString& text, UINT nType, const wchar_t* pTitle = L"M576CalibratorApp");
+	int MessageBoxM576(LPCTSTR text, UINT nType, const wchar_t* pTitle = L"M576CalibratorApp");
 	void SafeAppendLog(LPCTSTR sz);
-	/// Text is UTF-8 (core err strings with /utf-8); use MessageBoxW to avoid mojibake.
-	void ShowMessageBoxUtf8(const CString& textUtf8, UINT type, const wchar_t* title = L"M576CalibratorApp");
 	void SafeSetProgressRange(int minVal, int maxVal);
 	void SafeSetProgressPos(int pos);
 	void SetPathActionButtonsEnabled(BOOL enable);
