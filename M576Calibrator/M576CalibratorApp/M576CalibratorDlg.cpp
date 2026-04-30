@@ -2478,7 +2478,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 	}
 	AppendLog(_T("All trans BIN files written."));
 	MessageBoxM576(
-		_T("Write BIN completed.\n\nAll four per-trans .bin files were written successfully."),
+		_T("Write BIN completed.\n\nAll per-trans .bin files were written successfully."),
 		MB_OK | MB_ICONINFORMATION);
 }
 
