@@ -47,7 +47,6 @@
 #define IDC_BTN_GEN_BIN                 1013
 #define IDC_BTN_FLASH                   1014
 #define IDC_BTN_STOP                    1015
-#define IDC_STATIC_VERSION              1016
 #define IDC_STATIC_LABEL_COM            1017
 #define IDC_GROUP_CONN                  1018
 #define IDC_GROUP_PATHS                 1019

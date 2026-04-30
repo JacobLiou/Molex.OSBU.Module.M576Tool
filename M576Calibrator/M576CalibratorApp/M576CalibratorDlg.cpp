@@ -550,7 +550,6 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		SetIcon(hIcon, FALSE);
 	}
 	SetWindowText(M576_APP_WINDOW_TITLE);
-	::SetDlgItemText(m_hWnd, IDC_STATIC_VERSION, M576_APP_VERSION_TAG);
 	::SetDlgItemText(m_hWnd, IDC_GROUP_CONN, _T("Connection"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_PATHS, _T("Config"));
 	::SetDlgItemText(m_hWnd, IDC_GROUP_ACTIONS, _T("Actions"));
