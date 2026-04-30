@@ -5,6 +5,7 @@
 #include "PeakFinder2D.h"
 #include <windows.h>
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -192,14 +193,154 @@ static bool LoadSweepsFile(const char* path, SweepRow& sweepY, SweepRow& sweepX,
 
 static void DefaultDemoData(SweepRow& y, SweepRow& x)
 {
+	// Exact quadratics p(i)=50-1.0*(i-iv)^2 (10x scale vs old demo): span>=M576_PEAK1D_MIN_SPAN_DB; LS vertex at iv unchanged.
 	y.dac_base = 32000.0;
-	y.powers = { 0.1, 0.2, 0.4, 0.9, 0.3, 0.1, 0.0 };
+	y.powers.resize(7);
+	for (int i = 0; i < 7; ++i)
+		y.powers[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
 	x.dac_base = 32000.0;
-	x.powers = { 0.0, 0.1, 0.2, 0.15, 0.2, 0.95, 0.1 };
+	x.powers.resize(7);
+	for (int i = 0; i < 7; ++i)
+		x.powers[(size_t)i] = 50.0 - 1.0 * (double)(i - 2) * (double)(i - 2);
+}
+
+/// Synthetic checks for span / strict-peak / cross; returns number of failures.
+static int RunPeak1DSelfTests()
+{
+	int fail = 0;
+	using M576::Peak1DValidateCode;
+	{
+		std::vector<double> flat(7, -10.0);
+		int idx = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::FindUnimodalPeak1DIndex(flat, idx, c) || c != Peak1DValidateCode::LowSpan)
+		{
+			std::fprintf(stderr, "self-test: flat line should be LowSpan\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> one(5);
+		for (int i = 0; i < 5; ++i)
+			one[(size_t)i] = 50.0 - 1.0 * (double)(i - 2) * (double)(i - 2);
+		int idx = 0;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::FindUnimodalPeak1DIndex(one, idx, c, &t) || std::abs(t - 2.0) > 1e-5 || idx != 2
+			|| c != Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: parabola peak at t=2, lround->2\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> y(7), x(7);
+		for (int i = 0; i < 7; ++i)
+		{
+			y[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
+			x[(size_t)i] = 50.0 - 1.0 * (double)(i - 2) * (double)(i - 2);
+		}
+		int br = 0, bc = 0;
+		Peak1DValidateCode yc = Peak1DValidateCode::Ok, xc = Peak1DValidateCode::Ok;
+		double tY = 0, tX = 0;
+		if (!M576::PeakCrossFrom1DScans(y, x, br, bc, &yc, &xc, &tY, &tX) || br != 3 || bc != 2
+			|| yc != Peak1DValidateCode::Ok || xc != Peak1DValidateCode::Ok
+			|| std::abs(tY - 3.0) > 1e-3 || std::abs(tX - 2.0) > 1e-3)
+		{
+			std::fprintf(stderr, "self-test: cross parabola tY=3 tX=2, lround (3,2)\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> two(2, 1.0);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(two, t, c) || c != Peak1DValidateCode::NotEnoughSamples)
+		{
+			std::fprintf(stderr, "self-test: n=2 should be NotEnoughSamples\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> up(5);
+		for (int i = 0; i < 5; ++i)
+			up[(size_t)i] = (double)(i * i) * 10.0; // span>>min; still upward-opening => ParabolaNotDownward
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		double t = 0;
+		if (M576::ParabolaVertexMax1D(up, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: upward parabola => ParabolaNotDownward\n");
+			++fail;
+		}
+	}
+	// Masked fit: one firmware sentinel removed; true vertex at i=3, still ~3.0
+	{
+		std::vector<double> seven(7);
+		for (int i = 0; i < 7; ++i)
+			seven[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
+		seven[2] = -999999.0; // M576_RECAL_POW_INVALID_1
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(seven, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 3.0) > 0.15)
+		{
+			std::fprintf(stderr, "self-test: masked parabola vertex near 3.0 (one -999999)\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> p(5, -999900.0); // 3 valid sentinels + 2 real samples => n_valid=2 < 3
+		p[0] = 0.0;
+		p[1] = 1.0;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(p, t, c) || c != Peak1DValidateCode::NotEnoughValidSamples)
+		{
+			std::fprintf(stderr, "self-test: 2 valid / 3 sentinels => NotEnoughValidSamples\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> allInv(5, -999900.0);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(allInv, t, c) || c != Peak1DValidateCode::Empty)
+		{
+			std::fprintf(stderr, "self-test: all sentinels => Empty\n");
+			++fail;
+		}
+	}
+	// RECAL 3 0 日志 P1..Pn 摘录（col0=2357 已剥离）；max-min≈2 dB < M576_PEAK1D_MIN_SPAN_DB，产线应判无效、不进入 RECAL 3 1
+	{
+		static const double kFlatPmRecal3Y[] = {
+			-529251, -529250, -529251, -529251, -529250, -529250, -529250, -529250, -529250, -529250,
+			-529250, -529251, -529250, -529250, -529250, -529250, -529250, -529250, -529250, -529249,
+			-529249, -529249, -529249, -529249, -529250, -529249, -529249, -529250, -529251, -529249,
+			-529249, -529250, -529250, -529250,
+		};
+		const size_t nFlat = sizeof(kFlatPmRecal3Y) / sizeof(kFlatPmRecal3Y[0]);
+		std::vector<double> flatPm(kFlatPmRecal3Y, kFlatPmRecal3Y + nFlat);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(flatPm, t, c) || c != Peak1DValidateCode::LowSpan)
+		{
+			std::fprintf(stderr, "self-test: real flat PM sweep span<min => LowSpan\n");
+			++fail;
+		}
+		int idx = 0;
+		if (M576::FindUnimodalPeak1DIndex(flatPm, idx, c, nullptr) || c != Peak1DValidateCode::LowSpan)
+		{
+			std::fprintf(stderr, "self-test: FindUnimodal on flat PM => LowSpan (Y-pre should skip X)\n");
+			++fail;
+		}
+	}
+	return fail;
 }
 
 int main(int argc, char* argv[])
 {
+	if (RunPeak1DSelfTests() != 0)
+		return 9;
+
 	SweepRow sweepY, sweepX;
 	double step = 1.0;
 	bool stepSet = false;
@@ -258,24 +399,23 @@ int main(int argc, char* argv[])
 	}
 
 	int br = 0, bc = 0;
-	if (!M576::PeakCrossFrom1DScans(sweepY.powers, sweepX.powers, br, bc))
+	double tY = 0, tX = 0;
+	if (!M576::PeakCrossFrom1DScans(sweepY.powers, sweepX.powers, br, bc, nullptr, nullptr, &tY, &tX))
 	{
 		std::fprintf(stderr, "CrossPeakTest: PeakCrossFrom1DScans failed\n");
 		return 4;
 	}
 
-	const double dacY_peak = sweepY.dac_base + (double)br * step;
-	const double dacX_peak = sweepX.dac_base + (double)bc * step;
+	// Same as M576CalibratorDlg: rawDacX = Y-line col0 + tY*step, rawDacY = X-line col0 + tX*step.
+	const double rawDacX = sweepY.dac_base + tY * step;
+	const double rawDacY = sweepX.dac_base + tX * step;
 
 	std::printf("Step DAC = %.17g (same as RECAL 3 Step)\n", step);
-	std::printf("Power samples per axis N = %zu (peak index k among powers, 0-based)\n", sweepY.powers.size());
-	std::printf("RECAL 3 0: dac_base = %.17g\n", sweepY.dac_base);
-	std::printf("  k_y = %d  power = %.17g  => DAC_Y_peak = base + k_y*Step = %.17g\n",
-		br, sweepY.powers[(size_t)br], dacY_peak);
-	std::printf("RECAL 3 1: dac_base = %.17g\n", sweepX.dac_base);
-	std::printf("  k_x = %d  power = %.17g  => DAC_X_peak = base + k_x*Step = %.17g\n",
-		bc, sweepX.powers[(size_t)bc], dacX_peak);
-	std::printf("Cross peak indices (k_y, k_x) = (%d, %d)\n", br, bc);
-	std::printf("Cross peak DAC (Y, X) = (%.17g, %.17g)\n", dacY_peak, dacX_peak);
+	std::printf("Power samples per axis N = %zu (0-based; LS parabola vertex t*)\n", sweepY.powers.size());
+	std::printf("RECAL 3 0: dac_base = %.17g  => tY=%.8g  lround->%d\n", sweepY.dac_base, tY, br);
+	std::printf("RECAL 3 1: dac_base = %.17g  => tX=%.8g  lround->%d\n", sweepX.dac_base, tX, bc);
+	std::printf("  power@grid sample at lround: P_y[%d]=%.17g  P_x[%d]=%.17g\n", br, sweepY.powers[(size_t)br], bc, sweepX.powers[(size_t)bc]);
+	std::printf("  host linear DAC: rawDacX = col0_y + tY*step = %.17g, rawDacY = col0_x + tX*step = %.17g\n", rawDacX, rawDacY);
+	std::printf("Cross lround(tY) lround(tX) = (%d, %d)\n", br, bc);
 	return 0;
 }

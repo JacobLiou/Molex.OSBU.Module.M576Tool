@@ -95,6 +95,65 @@ static bool M576CommErrIsSerialWriteFailure(const CString& e)
 	return t.Find(_T("write")) >= 0;
 }
 
+static const TCHAR* M576Peak1DWhy(M576::Peak1DValidateCode c)
+{
+	using M576::Peak1DValidateCode;
+	switch (c)
+	{
+	case Peak1DValidateCode::Ok:
+		return _T("");
+	case Peak1DValidateCode::Empty:
+		return _T("empty or invalid");
+	case Peak1DValidateCode::LowSpan:
+		return _T("low span (flat / no contrast)");
+	case Peak1DValidateCode::NotStrictLocal:
+		return _T("argmax not a strict local peak");
+	case Peak1DValidateCode::EdgeNotAllowed:
+		return _T("peak at sweep edge (policy)");
+	case Peak1DValidateCode::MultiLocalMax:
+		return _T("too many local maxima");
+	case Peak1DValidateCode::NotEnoughSamples:
+		return _T("not enough points for parabola (need >=3)");
+	case Peak1DValidateCode::NotEnoughValidSamples:
+		return _T("not enough valid power samples after sentinels removed (need >=3)");
+	case Peak1DValidateCode::ParabolaNotDownward:
+		return _T("parabola fit: no maximum (a>=0)");
+	case Peak1DValidateCode::ParabolaFitSingular:
+		return _T("parabola fit singular");
+	case Peak1DValidateCode::VertexOutOfRange:
+		return _T("parabola vertex outside sweep [0..n-1]");
+	default:
+		return _T("unknown");
+	}
+}
+
+enum class M576Peak1DLogStage
+{
+	YPre,
+	YCross,
+	XCross
+};
+
+static CString M576FormatPeak1DMsg(bool isPm, M576Peak1DLogStage st, M576::Peak1DValidateCode c)
+{
+	const TCHAR* w = M576Peak1DWhy(c);
+	const TCHAR* cmd = isPm ? _T("RECAL 3") : _T("RECAL 5");
+	CString a;
+	switch (st)
+	{
+	case M576Peak1DLogStage::YPre:
+		a.Format(_T("  peak: Y (%s axis0) — %s; skip next axis sweep."), cmd, w);
+		break;
+	case M576Peak1DLogStage::YCross:
+		a.Format(_T("  peak: Y (%s cross) — %s; skip LUT update."), cmd, w);
+		break;
+	case M576Peak1DLogStage::XCross:
+		a.Format(_T("  peak: X (%s cross) — %s; skip LUT update."), cmd, w);
+		break;
+	}
+	return a;
+}
+
 /// 439F 管理口文本：发送 `info<CR>`，在超时内收齐应答（空闲 200ms 或最长 3s 结束），用于“测试连接”。
 static BOOL M576Try439fInfoTest(Z4671Command& comm, CString& outResponseOneLine, CString& err)
 {
@@ -207,6 +266,15 @@ static double SweepCol0PlusPeakOffsetDac(double sweepLineCol0, int peakIndex, in
 	return sweepLineCol0 + (double)peakIndex * step;
 }
 
+/// 连续峰位下标（抛物线顶点 t*），与步进相乘得亚格点 DAC。
+static double SweepCol0PlusPeakOffsetDac(double sweepLineCol0, double peakIndexFloat, int sampleCount, int halfRange)
+{
+	if (sampleCount <= 1)
+		return sweepLineCol0;
+	const double step = (2.0 * halfRange) / (double)(sampleCount - 1);
+	return sweepLineCol0 + peakIndexFloat * step;
+}
+
 /// After `RECAL 3 0` / `RECAL 5 0` with Base=9999, firmware returns the **first sweep cell** in col0; the moving-axis
 /// DAC at peak = col0 + peakIndex * (2*halfRange/(n-1)) — *not* `M576_PEAK_GRID_DAC_BASE` ± range (avoids 2048 vs 2289).
 static int RecalDacAtPeakIndexFromSweepCol0(int peakIndex, int sampleCount, int halfRange, double sweepLineCol0)
@@ -216,6 +284,17 @@ static int RecalDacAtPeakIndexFromSweepCol0(int peakIndex, int sampleCount, int 
 	const double y = SweepCol0PlusPeakOffsetDac(sweepLineCol0, peakIndex, sampleCount, halfRange);
 	int iy = (int)floor(y + 0.5);
 	// col0+idx*gridStep is a signed linear coordinate; do not map negatives to 0.
+	if (iy > 65535)
+		iy = 65535;
+	return iy;
+}
+
+static int RecalDacAtPeakIndexFromSweepCol0(double peakIndexFloat, int sampleCount, int halfRange, double sweepLineCol0)
+{
+	if (sampleCount <= 1)
+		return M576_RECAL_FW_READ_BASE_DAC;
+	const double y = SweepCol0PlusPeakOffsetDac(sweepLineCol0, peakIndexFloat, sampleCount, halfRange);
+	int iy = (int)floor(y + 0.5);
 	if (iy > 65535)
 		iy = 65535;
 	return iy;
@@ -1932,16 +2011,21 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		}
 
 		int brForYBase = 0;
-		if (powY.empty() || !M576::PeakMax1D(powY, brForYBase))
+		M576::Peak1DValidateCode yPreCode = M576::Peak1DValidateCode::Ok;
+		double tYPre = 0.0;
+		if (powY.empty() || !M576::FindUnimodalPeak1DIndex(powY, brForYBase, yPreCode, &tYPre))
 		{
-			SafeAppendLog(_T("  RECAL 3 1: no Y peak index; skip X sweep."));
+			if (!powY.empty() && yPreCode != M576::Peak1DValidateCode::Ok)
+				SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::YPre, yPreCode));
+			else
+				SafeAppendLog(_T("  RECAL 3 1: no Y samples; skip X sweep (RECAL 3 1)."));
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		const int nY = (int)powY.size();
 		const int yBaseDacForSweep1 =
-			RecalDacAtPeakIndexFromSweepCol0(brForYBase, nY, m_dacRange, xFixedDac);
+			RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, m_dacRange, xFixedDac);
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 3 1 Base DAC (Y@peak, row=%d)=%d"), brForYBase, yBaseDacForSweep1);
@@ -1991,46 +2075,54 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 		{
 			SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 		}
-		else if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc))
-		{
-			SafeAppendLog(_T("  peak: empty sweep data."));
-		}
 		else
 		{
-			const int nLut = (int)powY.size();
-			const double rawDacXAtPeak = SweepCol0PlusPeakOffsetDac(xFixedDac, br, nLut, m_dacRange);
-			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, bc, nLut, m_dacRange);
-			const int rawXi = static_cast<int>(std::lround(rawDacXAtPeak));
-			const int rawYi = static_cast<int>(std::lround(rawDacYAtPeak));
+			M576::Peak1DValidateCode yCross = M576::Peak1DValidateCode::Ok, xCross = M576::Peak1DValidateCode::Ok;
+			double tYPm = 0.0, tXPm = 0.0;
+			if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc, &yCross, &xCross, &tYPm, &tXPm))
 			{
-				CString msg;
-				msg.Format(
-					_T("  -> peak row=%d col=%d; linear DAC at cross-peak: Y=%.4g (RECAL3 0 col0 + %d*step), X=%.4g (RECAL3 1 col0 + %d*step)"),
-					br,
-					bc,
-					rawDacXAtPeak,
-					br,
-					rawDacYAtPeak,
-					bc);
-				SafeAppendLog(msg);
-			}
-			SDacU16 dacU;
-			RawCrossPeakDacToU16Pair((double)rawXi, (double)rawYi, dacU.uX, dacU.uY);
-			if (fileSlot < 2)
-			{
-				ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
-				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPmLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
-					PushCalibStatRow(srow);
+				if (yCross != M576::Peak1DValidateCode::Ok)
+					SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::YCross, yCross));
+				if (xCross != M576::Peak1DValidateCode::Ok)
+					SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::XCross, xCross));
 			}
 			else
 			{
-				ApplyRecalPeakToMems1x64(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
-				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPmMems(
-						st, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
-					PushCalibStatRow(srow);
+				const int nLut = (int)powY.size();
+				const double rawDacXAtPeak = SweepCol0PlusPeakOffsetDac(xFixedDac, tYPm, nLut, m_dacRange);
+				const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, tXPm, nLut, m_dacRange);
+				const int rawXi = static_cast<int>(std::lround(rawDacXAtPeak));
+				const int rawYi = static_cast<int>(std::lround(rawDacYAtPeak));
+				{
+					CString msg;
+					msg.Format(
+						_T("  -> peak row=%d col=%d; linear DAC at cross-peak: Y=%.4g (RECAL3 0 col0 + %d*step), X=%.4g (RECAL3 1 col0 + %d*step)"),
+						br,
+						bc,
+						rawDacXAtPeak,
+						br,
+						rawDacYAtPeak,
+						bc);
+					SafeAppendLog(msg);
+				}
+				SDacU16 dacU;
+				RawCrossPeakDacToU16Pair((double)rawXi, (double)rawYi, dacU.uX, dacU.uY);
+				if (fileSlot < 2)
+				{
+					ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
+					SCalibrationStatRow srow;
+					if (CalibBuildStatRowPmLut(
+							st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
+						PushCalibStatRow(srow);
+				}
+				else
+				{
+					ApplyRecalPeakToMems1x64(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
+					SCalibrationStatRow srow;
+					if (CalibBuildStatRowPmMems(
+							st, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
+						PushCalibStatRow(srow);
+				}
 			}
 		}
 
@@ -2208,16 +2300,21 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		}
 
 		int brForYBasePd = 0;
-		if (powY.empty() || !M576::PeakMax1D(powY, brForYBasePd))
+		M576::Peak1DValidateCode yPreCodePd = M576::Peak1DValidateCode::Ok;
+		double tYPrePd = 0.0;
+		if (powY.empty() || !M576::FindUnimodalPeak1DIndex(powY, brForYBasePd, yPreCodePd, &tYPrePd))
 		{
-			SafeAppendLog(_T("  RECAL 5 1: no Y peak index; skip X sweep."));
+			if (!powY.empty() && yPreCodePd != M576::Peak1DValidateCode::Ok)
+				SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::YPre, yPreCodePd));
+			else
+				SafeAppendLog(_T("  RECAL 5 1: no Y samples; skip X sweep (RECAL 5 1)."));
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
 		const int nYpd = (int)powY.size();
 		const int yBaseDacForSweep1Pd =
-			RecalDacAtPeakIndexFromSweepCol0(brForYBasePd, nYpd, m_dacRange, xFixedDacPd);
+			RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, m_dacRange, xFixedDacPd);
 		{
 			CString msg;
 			msg.Format(_T("  RECAL 5 1 Base DAC (Y@peak, row=%d)=%d"), brForYBasePd, yBaseDacForSweep1Pd);
@@ -2267,46 +2364,54 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		{
 			SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 		}
-		else if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc))
-		{
-			SafeAppendLog(_T("  peak: empty sweep data."));
-		}
 		else
 		{
-			const int nLut = (int)powY.size();
-			const double rawDacXAtPeakPd = SweepCol0PlusPeakOffsetDac(xFixedDacPd, br, nLut, m_dacRange);
-			const double rawDacYAtPeakPd = SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, bc, nLut, m_dacRange);
-			const int rawXiPd = static_cast<int>(std::lround(rawDacXAtPeakPd));
-			const int rawYiPd = static_cast<int>(std::lround(rawDacYAtPeakPd));
+			M576::Peak1DValidateCode yCrossPd = M576::Peak1DValidateCode::Ok, xCrossPd = M576::Peak1DValidateCode::Ok;
+			double tYpd = 0.0, tXpd = 0.0;
+			if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc, &yCrossPd, &xCrossPd, &tYpd, &tXpd))
 			{
-				CString msg;
-				msg.Format(
-					_T("  -> peak row=%d col=%d; linear DAC at cross-peak: Y=%.4g (RECAL5 0 col0 + %d*step), X=%.4g (RECAL5 1 col0 + %d*step)"),
-					br,
-					bc,
-					rawDacXAtPeakPd,
-					br,
-					rawDacYAtPeakPd,
-					bc);
-				SafeAppendLog(msg);
-			}
-			SDacU16 dacU;
-			RawCrossPeakDacToU16Pair((double)rawXiPd, (double)rawYiPd, dacU.uX, dacU.uY);
-			if (fileSlot < 2)
-			{
-				ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
-				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPdLut(
-						st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
-					PushCalibStatRow(srow);
+				if (yCrossPd != M576::Peak1DValidateCode::Ok)
+					SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::YCross, yCrossPd));
+				if (xCrossPd != M576::Peak1DValidateCode::Ok)
+					SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::XCross, xCrossPd));
 			}
 			else
 			{
-				ApplyRecalPeakToMems1x64Pd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
-				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPdMems(
-						st, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
-					PushCalibStatRow(srow);
+				const int nLut = (int)powY.size();
+				const double rawDacXAtPeakPd = SweepCol0PlusPeakOffsetDac(xFixedDacPd, tYpd, nLut, m_dacRange);
+				const double rawDacYAtPeakPd = SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, tXpd, nLut, m_dacRange);
+				const int rawXiPd = static_cast<int>(std::lround(rawDacXAtPeakPd));
+				const int rawYiPd = static_cast<int>(std::lround(rawDacYAtPeakPd));
+				{
+					CString msg;
+					msg.Format(
+						_T("  -> peak row=%d col=%d; linear DAC at cross-peak: Y=%.4g (RECAL5 0 col0 + %d*step), X=%.4g (RECAL5 1 col0 + %d*step)"),
+						br,
+						bc,
+						rawDacXAtPeakPd,
+						br,
+						rawDacYAtPeakPd,
+						bc);
+					SafeAppendLog(msg);
+				}
+				SDacU16 dacU;
+				RawCrossPeakDacToU16Pair((double)rawXiPd, (double)rawYiPd, dacU.uX, dacU.uY);
+				if (fileSlot < 2)
+				{
+					ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
+					SCalibrationStatRow srow;
+					if (CalibBuildStatRowPdLut(
+							st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
+						PushCalibStatRow(srow);
+				}
+				else
+				{
+					ApplyRecalPeakToMems1x64Pd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
+					SCalibrationStatRow srow;
+					if (CalibBuildStatRowPdMems(
+							st, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
+						PushCalibStatRow(srow);
+				}
 			}
 		}
 

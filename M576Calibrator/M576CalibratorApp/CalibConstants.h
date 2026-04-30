@@ -71,6 +71,9 @@
 #define M576_DEFAULT_DAC_STEP 4
 #endif
 
+#include "M576Peak1DConstants.h"
+// 一维寻峰/抛物线门限见 M576Peak1DConstants.h（无 MFC，供 PeakFinder2D 等纯 C++ 单元 include）。
+
 /// RECAL 3 / 5 Base DAC: 9999 = firmware uses current channel DAC as sweep center (PRD); any other value = host sets base.
 // RECAL 3/5 基准 DAC：9999 表示由固件读当前通道 DAC 为扫频中心，其余值由上位机写基准。
 #ifndef M576_RECAL_FW_READ_BASE_DAC

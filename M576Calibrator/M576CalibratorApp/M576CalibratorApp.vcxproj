@@ -132,6 +132,7 @@
     <ClInclude Include="CalibWriteMeta.h" />
     <ClInclude Include="Board439fTransTunnel.h" />
     <ClInclude Include="CalibConstants.h" />
+    <ClInclude Include="M576Peak1DConstants.h" />
     <ClInclude Include="LutMerge1310.h" />
     <ClInclude Include="LutPeakApply.h" />
     <ClInclude Include="M576GlobalException.h" />
