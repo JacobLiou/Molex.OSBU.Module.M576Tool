@@ -1769,11 +1769,11 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 	const CString absBk = ResolveFilePath(base);
 	for (int li = 0; li < 4; ++li)
 	{
-		const CString p = M576TransBinPathForRead(absBk, li + 1);
-		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
-			continue;
 		if (li < 2)
 		{
+			const CString p = M576TransBinPathForRead(absBk, li + 1);
+			if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+				continue;
 			if (CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
 			{
 				CString m;
@@ -1789,6 +1789,8 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 		}
 		else
 		{
+			// 1x64: Read Flash only writes *_1x64_*_swN.bin (no aggregate *_1x64_1.bin). Do not gate on PathForRead.
+			const CString p = M576TransBinPathForRead(absBk, li + 1);
 			BOOL anySw = FALSE;
 			for (int sw = 0; sw < 4; ++sw)
 			{
