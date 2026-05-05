@@ -138,6 +138,10 @@ private:
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();
+	/// Low-temp 1310 DAC only: UTF-8 CSV in output BIN directory (`csvLeafName`, e.g. backupAll1310DAC.csv).
+	void ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR logPreamble);
+	/// Run Path only: if Backup BIN base set, write `backupAll1310DAC.csv` (same schema as Write BIN standard export).
+	void ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 	void FillComPorts();
 	CString GetComboCom();
 	BOOL OpenPort();

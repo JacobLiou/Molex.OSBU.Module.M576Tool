@@ -1,7 +1,7 @@
 #pragma once
 // 仅含 1D 寻峰/抛物线门限宏，无 TCHAR/MFC。供 PeakFinder2D、CrossPeakTest 与 CalibConstants 共用。
 
-/// RECAL 3/5: P1..Pn 功率一维；剔除哨兵后有效点 span=max-min 严格小于本值则 LowSpan（平线/近无效）。
+/// ValidateUnimodal1DAtArgmax：span=max-min 严格小于本值则 LowSpan。抛物线主路径（ParabolaVertexMax1D）不再据此早退。
 #ifndef M576_PEAK1D_MIN_SPAN_DB
 #define M576_PEAK1D_MIN_SPAN_DB 2.5
 #endif

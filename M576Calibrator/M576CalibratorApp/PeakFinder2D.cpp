@@ -232,11 +232,8 @@ namespace M576
 			f = Peak1DValidateCode::NotEnoughValidSamples;
 			return false;
 		}
-		if (hi - lo < (double)M576_PEAK1D_MIN_SPAN_DB)
-		{
-			f = Peak1DValidateCode::LowSpan;
-			return false;
-		}
+		(void)lo;
+		(void)hi;
 
 		// 掩码最小二乘：下标为原格点 0..n-1，仅对有效 p(i) 累加。
 		double s1 = 0, s2 = 0, s3 = 0, s4 = 0, t0 = 0, t1 = 0, t2 = 0;

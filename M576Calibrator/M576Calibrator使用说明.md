@@ -42,49 +42,15 @@
 
 ### 4.1 连接串口
 
-1. 将 USB/串口线连接至 **439F** 控制板，在设备管理器中确认 COM 号。  
-2. 在界面 **串口 (439F)** 中选择对应端口。  
-3. 点击 **打开串口**。成功则日志提示端口已打开。
-
-### 4.2 路径 CSV（程序内置）
-
-- 四路 PM / 四路 PD 的文件名与相对目录写死在 **`CalibConstants.h`**（`g_m576DefaultPmCsvRel` / `g_m576DefaultPdCsvRel`），构建时 PostBuild 拷贝到 **`程序目录\output\`**。  
-- 工艺上仍可将 `standard_pm.csv` / `standard_pd.csv` **按 target 拆成四份**覆盖上述文件；也可用 **`tools\split_path_csv_eight.ps1`** 生成。  
-- 某路文件 **缺失** 或 **0 行**：该槽 **跳过**（Warn）。若要改路径或文件名，需改常量并重新编译。
+### 4.2 做备份
 
 ### 4.3 跑路径（RECAL）
 
-1. 确保串口已打开（若未打开，点击 **Run path** 时会尝试自动打开）。  
-2. 选择 **Mode**，确认当前模式下的 **四路 CSV**。  
-3. 点击 **Run path (RECAL)**。  
-4. **PM**：清零四份内存 LUT；若已填 **Backup BIN** 基路径且磁盘上存在对应 **`基名_tN.bin`**，则先 **预载** 到 `m_lutByTrans`（再跑路径时在之上更新）；随后发 **一次** `RECAL 0`，再按 **trans 1→4** 依次加载 PM 四文件并跑 `RECAL 1` + `RECAL 3`，寻峰结果写入 **`m_lutByTrans[槽位]`**；进度为四文件 **总行数**。  
-5. **PD**：同上（含可选预载），**无 RECAL 0**，顺序为 `RECAL 2` + `RECAL 5`，写入对应 **`m_lutByTrans[槽位]`**。  
-6. 需要中断时点 **Stop**。
-
-**PD 与功率计差异（Z4744）**
-
-- **功率计**：`RECAL 1`，目标 **1～6**；四路文件与 **1#MCS / 2#MCS / 1#1×64 / 2#1×64** 对应关系见 **`TransLutRoute.cpp`（PM）**。  
-- **PD**：`RECAL 2`，目标 **1～4**；槽位映射见 **`TransLutRoute.cpp`（PD）**，与 `LutPeakApply` 写 LUT 约定一致。  
-- 扫参在 **`RECAL 3` / `RECAL 5`**；列数：**5** / **3**。
-
 ### 4.4 生成 BIN（写 BIN）
 
-1. 设置 **Output BIN base**（如 `output\standard.bin`）。  
-2. 可选：**Backup BIN** 基路径；写 BIN 时读取 **`基名_t1.bin`…`基名_t4.bin`**（若存在）与各路内存 LUT 做 **1310 低温槽** 合并。  
-3. 点击 **Write BIN**，生成 **四个** `基名_tN.bin`。无某路备份时该路仅写内存 LUT。
+### 4.5 烧录
 
-### 4.4.1 读 Flash 备份（439F `trans`）
 
-1. 在 **Backup BIN** 填写 **基路径**（例如 `output\mcs_lut_backup.bin`）。  
-2. 打开串口后点击 **Read Flash backup**。  
-3. 程序对每个配置的 **trans 通道** 依次：`$$`（容错）→ `trans N` → 按 Z4671 读整包 LUT → `$$`，并在基路径上生成 **`基名_tN.bin`**（如 `mcs_lut_backup_t1.bin` …）。通道含义与列表以 **`CalibConstants.h`** 为准。
-
-### 4.5 烧录定标（经 439F `trans` 至各下游）
-
-1. 确认已执行 **写 BIN**，且 **Output BIN base** 同目录下存在至少一个 **非空的 `基名_tN.bin`**。  
-2. 确保 **439F 串口** 已打开（未打开时点击烧录会尝试 **打开串口**）。  
-3. 点击 **烧录定标**。  
-4. 程序对每个 **烧录通道**（默认 trans 1～4，见 **`CalibConstants.h`**）使用 **该通道对应的 `_tN.bin` 全路径** 上传；缺失或 **0 字节** 的文件 **跳过** 该 trans。进度条为各通道分包总和。烧录结束后固件侧等待与既有实现一致。
 
 ---
 

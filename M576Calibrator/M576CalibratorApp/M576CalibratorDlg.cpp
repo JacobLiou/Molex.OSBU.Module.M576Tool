@@ -1820,6 +1820,142 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 	}
 }
 
+static CStringA M576AsciiSuffixToA(LPCTSTR suf)
+{
+	CStringA a;
+	if (suf == NULL)
+		return a;
+	for (; *suf != 0; ++suf)
+		a += (char)(*suf & 0xFF);
+	return a;
+}
+
+void CM576CalibratorDlg::ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR logPreamble)
+{
+	if (csvLeafName == NULL || csvLeafName[0] == 0)
+		return;
+	if (logPreamble == NULL)
+		logPreamble = _T("");
+
+	CString absOut = ResolveFilePath(m_strOutBin);
+	absOut.Trim();
+	CString outDir;
+	const int slashBs = absOut.ReverseFind(_T('\\'));
+	const int slashFs = absOut.ReverseFind(_T('/'));
+	const int slash = (slashBs >= slashFs) ? slashBs : slashFs;
+	if (slash >= 0)
+		outDir = absOut.Left(slash);
+	else
+		outDir = GetExeFolder() + _T("\\output");
+
+	const CString fullPath = outDir + _T("\\") + CString(csvLeafName);
+
+	CFile f;
+	if (!f.Open(fullPath, CFile::modeCreate | CFile::modeWrite | CFile::typeBinary))
+	{
+		CString m;
+		m.Format(_T("%s: low-temp 1310 DAC CSV open failed: %s"), logPreamble, fullPath.GetString());
+		SafeAppendLog(m);
+		return;
+	}
+	const unsigned char bom[3] = { 0xEF, 0xBB, 0xBF };
+	f.Write(bom, 3);
+	auto writeA = [&f](LPCSTR s) {
+		f.Write(s, (UINT)strlen(s));
+		f.Write("\r\n", 2);
+	};
+
+	writeA(
+		"# Low-temp slot only: MCS wCalibPtrDAC[][IDX_TEMP_LOW][], 1x64 stCalibDAC[0]. "
+		"MCS dac_y=[0] dac_x=[1]; 1x64 dac_y=sDACx dac_x=sDACy.");
+	writeA("bin_role,file_suffix,sw_lut_idx,temp_idx,ch_idx,is_mid,dac_y,dac_x");
+
+	const int tiMcs = (int)IDX_TEMP_LOW;
+	for (int mcs = 0; mcs < 2; ++mcs)
+	{
+		const CStringA sufA = M576AsciiSuffixToA(g_m576TransLutBinSuffix[mcs]);
+		for (int sw = 0; sw < 34; ++sw)
+		{
+			for (int ch = 0; ch < PORT_MAX_COUNT + MID_MAX_COUNT; ++ch)
+			{
+				const WORD wy = m_lutByTrans[mcs].wCalibPtrDAC[sw][tiMcs][ch][0];
+				const WORD wx = m_lutByTrans[mcs].wCalibPtrDAC[sw][tiMcs][ch][1];
+				CStringA line;
+				line.Format(
+					"MCS%d,%s,%d,%d,%d,0,%d,%d",
+					mcs + 1,
+					sufA.GetString(),
+					sw,
+					tiMcs,
+					ch,
+					(int)(short)wy,
+					(int)(short)wx);
+				writeA(line);
+			}
+		}
+	}
+
+	for (int dev = 0; dev < 2; ++dev)
+	{
+		const int sufIdx = 2 + dev;
+		const CStringA sufStemA = M576AsciiSuffixToA(g_m576TransLutBinSuffix[sufIdx]);
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			CStringA sufSwA;
+			sufSwA.Format("%s_sw%d", sufStemA.GetString(), sw + 1);
+			CStringA roleA;
+			roleA.Format("1x64_%d_sw%d", dev + 1, sw + 1);
+			const stM576OneX64MemsSwCoef& coef = m_mems1x64[dev][sw];
+			const int tiX64 = 0;
+			const stM576OneX64ChnDAC& cal = coef.stCalibDAC[tiX64];
+			for (unsigned ci = 0; ci < M576_1X64_MAX_CHANNEL_NUM; ++ci)
+			{
+				CStringA line;
+				line.Format(
+					"%s,%s,%d,%d,%u,0,%d,%d",
+					roleA.GetString(),
+					sufSwA.GetString(),
+					sw,
+					tiX64,
+					ci,
+					(int)cal.stChnDAC[ci].sDACx,
+					(int)cal.stChnDAC[ci].sDACy);
+				writeA(line);
+			}
+			for (unsigned mi = 0; mi < M576_1X64_MAX_MIDPTR_NUM; ++mi)
+			{
+				CStringA line;
+				line.Format(
+					"%s,%s,%d,%d,%u,1,%d,%d",
+					roleA.GetString(),
+					sufSwA.GetString(),
+					sw,
+					tiX64,
+					mi,
+					(int)cal.stMidDAC[mi].sDACx,
+					(int)cal.stMidDAC[mi].sDACy);
+				writeA(line);
+			}
+		}
+	}
+
+	f.Close();
+	{
+		CString m;
+		m.Format(_T("%s: low-temp 1310 DAC CSV -> %s"), logPreamble, fullPath.GetString());
+		SafeAppendLog(m);
+	}
+}
+
+void CM576CalibratorDlg::ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet()
+{
+	CString base = m_strBackupBin;
+	base.Trim();
+	if (base.IsEmpty())
+		return;
+	ExportLowTemp1310DacCsv(_T("backupAll1310DAC.csv"), _T("Run path"));
+}
+
 // --- PM 定标：RECAL0 + 分文件 CSV、RECAL1/3、寻峰写 LUT 槽、合并/进度 ---
 
 void CM576CalibratorDlg::RunPathPowerMeter()
@@ -1850,6 +1986,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	TryPreloadLutFromPerTransBackup();
+	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 
 	int wavelengthNm = 0;
 	if (!ParseWavelengthNm(m_strWavelength, wavelengthNm, err))
@@ -2164,6 +2301,7 @@ void CM576CalibratorDlg::RunPathPd()
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	TryPreloadLutFromPerTransBackup();
+	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
 
@@ -2445,6 +2583,8 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 		AppendLog(_T("Write BIN: session LUT/Mems empty; preloading from local backup base (if present)."));
 		TryPreloadLutFromPerTransBackup();
 	}
+
+	ExportLowTemp1310DacCsv(_T("standardAll1310DAC.csv"), _T("Write BIN"));
 
 	for (int i = 0; i < 4; ++i)
 	{

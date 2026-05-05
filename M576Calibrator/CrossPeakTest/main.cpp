@@ -213,9 +213,9 @@ static int RunPeak1DSelfTests()
 		std::vector<double> flat(7, -10.0);
 		int idx = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (M576::FindUnimodalPeak1DIndex(flat, idx, c) || c != Peak1DValidateCode::LowSpan)
+		if (M576::FindUnimodalPeak1DIndex(flat, idx, c) || c != Peak1DValidateCode::ParabolaNotDownward)
 		{
-			std::fprintf(stderr, "self-test: flat line should be LowSpan\n");
+			std::fprintf(stderr, "self-test: flat line should fail ParabolaNotDownward (LSQ a>=0)\n");
 			++fail;
 		}
 	}
@@ -309,7 +309,7 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
-	// RECAL 3 0 日志 P1..Pn 摘录（col0=2357 已剥离）；max-min≈2 dB < M576_PEAK1D_MIN_SPAN_DB，产线应判无效、不进入 RECAL 3 1
+	// RECAL 3 0 日志 P1..Pn 摘录（col0=2357 已剥离）；近平坦，抛物线主路径不再因 span 早退 LowSpan，仍走 LSQ
 	{
 		static const double kFlatPmRecal3Y[] = {
 			-529251, -529250, -529251, -529251, -529250, -529250, -529250, -529250, -529250, -529250,
@@ -321,15 +321,22 @@ static int RunPeak1DSelfTests()
 		std::vector<double> flatPm(kFlatPmRecal3Y, kFlatPmRecal3Y + nFlat);
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (M576::ParabolaVertexMax1D(flatPm, t, c) || c != Peak1DValidateCode::LowSpan)
+		const bool okPm = M576::ParabolaVertexMax1D(flatPm, t, c);
+		if (c == Peak1DValidateCode::LowSpan)
 		{
-			std::fprintf(stderr, "self-test: real flat PM sweep span<min => LowSpan\n");
+			std::fprintf(stderr, "self-test: flat PM sweep must not return LowSpan from ParabolaVertexMax1D\n");
 			++fail;
 		}
 		int idx = 0;
-		if (M576::FindUnimodalPeak1DIndex(flatPm, idx, c, nullptr) || c != Peak1DValidateCode::LowSpan)
+		const bool okFind = M576::FindUnimodalPeak1DIndex(flatPm, idx, c, nullptr);
+		if (c == Peak1DValidateCode::LowSpan)
 		{
-			std::fprintf(stderr, "self-test: FindUnimodal on flat PM => LowSpan (Y-pre should skip X)\n");
+			std::fprintf(stderr, "self-test: FindUnimodal on flat PM must not return LowSpan\n");
+			++fail;
+		}
+		if (okFind != okPm)
+		{
+			std::fprintf(stderr, "self-test: FindUnimodal vs ParabolaVertexMax1D mismatch on flat PM\n");
 			++fail;
 		}
 	}
