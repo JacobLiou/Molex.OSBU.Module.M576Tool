@@ -209,6 +209,70 @@ BOOL CalibBuildStatRowPmMems(
 	return FALSE;
 }
 
+BOOL CalibBuildStatRowPmMemsMapped(
+	const SPathStep& step,
+	int fileSlot,
+	int pathLine1Based,
+	int peakRow,
+	int peakCol,
+	int gridN,
+	int rawDacX,
+	int rawDacY,
+	SDacU16 dac,
+	int block0to3,
+	int inBlk0based,
+	SCalibrationStatRow& row)
+{
+	if (fileSlot < 2 || fileSlot > 3)
+		return FALSE;
+	const int t = step.targetSwitchIndex;
+	if (t == 3 || t == 4)
+		return FALSE;
+	if (block0to3 < 0 || block0to3 > 3 || inBlk0based < 0 || inBlk0based >= (int)M576_1X64_MAX_CHANNEL_NUM)
+		return FALSE;
+
+	row.calMode = _T("PM");
+	row.transSlot1to4 = fileSlot + 1;
+	row.pathLine1Based = pathLine1Based;
+	CStringA cmdA;
+	cmdA.Format("RECAL 1 %d %d %d %d %d", step.targetSwitchIndex, step.c1, step.c2, step.c3, step.c4);
+	row.primaryCommand = CString(cmdA);
+	row.targetType = _T("1X64_MEMS");
+	row.peakRow = peakRow;
+	row.peakCol = peakCol;
+	row.gridN = gridN;
+	row.storeType = _T("SHORT");
+	row.rawDacX = rawDacX;
+	row.rawDacY = rawDacY;
+	row.dacX = (int)DacU16ToSigned16(dac.uX);
+	row.dacY = (int)DacU16ToSigned16(dac.uY);
+
+	SIZE_T oX, oY;
+	if (!Mems1x64OffsetsIn8k(block0to3, inBlk0based, oX, oY))
+		return FALSE;
+
+	const int sw1b = block0to3 + 1;
+	const int chY1b = inBlk0based + 1;
+	CStringA pathSdacXfield, pathSdacYfield;
+	pathSdacXfield.Format(
+		"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACx  (Y)  ; FW_map SW=%d CH_y(1b)=%d",
+		block0to3,
+		inBlk0based,
+		sw1b,
+		chY1b);
+	pathSdacYfield.Format(
+		"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACy (X)",
+		block0to3,
+		inBlk0based);
+	row.structPathDacX = CString(pathSdacYfield);
+	row.structPathDacY = CString(pathSdacXfield);
+	row.offsetLutOrMems8kDacX = oY;
+	row.offsetLutOrMems8kDacY = oX;
+	row.offsetTransBinDacX = oY;
+	row.offsetTransBinDacY = oX;
+	return TRUE;
+}
+
 BOOL CalibBuildStatRowPdLut(
 	const SPathStepPd& step,
 	int occT3,

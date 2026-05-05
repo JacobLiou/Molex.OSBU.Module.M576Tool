@@ -24,6 +24,14 @@ void ApplyRecalPeakToLutPd(
 	unsigned short dacY,
 	stLutSettingZ4671& lut);
 
+/// PM firmware mapping: write cross-peak DAC to explicit MEMS block / stChnDAC index (low temp).
+void WriteMems1x64LowTempDacPair(
+	stM576OneX64MemsSwCoef* pSw4,
+	int block0to3,
+	int inBlk0based,
+	unsigned short dacX,
+	unsigned short dacY);
+
 void ApplyRecalPeakToMems1x64(
 	const SPathStep& step,
 	int occTarget3,

@@ -68,6 +68,8 @@ for %%F in (
   pm_mcs2.csv
   pm_1x64_1.csv
   pm_1x64_2.csv
+  pm_1x64_1Mapping.csv
+  pm_1x64_2Mapping.csv
   pd_mcs1.csv
   pd_mcs2.csv
   pd_1x64_1.csv
@@ -82,7 +84,7 @@ for %%F in (
 )
 if "!CSV_OK!"=="0" (
   echo WARNING: No per-trans path CSVs found in "%OUT_SRC%" or "%CSV_SRC%".
-  echo          Expected: pm_mcs1, pm_mcs2, pm_1x64_1, pm_1x64_2, pd_mcs1, pd_mcs2, pd_1x64_1, pd_1x64_2 ^(.csv^).
+  echo          Expected: pm_mcs1, pm_mcs2, pm_1x64_1, pm_1x64_2, pm_1x64_1Mapping, pm_1x64_2Mapping, pd_mcs1, pd_mcs2, pd_1x64_1, pd_1x64_2 ^(.csv^).
   echo          Generate from tools\split_path_csv_eight.ps1 or copy from a built M576CalibratorApp\Release\output folder.
 )
 
@@ -156,10 +158,11 @@ if exist "!VCREDIST!" (
   echo CRT/MFC DLLs are VC143 redistributables copied next to the exe when packaging on a machine with VS.
   echo If a PC still reports missing DLLs, install: redist\vc_redist.x86.exe
   echo.
-  echo Default path CSVs - per trans, 8 files under .\output\ :
+  echo Default path CSVs - per trans, under .\output\ :
   echo   PM: pm_mcs1.csv, pm_mcs2.csv, pm_1x64_1.csv, pm_1x64_2.csv
+  echo       plus firmware MEMS slot map: pm_1x64_1Mapping.csv, pm_1x64_2Mapping.csv ^(required for PM 1x64 calibration^).
   echo   PD: pd_mcs1.csv, pd_mcs2.csv, pd_1x64_1.csv, pd_1x64_2.csv
-  echo Optional: generate the eight from standard_pm or standard_pd via tools\split_path_csv_eight.ps1 under repo output\.
+  echo Optional: generate the eight PM/PD path CSVs from standard_pm or standard_pd via tools\split_path_csv_eight.ps1 under repo output\.
 )
 
 echo.

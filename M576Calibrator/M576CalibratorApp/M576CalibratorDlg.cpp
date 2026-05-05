@@ -7,6 +7,7 @@
 #include "CalibConstants.h"
 #include "PeakFinder2D.h"
 #include "LutPeakApply.h"
+#include "Pm1x64Mapping.h"
 #include "M576GlobalException.h"
 #include "M576Version.h"
 #include <math.h>
@@ -2048,7 +2049,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 		int occT3 = 0;
 		int occT4 = 0;
-		RunPathPowerMeterFile(fs, steps, globalProgress, totalAll, occT3, occT4);
+		RunPathPowerMeterFile(fs, steps, globalProgress, totalAll, occT3, occT4, abs);
 	}
 	SafeAppendLog(_T("Path run finished (PM all slots)."));
 	{
@@ -2062,10 +2063,35 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 
 // 单路 pm_*.csv：RECAL1/3 扫点、双轴寻峰、回写 m_lutByTrans[fileSlot] 与 trans3/4 占用计数。
 
-void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, SPathStep const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4)
+void CM576CalibratorDlg::RunPathPowerMeterFile(
+	int fileSlot,
+	CArray<SPathStep, SPathStep const&>& steps,
+	int& globalProgress,
+	int globalTotal,
+	int& occT3,
+	int& occT4,
+	LPCTSTR pmCsvAbsPath)
 {
 	CString err;
 	const int total = (int)steps.GetSize();
+	CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> map1x64Rows;
+	if (fileSlot >= 2)
+	{
+		CString mapErr;
+		CString mapPath;
+		if (pmCsvAbsPath == NULL || pmCsvAbsPath[0] == 0 || !Pm1x64ResolveMappingPath(pmCsvAbsPath, mapPath)
+			|| !LoadPm1x64MappingCsv(mapPath, map1x64Rows, mapErr)
+			|| !ValidatePmStepsAgainstMapping(steps, map1x64Rows, mapErr))
+		{
+			SafeAppendLog(mapErr.IsEmpty() ? _T("PM 1x64: mapping CSV missing or invalid.") : mapErr);
+			CString m;
+			m.Format(_T("PM slot %d: skipping path run (1x64 firmware mapping required)."), fileSlot + 1);
+			SafeAppendLog(m);
+			globalProgress += total;
+			SafeSetProgressPos(globalProgress);
+			return;
+		}
+	}
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
 	CStringA lineOk, lineY, lineX;
@@ -2256,10 +2282,27 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(int fileSlot, CArray<SPathStep, S
 				}
 				else
 				{
-					ApplyRecalPeakToMems1x64(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
+					const SMems1x64PmMapRow& mr = map1x64Rows[i];
+					WriteMems1x64LowTempDacPair(
+						m_mems1x64[fileSlot - 2],
+						mr.sw1to4 - 1,
+						mr.chY1based - 1,
+						dacU.uX,
+						dacU.uY);
 					SCalibrationStatRow srow;
-					if (CalibBuildStatRowPmMems(
-							st, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
+					if (CalibBuildStatRowPmMemsMapped(
+							st,
+							fileSlot,
+							i + 1,
+							br,
+							bc,
+							nLut,
+							rawXi,
+							rawYi,
+							dacU,
+							mr.sw1to4 - 1,
+							mr.chY1based - 1,
+							srow))
 						PushCalibStatRow(srow);
 				}
 			}

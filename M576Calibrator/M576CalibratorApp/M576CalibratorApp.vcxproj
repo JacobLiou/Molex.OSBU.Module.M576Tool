@@ -83,6 +83,8 @@
   copy /Y "$(SolutionDir)output\pm_mcs2.csv" "$(OutDir)output\pm_mcs2.csv"
   copy /Y "$(SolutionDir)output\pm_1x64_1.csv" "$(OutDir)output\pm_1x64_1.csv"
   copy /Y "$(SolutionDir)output\pm_1x64_2.csv" "$(OutDir)output\pm_1x64_2.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_1Mapping.csv" "$(OutDir)output\pm_1x64_1Mapping.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_2Mapping.csv" "$(OutDir)output\pm_1x64_2Mapping.csv"
   copy /Y "$(SolutionDir)output\pd_mcs1.csv" "$(OutDir)output\pd_mcs1.csv"
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
@@ -122,6 +124,8 @@
   copy /Y "$(SolutionDir)output\pm_mcs2.csv" "$(OutDir)output\pm_mcs2.csv"
   copy /Y "$(SolutionDir)output\pm_1x64_1.csv" "$(OutDir)output\pm_1x64_1.csv"
   copy /Y "$(SolutionDir)output\pm_1x64_2.csv" "$(OutDir)output\pm_1x64_2.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_1Mapping.csv" "$(OutDir)output\pm_1x64_1Mapping.csv"
+  copy /Y "$(SolutionDir)output\pm_1x64_2Mapping.csv" "$(OutDir)output\pm_1x64_2Mapping.csv"
   copy /Y "$(SolutionDir)output\pd_mcs1.csv" "$(OutDir)output\pd_mcs1.csv"
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
@@ -143,6 +147,7 @@
     <ClInclude Include="McsFwTransport.h" />
     <ClInclude Include="Switch1x64FwTransport.h" />
     <ClInclude Include="PathCsvDriver.h" />
+    <ClInclude Include="Pm1x64Mapping.h" />
     <ClInclude Include="PeakFinder2D.h" />
     <ClInclude Include="RecalSession.h" />
     <ClInclude Include="resource.h" />
@@ -162,6 +167,7 @@
     <ClCompile Include="McsFwTransport.cpp" />
     <ClCompile Include="Switch1x64FwTransport.cpp" />
     <ClCompile Include="PathCsvDriver.cpp" />
+    <ClCompile Include="Pm1x64Mapping.cpp" />
     <ClCompile Include="PeakFinder2D.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

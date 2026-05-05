@@ -66,6 +66,21 @@ BOOL CalibBuildStatRowPmMems(
 	SDacU16 dac,
 	SCalibrationStatRow& row);
 
+/// PM 1x64: offsets from firmware mapping SW_x / CH_y -> block / stChnDAC[inBlk] (0-based inBlk = CH_y - 1).
+BOOL CalibBuildStatRowPmMemsMapped(
+	const SPathStep& step,
+	int fileSlot,
+	int pathLine1Based,
+	int peakRow,
+	int peakCol,
+	int gridN,
+	int rawDacX,
+	int rawDacY,
+	SDacU16 dac,
+	int block0to3,
+	int inBlk0based,
+	SCalibrationStatRow& row);
+
 BOOL CalibBuildStatRowPdLut(
 	const SPathStepPd& step,
 	int occT3,

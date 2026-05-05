@@ -95,6 +95,26 @@ void ApplyRecalPeakToLut(
 	}
 }
 
+void WriteMems1x64LowTempDacPair(
+	stM576OneX64MemsSwCoef* pSw4,
+	int block0to3,
+	int inBlk0based,
+	unsigned short dacX,
+	unsigned short dacY)
+{
+	if (pSw4 == NULL)
+		return;
+	if (block0to3 < 0 || block0to3 > 3)
+		return;
+	if (inBlk0based < 0 || inBlk0based >= (int)M576_1X64_MAX_CHANNEL_NUM)
+		return;
+	stM576OneX64ChnDAC& d = pSw4[block0to3].stCalibDAC[0];
+	d.stChnDAC[inBlk0based].sDACx = U16ToShortDac(dacY);
+	d.stChnDAC[inBlk0based].sDACy = U16ToShortDac(dacX);
+	(void)d.wValid;
+	(void)d.sTemperature;
+}
+
 void ApplyRecalPeakToMems1x64(
 	const SPathStep& step,
 	int /*occTarget3*/,
