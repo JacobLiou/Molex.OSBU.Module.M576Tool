@@ -245,9 +245,29 @@ namespace M576
 			ys.clear();
 
 			const int n = (int)p.size();
+			std::vector<double> pFilled = p;
+			std::vector<unsigned char> origValid((size_t)n, 0);
+			bool hasPrevValid = false;
+			double prevValid = 0;
+			for (int i = 0; i < n; ++i)
+			{
+				const bool isOrigInvalid = IsRecal1DPowerInvalidValue(p[(size_t)i]);
+				origValid[(size_t)i] = isOrigInvalid ? 0 : 1;
+				if (isOrigInvalid)
+				{
+					const bool hasNext = (i + 1) < n;
+					const bool nextIsValid = hasNext && !IsRecal1DPowerInvalidValue(p[(size_t)(i + 1)]);
+					if (hasPrevValid && nextIsValid)
+						pFilled[(size_t)i] = prevValid;
+					continue;
+				}
+				prevValid = pFilled[(size_t)i];
+				hasPrevValid = true;
+			}
+
 			int nValid = 0;
 			double vmin = 0, vmax = 0;
-			if (!MinMaxRangeExcludingInvalid(p, vmin, vmax, nValid))
+			if (!MinMaxRangeExcludingInvalid(pFilled, vmin, vmax, nValid))
 			{
 				f = Peak1DValidateCode::Empty;
 				return false;
@@ -268,7 +288,7 @@ namespace M576
 			std::vector<unsigned char> useOk((size_t)n, 0);
 			for (int i = 0; i < n; ++i)
 			{
-				if (!IsRecal1DPowerInvalidValue(p[(size_t)i]))
+				if (!IsRecal1DPowerInvalidValue(pFilled[(size_t)i]))
 					baseOk[(size_t)i] = 1;
 			}
 
@@ -288,7 +308,7 @@ namespace M576
 						continue;
 					if (!baseOk[(size_t)j])
 						continue;
-					const double v = p[(size_t)j];
+					const double v = pFilled[(size_t)j];
 					if (!hn)
 					{
 						nbrMax = v;
@@ -302,7 +322,7 @@ namespace M576
 					useOk[(size_t)i] = 1;
 					continue;
 				}
-				const double yi = p[(size_t)i];
+				const double yi = pFilled[(size_t)i];
 				if (yi > nbrMax + outlierThr)
 					useOk[(size_t)i] = 0;
 				else
@@ -315,9 +335,9 @@ namespace M576
 			{
 				if (!useOk[(size_t)i])
 					continue;
-				if (p[(size_t)i] > bestY)
+				if (pFilled[(size_t)i] > bestY)
 				{
-					bestY = p[(size_t)i];
+					bestY = pFilled[(size_t)i];
 					bestI = i;
 				}
 			}
@@ -333,7 +353,7 @@ namespace M576
 			{
 				if (!useOk[(size_t)i])
 					break;
-				if (!(p[(size_t)i] <= p[(size_t)(i + 1)] + eps))
+				if (!(pFilled[(size_t)i] <= pFilled[(size_t)(i + 1)] + eps))
 					break;
 				leftBound = i;
 			}
@@ -342,7 +362,7 @@ namespace M576
 			{
 				if (!useOk[(size_t)j])
 					break;
-				if (!(p[(size_t)j] <= p[(size_t)(j - 1)] + eps))
+				if (!(pFilled[(size_t)j] <= pFilled[(size_t)(j - 1)] + eps))
 					break;
 				rightBound = j;
 			}
@@ -356,8 +376,10 @@ namespace M576
 				{
 					if (!useOk[(size_t)i])
 						continue;
+					if (!origValid[(size_t)i])
+						continue;
 					xs.push_back((double)i);
-					ys.push_back(p[(size_t)i]);
+					ys.push_back(pFilled[(size_t)i]);
 				}
 			};
 			collectWindow(i0 - halfW, i0 + halfW);

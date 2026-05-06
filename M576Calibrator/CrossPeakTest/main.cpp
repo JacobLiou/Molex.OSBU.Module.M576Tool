@@ -484,6 +484,23 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
+	// User case: one sentinel near apex should still fit around idx 16.
+	{
+		static const double kUserCasePowers[] = {
+			-312383, -302967, -294154, -285926, -278262, -271169, -264760, -258847, -253550, -248888, -244814,
+			-241367, -238560, -236333, -234793, -233866, -999999, -233920, -234894, -236541, -238853, -241854,
+			-245498, -249833, -254876, -260669, -267150, -274382, -282334, -290989, -300460, -310711, -321720,
+		};
+		std::vector<double> p(kUserCasePowers, kUserCasePowers + _countof(kUserCasePowers));
+		int idx = 0;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::FindUnimodalPeak1DIndex(p, idx, c, &t) || c != Peak1DValidateCode::Ok || idx != 16 || std::abs(t - 16.0) > 0.25)
+		{
+			std::fprintf(stderr, "self-test: user sample with one sentinel should fit around idx=16\n");
+			++fail;
+		}
+	}
 	return fail;
 }
 
