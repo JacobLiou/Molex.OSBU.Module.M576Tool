@@ -16,7 +16,7 @@
 #define M576_MAX_TLS_SOURCE 8
 #endif
 #ifndef M576_DEFAULT_TLS_SOURCE
-#define M576_DEFAULT_TLS_SOURCE 4
+#define M576_DEFAULT_TLS_SOURCE 8
 #endif
 /// RECAL 0: wavelength (nm, int), PRD 850~1650.
 // RECAL 0 波长（nm 整数，PRD 约 850~1650）。

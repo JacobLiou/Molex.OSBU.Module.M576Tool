@@ -3,6 +3,7 @@
  * Peak index k on powers; DAC_peak = dac_base + k * Step.
  */
 #include "PeakFinder2D.h"
+#include "M576Peak1DConstants.h"
 #include <windows.h>
 #include <cstdio>
 #include <cmath>
@@ -12,6 +13,104 @@
 #include <string>
 #include <vector>
 #include <cstring>
+
+using M576::Peak1DValidateCode;
+
+static bool ParseNumberLine(const std::string& line, std::vector<double>& out);
+
+static const char* Peak1DCodeName(Peak1DValidateCode c)
+{
+	switch (c)
+	{
+	case Peak1DValidateCode::Ok: return "Ok";
+	case Peak1DValidateCode::Empty: return "Empty";
+	case Peak1DValidateCode::LowSpan: return "LowSpan";
+	case Peak1DValidateCode::NotStrictLocal: return "NotStrictLocal";
+	case Peak1DValidateCode::EdgeNotAllowed: return "EdgeNotAllowed";
+	case Peak1DValidateCode::MultiLocalMax: return "MultiLocalMax";
+	case Peak1DValidateCode::NotEnoughSamples: return "NotEnoughSamples";
+	case Peak1DValidateCode::NotEnoughValidSamples: return "NotEnoughValidSamples";
+	case Peak1DValidateCode::ParabolaNotDownward: return "ParabolaNotDownward";
+	case Peak1DValidateCode::ParabolaFitSingular: return "ParabolaFitSingular";
+	case Peak1DValidateCode::VertexOutOfRange: return "VertexOutOfRange";
+	default: return "?";
+	}
+}
+
+static void PrintFitTraceStdout(const char* stageTag, const M576::Peak1DFitTrace& tr)
+{
+	if (tr.globalMaxIndex >= 0)
+		std::printf("  %s globalMax: idx=%d P=%.12g\n", stageTag, tr.globalMaxIndex, tr.globalMaxY);
+	const size_t nf = tr.fitIndex.size();
+	if (nf == 0 || tr.fitY.size() != nf)
+	{
+		std::printf("  %s fitPoints: (none after preprocess)\n", stageTag);
+		return;
+	}
+	const int head = (int)M576_PEAK1D_LOG_FIT_FIRST;
+	const int tail = (int)M576_PEAK1D_LOG_FIT_LAST;
+	std::printf("  %s fitPoints (%zu): ", stageTag, nf);
+	if ((int)nf <= head + tail)
+	{
+		for (size_t k = 0; k < nf; ++k)
+			std::printf("%s[%d]=%.8g", k ? ";" : "", tr.fitIndex[k], tr.fitY[k]);
+	}
+	else
+	{
+		for (int k = 0; k < head; ++k)
+			std::printf("%s[%d]=%.8g", k ? ";" : "", tr.fitIndex[(size_t)k], tr.fitY[(size_t)k]);
+		std::printf(" ... ");
+		for (size_t k = nf - (size_t)tail; k < nf; ++k)
+			std::printf(";[%d]=%.8g", tr.fitIndex[k], tr.fitY[k]);
+	}
+	std::printf("\n");
+}
+
+/// 每行: col0=dac_base, 其余为 P1..Pn（与 RECAL 扫频行一致）。跑 ParabolaVertexMax1D + Peak1DFitTrace，打印与上位机日志等价的摘要。
+static int RunMockSweepLinesFile(const char* path)
+{
+	std::ifstream f(path, std::ios::binary);
+	if (!f)
+	{
+		std::fprintf(stderr, "mock-sweeps: cannot open: %s\n", path);
+		return 1;
+	}
+	std::string line;
+	int lineNo = 0;
+	int nFail = 0;
+	while (std::getline(f, line))
+	{
+		++lineNo;
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ' || line.back() == '\t'))
+			line.pop_back();
+		if (line.empty())
+			continue;
+		std::vector<double> nums;
+		if (!ParseNumberLine(line, nums) || nums.size() < 1 + (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+		{
+			std::printf("--- line %d: skip (need dac + >=%d powers, got %zu)\n",
+				lineNo, (int)M576_PEAK1D_CUBIC_MIN_SAMPLES, nums.size());
+			continue;
+		}
+		const double dac0 = nums[0];
+		std::vector<double> powers(nums.begin() + 1, nums.end());
+		std::printf("=== line %d dac_base=%.17g n=%zu ===\n", lineNo, dac0, powers.size());
+		M576::Peak1DFitTrace tr;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		const bool ok = M576::ParabolaVertexMax1D(powers, t, c, &tr);
+		int idx = 0;
+		if (ok)
+			idx = (int)std::lround(t);
+		std::printf("  ParabolaVertexMax1D: %s  t*=%.8g  lround(idx)=%d  code=%s\n",
+			ok ? "OK" : "FAIL", t, idx, Peak1DCodeName(c));
+		PrintFitTraceStdout("mock", tr);
+		if (!ok)
+			++nFail;
+	}
+	std::printf("mock-sweeps: processed file, lines with FAIL=%d\n", nFail);
+	return 0;
+}
 
 
 struct SweepRow
@@ -208,14 +307,13 @@ static void DefaultDemoData(SweepRow& y, SweepRow& x)
 static int RunPeak1DSelfTests()
 {
 	int fail = 0;
-	using M576::Peak1DValidateCode;
 	{
 		std::vector<double> flat(7, -10.0);
 		int idx = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
 		if (M576::FindUnimodalPeak1DIndex(flat, idx, c) || c != Peak1DValidateCode::ParabolaNotDownward)
 		{
-			std::fprintf(stderr, "self-test: flat line should fail ParabolaNotDownward (LSQ a>=0)\n");
+			std::fprintf(stderr, "self-test: flat line should fail ParabolaNotDownward\n");
 			++fail;
 		}
 	}
@@ -226,10 +324,10 @@ static int RunPeak1DSelfTests()
 		int idx = 0;
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (!M576::FindUnimodalPeak1DIndex(one, idx, c, &t) || std::abs(t - 2.0) > 1e-5 || idx != 2
+		if (!M576::FindUnimodalPeak1DIndex(one, idx, c, &t) || std::abs(t - 2.0) > 0.05 || idx != 2
 			|| c != Peak1DValidateCode::Ok)
 		{
-			std::fprintf(stderr, "self-test: parabola peak at t=2, lround->2\n");
+			std::fprintf(stderr, "self-test: quadratic peak at t≈2, lround->2 (cubic fit)\n");
 			++fail;
 		}
 	}
@@ -243,11 +341,11 @@ static int RunPeak1DSelfTests()
 		int br = 0, bc = 0;
 		Peak1DValidateCode yc = Peak1DValidateCode::Ok, xc = Peak1DValidateCode::Ok;
 		double tY = 0, tX = 0;
-		if (!M576::PeakCrossFrom1DScans(y, x, br, bc, &yc, &xc, &tY, &tX) || br != 3 || bc != 2
+		if (!M576::PeakCrossFrom1DScans(y, x, br, bc, &yc, &xc, &tY, &tX, nullptr, nullptr) || br != 3 || bc != 2
 			|| yc != Peak1DValidateCode::Ok || xc != Peak1DValidateCode::Ok
-			|| std::abs(tY - 3.0) > 1e-3 || std::abs(tX - 2.0) > 1e-3)
+			|| std::abs(tY - 3.0) > 0.05 || std::abs(tX - 2.0) > 0.05)
 		{
-			std::fprintf(stderr, "self-test: cross parabola tY=3 tX=2, lround (3,2)\n");
+			std::fprintf(stderr, "self-test: cross cubic tY≈3 tX≈2, lround (3,2)\n");
 			++fail;
 		}
 	}
@@ -262,6 +360,16 @@ static int RunPeak1DSelfTests()
 		}
 	}
 	{
+		std::vector<double> three(3, 1.0);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(three, t, c) || c != Peak1DValidateCode::NotEnoughSamples)
+		{
+			std::fprintf(stderr, "self-test: n=3 should be NotEnoughSamples (cubic needs n>=4)\n");
+			++fail;
+		}
+	}
+	{
 		std::vector<double> up(5);
 		for (int i = 0; i < 5; ++i)
 			up[(size_t)i] = (double)(i * i) * 10.0; // span>>min; still upward-opening => ParabolaNotDownward
@@ -269,7 +377,7 @@ static int RunPeak1DSelfTests()
 		double t = 0;
 		if (M576::ParabolaVertexMax1D(up, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
 		{
-			std::fprintf(stderr, "self-test: upward parabola => ParabolaNotDownward\n");
+			std::fprintf(stderr, "self-test: monotone-up samples => ParabolaNotDownward\n");
 			++fail;
 		}
 	}
@@ -281,14 +389,14 @@ static int RunPeak1DSelfTests()
 		seven[2] = -999999.0; // M576_RECAL_POW_INVALID_1
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (!M576::ParabolaVertexMax1D(seven, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 3.0) > 0.15)
+		if (!M576::ParabolaVertexMax1D(seven, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 3.0) > 0.2)
 		{
-			std::fprintf(stderr, "self-test: masked parabola vertex near 3.0 (one -999999)\n");
+			std::fprintf(stderr, "self-test: masked quadratic peak near 3.0 (one -999999)\n");
 			++fail;
 		}
 	}
 	{
-		std::vector<double> p(5, -999900.0); // 3 valid sentinels + 2 real samples => n_valid=2 < 3
+		std::vector<double> p(5, -999900.0); // 3 valid sentinels + 2 real samples => n_valid=2 < 4
 		p[0] = 0.0;
 		p[1] = 1.0;
 		double t = 0;
@@ -309,7 +417,7 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
-	// RECAL 3 0 日志 P1..Pn 摘录（col0=2357 已剥离）；近平坦，抛物线主路径不再因 span 早退 LowSpan，仍走 LSQ
+	// RECAL 3 0 日志 P1..Pn 摘录（col0=2357 已剥离）；近平坦，主路径不因 span 早退 LowSpan
 	{
 		static const double kFlatPmRecal3Y[] = {
 			-529251, -529250, -529251, -529251, -529250, -529250, -529250, -529250, -529250, -529250,
@@ -340,11 +448,53 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
+	// 不对称右尾 + 末端孤立尖峰：预处理后主峰仍应在 ~14 附近而非尖峰格点。
+	{
+		const int nk = 36;
+		std::vector<double> tailSpike((size_t)nk);
+		for (int i = 0; i < nk; ++i)
+		{
+			const double qi = ((double)i - 14.0) / 13.5;
+			tailSpike[(size_t)i] = -300000.0 - 55000.0 * qi * qi;
+		}
+		for (int i = 24; i < nk - 2; ++i)
+			tailSpike[(size_t)i] -= 1200.0 * (double)(i - 23);
+		tailSpike[(size_t)(nk - 1)] = 0.0;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		int idx = 0;
+		if (!M576::FindUnimodalPeak1DIndex(tailSpike, idx, c, &t) || c != Peak1DValidateCode::Ok
+			|| std::abs(t - 14.0) > 1.25 || idx < 13 || idx > 15)
+		{
+			std::fprintf(stderr, "self-test: tail + end spike preprocess + cubic peak ~14\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> q(7);
+		for (int i = 0; i < 7; ++i)
+			q[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
+		M576::Peak1DFitTrace tr;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(q, t, c, &tr) || c != Peak1DValidateCode::Ok || tr.globalMaxIndex != 3
+			|| std::abs(tr.globalMaxY - 50.0) > 1e-6 || tr.fitIndex.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+		{
+			std::fprintf(stderr, "self-test: Peak1DFitTrace global max and fit count\n");
+			++fail;
+		}
+	}
 	return fail;
 }
 
 int main(int argc, char* argv[])
 {
+	if (argc >= 3 && std::strcmp(argv[1], "--mock-sweeps") == 0)
+	{
+		(void)RunMockSweepLinesFile(argv[2]);
+		return 0;
+	}
+
 	if (RunPeak1DSelfTests() != 0)
 		return 9;
 
@@ -407,7 +557,7 @@ int main(int argc, char* argv[])
 
 	int br = 0, bc = 0;
 	double tY = 0, tX = 0;
-	if (!M576::PeakCrossFrom1DScans(sweepY.powers, sweepX.powers, br, bc, nullptr, nullptr, &tY, &tX))
+	if (!M576::PeakCrossFrom1DScans(sweepY.powers, sweepX.powers, br, bc, nullptr, nullptr, &tY, &tX, nullptr, nullptr))
 	{
 		std::fprintf(stderr, "CrossPeakTest: PeakCrossFrom1DScans failed\n");
 		return 4;
@@ -418,7 +568,7 @@ int main(int argc, char* argv[])
 	const double rawDacY = sweepX.dac_base + tX * step;
 
 	std::printf("Step DAC = %.17g (same as RECAL 3 Step)\n", step);
-	std::printf("Power samples per axis N = %zu (0-based; LS parabola vertex t*)\n", sweepY.powers.size());
+	std::printf("Power samples per axis N = %zu (0-based; cubic-fit peak position t*)\n", sweepY.powers.size());
 	std::printf("RECAL 3 0: dac_base = %.17g  => tY=%.8g  lround->%d\n", sweepY.dac_base, tY, br);
 	std::printf("RECAL 3 1: dac_base = %.17g  => tX=%.8g  lround->%d\n", sweepX.dac_base, tX, bc);
 	std::printf("  power@grid sample at lround: P_y[%d]=%.17g  P_x[%d]=%.17g\n", br, sweepY.powers[(size_t)br], bc, sweepX.powers[(size_t)bc]);

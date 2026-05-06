@@ -18,6 +18,8 @@
 #include "TransLutRoute.h"
 #include "CalibWriteMeta.h"
 
+namespace M576 { struct Peak1DFitTrace; }
+
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
 class CM576CalibratorDlg : public CDialogEx
@@ -35,6 +37,7 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 private:
+	friend void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, const M576::Peak1DFitTrace& tr);
 	// --- UI 与路径字符串 ---
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;

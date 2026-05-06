@@ -114,15 +114,15 @@ static const TCHAR* M576Peak1DWhy(M576::Peak1DValidateCode c)
 	case Peak1DValidateCode::MultiLocalMax:
 		return _T("too many local maxima");
 	case Peak1DValidateCode::NotEnoughSamples:
-		return _T("not enough points for parabola (need >=3)");
+		return _T("not enough points for cubic fit (need >=4)");
 	case Peak1DValidateCode::NotEnoughValidSamples:
-		return _T("not enough valid power samples after sentinels removed (need >=3)");
+		return _T("not enough valid samples after preprocessing (need >=4)");
 	case Peak1DValidateCode::ParabolaNotDownward:
-		return _T("parabola fit: no maximum (a>=0)");
+		return _T("1D cubic fit rejected (flat / monotone / no peak)");
 	case Peak1DValidateCode::ParabolaFitSingular:
-		return _T("parabola fit singular");
+		return _T("cubic fit singular / ill-conditioned");
 	case Peak1DValidateCode::VertexOutOfRange:
-		return _T("parabola vertex outside sweep [0..n-1]");
+		return _T("peak position outside sweep [0..n-1]");
 	default:
 		return _T("unknown");
 	}
@@ -516,6 +516,52 @@ static bool M576SessionLutMemsAllZero(
 }
 
 } // namespace
+
+void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, const M576::Peak1DFitTrace& tr)
+{
+	if (!dlg)
+		return;
+	if (tr.globalMaxIndex >= 0)
+	{
+		CString line;
+		line.Format(_T("  %s全局最大点: 下标=%d 功率=%.12g"), stageTag, tr.globalMaxIndex, tr.globalMaxY);
+		dlg->SafeAppendLog(line);
+	}
+	const size_t nf = tr.fitIndex.size();
+	if (nf == 0 || tr.fitY.size() != nf)
+	{
+		CString line;
+		line.Format(_T("  %s拟合点: (无，预处理未产出)"), stageTag);
+		dlg->SafeAppendLog(line);
+		return;
+	}
+	const int head = (int)M576_PEAK1D_LOG_FIT_FIRST;
+	const int tail = (int)M576_PEAK1D_LOG_FIT_LAST;
+	CString seg;
+	auto appendOne = [&](size_t k, bool withSep)
+	{
+		CString one;
+		one.Format(_T("%s[%d]=%.8g"), withSep ? _T(";") : _T(""), tr.fitIndex[k], tr.fitY[k]);
+		seg += one;
+	};
+	if ((int)nf <= head + tail)
+	{
+		for (size_t k = 0; k < nf; ++k)
+			appendOne(k, k != 0);
+	}
+	else
+	{
+		for (int k = 0; k < head; ++k)
+			appendOne((size_t)k, k != 0);
+		seg += _T(" ... ");
+		for (size_t k = nf - (size_t)tail; k < nf; ++k)
+			appendOne(k, true);
+	}
+	CString full;
+	full.Format(_T("  %s拟合点(共%zu个): "), stageTag, nf);
+	full += seg;
+	dlg->SafeAppendLog(full);
+}
 
 // --- 构造与 DDX：默认 CSV/LUT/日志路径、定标步参与 PM 模式初值 ---
 
@@ -1537,7 +1583,7 @@ void CM576CalibratorDlg::OnBnClickedExportCalibStats()
 void CM576CalibratorDlg::OnBnClickedCalPm()
 {
 	UpdateData(TRUE);
-	/// PM defaults: TLS=4, 1310 nm, PM range=1 (Command A).
+	/// PM defaults: TLS=8, 1310 nm, PM range=1 (Command A).
 	m_tlsIndex = M576_DEFAULT_TLS_SOURCE - M576_MIN_TLS_SOURCE;
 	m_strWavelength = _T("1310");
 	m_pmRangeIndex = M576_DEFAULT_PM_RANGE;
@@ -2178,7 +2224,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		int brForYBase = 0;
 		M576::Peak1DValidateCode yPreCode = M576::Peak1DValidateCode::Ok;
 		double tYPre = 0.0;
-		if (powY.empty() || !M576::FindUnimodalPeak1DIndex(powY, brForYBase, yPreCode, &tYPre))
+		M576::Peak1DFitTrace yPreTracePm;
+		if (powY.empty() || !M576::FindUnimodalPeak1DIndex(powY, brForYBase, yPreCode, &tYPre, &yPreTracePm))
 		{
 			if (!powY.empty() && yPreCode != M576::Peak1DValidateCode::Ok)
 				SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::YPre, yPreCode));
@@ -2188,6 +2235,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
+		M576AppendPeakFitTraceLog(this, _T("RECAL3 Y预瞄(PM) "), yPreTracePm);
 		const int nY = (int)powY.size();
 		const int yBaseDacForSweep1 =
 			RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, m_dacRange, xFixedDac);
@@ -2244,7 +2292,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		{
 			M576::Peak1DValidateCode yCross = M576::Peak1DValidateCode::Ok, xCross = M576::Peak1DValidateCode::Ok;
 			double tYPm = 0.0, tXPm = 0.0;
-			if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc, &yCross, &xCross, &tYPm, &tXPm))
+			M576::Peak1DFitTrace trCrossYPm, trCrossXPm;
+			if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc, &yCross, &xCross, &tYPm, &tXPm, &trCrossYPm, &trCrossXPm))
 			{
 				if (yCross != M576::Peak1DValidateCode::Ok)
 					SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::YCross, yCross));
@@ -2253,6 +2302,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			}
 			else
 			{
+				M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 Y轴(PM) "), trCrossYPm);
+				M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 X轴(PM) "), trCrossXPm);
 				const int nLut = (int)powY.size();
 				const double rawDacXAtPeak = SweepCol0PlusPeakOffsetDac(xFixedDac, tYPm, nLut, m_dacRange);
 				const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, tXPm, nLut, m_dacRange);
@@ -2485,7 +2536,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		int brForYBasePd = 0;
 		M576::Peak1DValidateCode yPreCodePd = M576::Peak1DValidateCode::Ok;
 		double tYPrePd = 0.0;
-		if (powY.empty() || !M576::FindUnimodalPeak1DIndex(powY, brForYBasePd, yPreCodePd, &tYPrePd))
+		M576::Peak1DFitTrace yPreTracePd;
+		if (powY.empty() || !M576::FindUnimodalPeak1DIndex(powY, brForYBasePd, yPreCodePd, &tYPrePd, &yPreTracePd))
 		{
 			if (!powY.empty() && yPreCodePd != M576::Peak1DValidateCode::Ok)
 				SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::YPre, yPreCodePd));
@@ -2495,6 +2547,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
+		M576AppendPeakFitTraceLog(this, _T("RECAL5 Y预瞄(PD) "), yPreTracePd);
 		const int nYpd = (int)powY.size();
 		const int yBaseDacForSweep1Pd =
 			RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, m_dacRange, xFixedDacPd);
@@ -2551,7 +2604,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		{
 			M576::Peak1DValidateCode yCrossPd = M576::Peak1DValidateCode::Ok, xCrossPd = M576::Peak1DValidateCode::Ok;
 			double tYpd = 0.0, tXpd = 0.0;
-			if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc, &yCrossPd, &xCrossPd, &tYpd, &tXpd))
+			M576::Peak1DFitTrace trCrossYPd, trCrossXPd;
+			if (!M576::PeakCrossFrom1DScans(powY, powX, br, bc, &yCrossPd, &xCrossPd, &tYpd, &tXpd, &trCrossYPd, &trCrossXPd))
 			{
 				if (yCrossPd != M576::Peak1DValidateCode::Ok)
 					SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::YCross, yCrossPd));
@@ -2560,6 +2614,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			}
 			else
 			{
+				M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 Y轴(PD) "), trCrossYPd);
+				M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 X轴(PD) "), trCrossXPd);
 				const int nLut = (int)powY.size();
 				const double rawDacXAtPeakPd = SweepCol0PlusPeakOffsetDac(xFixedDacPd, tYpd, nLut, m_dacRange);
 				const double rawDacYAtPeakPd = SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, tXpd, nLut, m_dacRange);
