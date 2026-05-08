@@ -166,6 +166,21 @@ private:
 	/// Before Run path: COM, PM wavelength (if PM), built-in CSV files exist. MessageBox and return FALSE when invalid.
 	// 跑路径前：串口、（PM 时）波长、内置 CSV 等输入校验。
 	BOOL ValidateRunPathInputs(CString& errMsg);
+	/// MakeBin: standardAll1310DAC.csv + all backup bins must be present and readable.
+	BOOL ValidateMakeBinInputs(const CString& absBackupBin, const CString& absCsvPath, CString& errMsg);
+	/// Parse low-temp 1310 DAC CSV into session structures used for bin generation.
+	BOOL ParseLowTemp1310DacCsv(
+		LPCTSTR csvPath,
+		stLutSettingZ4671 lutOut[2],
+		stM576OneX64MemsSwCoef memsOut[2][4],
+		CString& errMsg);
+	/// Reuse Write BIN merge/write core for both Write BIN and MakeBin.
+	BOOL GenerateStandardBinFiles(
+		const CString& absBackupBin,
+		const CString& absOutBase,
+		CString& errMsg,
+		BOOL preserveMcsMetaFromBackup);
+	CString BuildStandardAll1310DacCsvPath(const CString& absOutBase) const;
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	// 进度回调节点，调用约定须与 McsFwProgressCb 一致（__cdecl）。
 	static void ProgressThunk(int cur, int total, void* user);
@@ -183,6 +198,7 @@ private:
 	afx_msg void OnBnClickedRunPath();
 	afx_msg void OnBnClickedClearLog();
 	afx_msg void OnBnClickedGenBin();
+	afx_msg void OnBnClickedMakeBin();
 	afx_msg void OnBnClickedReadAllSn();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedStop();
