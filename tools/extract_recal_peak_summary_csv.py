@@ -13,12 +13,20 @@ Columns:
   run_index: 1-based Run Path segment in this log.
   step_i, step_total, slot, recal_cmd: from the Step line (recal_cmd is 1 or 2).
   recal_switch: first number from nearest preceding SEND RECAL 1|2 line; NULL if not found.
+  base_dac_y, base_dac_x: RECAL 3 0/1 (or 5 0/5 1) sweep first cells; NULL if that sweep line absent.
   max_cross_x: power at cross X-axis global max log line; NULL if missing/skipped.
   max_cross_y: power at cross Y-axis global max log line; NULL if missing/skipped.
   fit_x, fit_y: from linear DAC at cross-peak Y= ... X= ...; NULL if missing.
 
+Optional --format stats (8 columns for analysis):
+  base_dac_y, base_dac_x, max_cross_x_index, max_cross_y_index, max_cross_x, max_cross_y, fit_x, fit_y
+  base_dac_y: PM RECAL 3 0 sweep col0; PD RECAL 5 0 X_start=.
+  base_dac_x: PM RECAL 3 1 sweep col0; PD RECAL 5 1 sweep col0.
+  indices from cross-axis global-max log lines (subscript before power).
+
 Examples:
   python tools/extract_recal_peak_summary_csv.py comm_2026-05-07.log
+  python tools/extract_recal_peak_summary_csv.py dataAnalysis/comm_2026-05-06.log -o dataAnalysis/comm_2026-05-06_peak_summary.csv --format stats
   python tools/extract_recal_peak_summary_csv.py comm_2026-05-06.log -o out.csv --utf8-bom
 """
 
@@ -40,7 +48,7 @@ RUN_END_MARKERS = (
 STEP_RE = re.compile(
     r"Step (\d+)/(\d+) \(slot (\d+)\) RECAL ([12]) -> OK",
 )
-# Log text (UTF-8): RECAL3 交叉 X轴(PM) 全局最大点: 下标=... 功率=...
+# RECAL3 cross X axis global max: index then power (Chinese via escapes).
 _CROSS_MAX_RE = re.compile(
     r"RECAL([35])\s+"
     r"\u4ea4\u53c9\s+"
@@ -48,12 +56,23 @@ _CROSS_MAX_RE = re.compile(
     r"\u8f74"
     r"\((?:PM|PD)\)\s+"
     r"\u5168\u5c40\u6700\u5927\u70b9:\s+"
-    r"\u4e0b\u6807=\d+\s+"
+    r"\u4e0b\u6807=(\d+)\s+"
     r"\u529f\u7387="
     r"([-\d.eE+]+)",
 )
 _FIT_RE = re.compile(
     r"linear DAC at cross-peak:\s*Y=([-\d.eE+]+).*?X=([-\d.eE+]+)",
+)
+# Sweep first cells: Y axis then X axis (PM RECAL 3 0 / 3 1; PD RECAL 5 0 X_start + RECAL 5 1 sweep col0).
+_RECAL30_SWEEP_COL0_RE = re.compile(
+    r"RECAL 3 0 -> \d+ power samples, sweep col0=([-\d.eE+]+)",
+)
+_RECAL31_SWEEP_COL0_RE = re.compile(
+    r"RECAL 3 1 -> \d+ power samples, sweep col0=([-\d.eE+]+)",
+)
+_RECAL50_XSTART_RE = re.compile(r"RECAL 5 0 -> \d+ samples \(X_start=([-\d.eE+]+)\)")
+_RECAL51_SWEEP_COL0_RE = re.compile(
+    r"RECAL 5 1 -> \d+ samples, sweep col0=([-\d.eE+]+)",
 )
 _SEND_RECAL1_RE = re.compile(r"SEND RECAL 1 \| RECAL 1 (\d+)")
 _SEND_RECAL2_RE = re.compile(r"SEND RECAL 2 \| RECAL 2 (\d+)")
@@ -95,25 +114,54 @@ def _lookup_recal_switch(run_lines: List[str], step_line_index: int, recal_cmd: 
 
 def _parse_block(
     block_lines: Sequence[str],
-) -> tuple[str | None, str | None, str | None, str | None]:
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+]:
+    """Returns base_dac_y, base_dac_x, idx_x, idx_y, max_x_power, max_y_power, fit_x, fit_y (last match wins)."""
     max_x: str | None = None
     max_y: str | None = None
+    idx_x: str | None = None
+    idx_y: str | None = None
     fit_x: str | None = None
     fit_y: str | None = None
+    base_y: str | None = None
+    base_x: str | None = None
     for line in block_lines:
+        m30 = _RECAL30_SWEEP_COL0_RE.search(line)
+        if m30:
+            base_y = m30.group(1)
+        m50 = _RECAL50_XSTART_RE.search(line)
+        if m50:
+            base_y = m50.group(1)
+        m31 = _RECAL31_SWEEP_COL0_RE.search(line)
+        if m31:
+            base_x = m31.group(1)
+        m51 = _RECAL51_SWEEP_COL0_RE.search(line)
+        if m51:
+            base_x = m51.group(1)
         m = _CROSS_MAX_RE.search(line)
         if m:
             axis = m.group(2)
-            power = m.group(3)
+            idx = m.group(3)
+            power = m.group(4)
             if axis == "X":
                 max_x = power
+                idx_x = idx
             else:
                 max_y = power
+                idx_y = idx
         fm = _FIT_RE.search(line)
         if fm:
             fit_x = fm.group(1)
             fit_y = fm.group(2)
-    return max_x, max_y, fit_x, fit_y
+    return base_y, base_x, idx_x, idx_y, max_x, max_y, fit_x, fit_y
 
 
 def _null(v: str | None) -> str:
@@ -133,7 +181,7 @@ def extract_rows(all_run_lines: List[str], run_index: int) -> List[dict[str, str
         end = step_indices[k + 1] if k + 1 < len(step_indices) else len(all_run_lines)
         block = all_run_lines[idx + 1 : end]
         sw = _lookup_recal_switch(all_run_lines, idx, recal_cmd)
-        max_x, max_y, fx, fy = _parse_block(block)
+        b_y, b_x, ix, iy, max_x, max_y, fx, fy = _parse_block(block)
         rows.append(
             {
                 "run_index": str(run_index),
@@ -142,6 +190,10 @@ def extract_rows(all_run_lines: List[str], run_index: int) -> List[dict[str, str
                 "slot": slot,
                 "recal_cmd": recal_cmd,
                 "recal_switch": _null(sw),
+                "base_dac_y": _null(b_y),
+                "base_dac_x": _null(b_x),
+                "max_cross_x_index": _null(ix),
+                "max_cross_y_index": _null(iy),
                 "max_cross_x": _null(max_x),
                 "max_cross_y": _null(max_y),
                 "fit_x": _null(fx),
@@ -166,6 +218,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Output CSV (default: <log_stem>_peak_summary.csv beside the log)",
     )
     ap.add_argument("--utf8-bom", action="store_true", help="UTF-8 with BOM for Excel.")
+    ap.add_argument(
+        "--format",
+        choices=("full", "stats"),
+        default="full",
+        help="full: all columns; stats: 8 columns (base_dac_y/x from RECAL3/5 sweep starts; peaks; fit)",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     log_path = args.log_file
@@ -181,13 +239,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     lines = text.splitlines()
     runs = _split_runs(lines)
 
-    fieldnames = [
+    fieldnames_full = [
         "run_index",
         "step_i",
         "step_total",
         "slot",
         "recal_cmd",
         "recal_switch",
+        "base_dac_y",
+        "base_dac_x",
+        "max_cross_x_index",
+        "max_cross_y_index",
+        "max_cross_x",
+        "max_cross_y",
+        "fit_x",
+        "fit_y",
+    ]
+    fieldnames_stats = [
+        "base_dac_y",
+        "base_dac_x",
+        "max_cross_x_index",
+        "max_cross_y_index",
         "max_cross_x",
         "max_cross_y",
         "fit_x",
@@ -199,10 +271,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     enc = "utf-8-sig" if args.utf8_bom else "utf-8"
     out.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = fieldnames_stats if args.format == "stats" else fieldnames_full
     with out.open("w", newline="", encoding=enc) as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
         w.writeheader()
-        w.writerows(all_rows)
+        for row in all_rows:
+            w.writerow({k: row[k] for k in fieldnames})
 
     print(f"wrote {len(all_rows)} rows -> {out}")
     return 0
