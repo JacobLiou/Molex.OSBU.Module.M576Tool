@@ -86,23 +86,21 @@ BOOL CalibBuildStatRowPmLut(
 
 	if (t == 3)
 	{
-		if (occT3 < 0 || occT3 > 575)
+		(void)occT3;
+		if (step.c1 < 1 || step.c1 > 32 || step.c2 < 1 || step.c2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
 			return FALSE;
-		const int sw = occT3 / 18 + 1;
-		const int ch = occT3 % 18 + 1;
-		swIdx = (sw - 1);
-		chIdx = (ch - 1);
+		swIdx = M576McsBlock1To32ToLutSwIdx0(step.c1);
+		chIdx = step.c2 - 1;
 	}
 	else if (t == 4)
 	{
-		if (occT4 < 0 || occT4 > 575)
+		(void)occT4;
+		if (step.c1 < 1 || step.c1 > 32 || step.c2 < 1 || step.c2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
 			return FALSE;
-		const int sw = occT4 / 18 + 1;
-		const int ch = occT4 % 18 + 1;
-		swIdx = (sw - 1) + (int)M576_MCS2_SW_INDEX_OFFSET;
+		swIdx = M576McsBlock1To32ToLutSwIdx0(step.c1) + (int)M576_MCS2_SW_INDEX_OFFSET;
 		if (swIdx > 33)
 			swIdx = 33;
-		chIdx = (ch - 1);
+		chIdx = step.c2 - 1;
 	}
 	else if (t == 1 || t == 2)
 	{
@@ -293,6 +291,16 @@ BOOL CalibBuildStatRowPdLut(
 	pm.targetSwitchIndex = t;
 	if (t == 1 || t == 2)
 		pm.c1 = step.ch1;
+	else if (t == 3)
+	{
+		pm.c1 = step.ch1;
+		pm.c2 = step.ch2;
+	}
+	else if (t == 4)
+	{
+		pm.c1 = step.ch1 - 32;
+		pm.c2 = step.ch2;
+	}
 	if (!CalibBuildStatRowPmLut(
 			pm, occT3, occT4, fileSlot, pathLine1Based, peakRow, peakCol, gridN, rawDacX, rawDacY, dac, row))
 		return FALSE;

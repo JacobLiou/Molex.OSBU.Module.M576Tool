@@ -108,6 +108,17 @@
 #define M576_MCS2_SW_INDEX_OFFSET 0
 #endif
 
+#if defined(__cplusplus)
+/// MCS 块号 1..32 → `wCalibPtrDAC` 第一维下标 0..31（固件约定；**非** row = block-1）。越界时返回 0。
+inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
+{
+	if (block1to32 < 1 || block1to32 > 32)
+		return 0;
+	const int ch0 = block1to32 - 1;
+	return (ch0 < 16) ? (ch0 + 16) : (ch0 - 16);
+}
+#endif
+
 /// Z4671 GetLogFileData (0xC4): 16-bit file type (default 0x007B per FW); flash base `M576_FLASH_LUT_READ_BASE`.
 // Z4671 0xC4 读文件：16 位文件类型；LUT 在 Flash 中的 32 位基址由宏给出（大端在协议中）。
 #ifndef M576_FLASH_FILE_TYPE
