@@ -3,8 +3,10 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 rem Package M576Calibrator for offline copy (Win32 Release + VC143 CRT/MFC DLLs next to exe).
 rem Usage:
-rem   package_m576.bat           - MSBuild Release|Win32, then stage dist
-rem   package_m576.bat nobuild   - skip build, only copy from existing Release output
+rem   package_m576.bat              - MSBuild Release|Win32, then stage dist
+rem   package_m576.bat nobuild      - skip build, only copy from existing Release output
+rem   package_m576.bat nopkill      - do not taskkill M576CalibratorApp.exe before build (default kills if running to avoid LNK1104)
+rem   package_m576.bat nobuild nopkill  - either order for two flags
 
 set "SCRIPT_DIR=%~dp0"
 set "SLN=%SCRIPT_DIR%M576Calibrator.sln"
@@ -14,7 +16,11 @@ set "CSV_SRC=%SCRIPT_DIR%output"
 set "DIST=%SCRIPT_DIR%dist\M576Calibrator"
 
 set "NOBUILD=0"
+set "NOPKILL=0"
 if /I "%~1"=="nobuild" set "NOBUILD=1"
+if /I "%~1"=="nopkill" set "NOPKILL=1"
+if /I "%~2"=="nobuild" set "NOBUILD=1"
+if /I "%~2"=="nopkill" set "NOPKILL=1"
 
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%VSWHERE%" (
@@ -34,9 +40,18 @@ if not defined MSBUILD (
 
 if "%NOBUILD%"=="0" (
   echo Building Release ^| Win32 ^(v143^) ...
+  rem Linker LNK1104 if exe is running, held by AV, or synced (e.g. OneDrive). Clear read-only then optionally end process.
+  if exist "%APP_REL%" attrib -R "%APP_REL%" >nul 2>&1
+  if "%NOPKILL%"=="0" (
+    echo Closing M576CalibratorApp.exe if running ^(avoids linker LNK1104: cannot open exe^)...
+    taskkill /F /IM M576CalibratorApp.exe >nul 2>&1
+    ping -n 2 127.0.0.1 >nul
+    if exist "%APP_REL%" attrib -R "%APP_REL%" >nul 2>&1
+  )
   "%MSBUILD%" "%SLN%" /p:Configuration=Release /p:Platform=Win32 /v:m /nologo
   if errorlevel 1 (
     echo ERROR: Build failed.
+    echo Hint: Close M576CalibratorApp.exe and any Explorer window inside Release\, then retry. Or run: package_m576.bat nobuild
     exit /b 1
   )
 ) else (
@@ -76,10 +91,12 @@ for %%F in (
   pd_1x64_2.csv
 ) do (
   if exist "%OUT_SRC%\%%F" (
-    copy /Y "%OUT_SRC%\%%F" "%DIST%\output\" >nul && set "CSV_OK=1"
+    copy /Y "%OUT_SRC%\%%F" "%DIST%\output\" >nul
+    if not errorlevel 1 set "CSV_OK=1"
   )
   if not exist "%OUT_SRC%\%%F" if exist "%CSV_SRC%\%%F" (
-    copy /Y "%CSV_SRC%\%%F" "%DIST%\output\" >nul && set "CSV_OK=1"
+    copy /Y "%CSV_SRC%\%%F" "%DIST%\output\" >nul
+    if not errorlevel 1 set "CSV_OK=1"
   )
 )
 if "!CSV_OK!"=="0" (
