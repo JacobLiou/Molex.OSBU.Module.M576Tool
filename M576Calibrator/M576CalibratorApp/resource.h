@@ -10,6 +10,7 @@
 #define AFX_IDC_BROWSER                 102
 #define IDD_M576CALIBRATOR_DIALOG       102
 #define IDD_M576_BURN_SELECT            110
+#define IDD_M576_RECOVER_SELECT         111
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -48,6 +49,7 @@
 #define IDC_BTN_FLASH                   1014
 #define IDC_BTN_STOP                    1015
 #define IDC_BTN_MAKE_BIN                1016
+#define IDC_BTN_RECOVER_FLASH           1042
 #define IDC_STATIC_LABEL_COM            1017
 #define IDC_GROUP_CONN                  1018
 #define IDC_GROUP_PATHS                 1019
@@ -88,6 +90,36 @@
 #define IDC_BURN_CHECK_1X64_2_SW3      2148
 #define IDC_BURN_CHECK_1X64_2_SW4      2149
 #define IDC_STATIC_BURN_BASE_HINT      2139
+#define IDC_RECOVER_CHECK_MCS1         2150
+#define IDC_RECOVER_CHECK_MCS2         2151
+#define IDC_RECOVER_CHECK_1X64_1_SW1   2152
+#define IDC_RECOVER_CHECK_1X64_1_SW2   2153
+#define IDC_RECOVER_CHECK_1X64_1_SW3   2154
+#define IDC_RECOVER_CHECK_1X64_1_SW4   2155
+#define IDC_RECOVER_CHECK_1X64_2_SW1   2156
+#define IDC_RECOVER_CHECK_1X64_2_SW2   2157
+#define IDC_RECOVER_CHECK_1X64_2_SW3   2158
+#define IDC_RECOVER_CHECK_1X64_2_SW4   2159
+#define IDC_RECOVER_EDIT_PATH_0        2160
+#define IDC_RECOVER_EDIT_PATH_1        2161
+#define IDC_RECOVER_EDIT_PATH_2        2162
+#define IDC_RECOVER_EDIT_PATH_3        2163
+#define IDC_RECOVER_EDIT_PATH_4        2164
+#define IDC_RECOVER_EDIT_PATH_5        2165
+#define IDC_RECOVER_EDIT_PATH_6        2166
+#define IDC_RECOVER_EDIT_PATH_7        2167
+#define IDC_RECOVER_EDIT_PATH_8        2168
+#define IDC_RECOVER_EDIT_PATH_9        2169
+#define IDC_RECOVER_BTN_BROWSE_0       2170
+#define IDC_RECOVER_BTN_BROWSE_1       2171
+#define IDC_RECOVER_BTN_BROWSE_2       2172
+#define IDC_RECOVER_BTN_BROWSE_3       2173
+#define IDC_RECOVER_BTN_BROWSE_4       2174
+#define IDC_RECOVER_BTN_BROWSE_5       2175
+#define IDC_RECOVER_BTN_BROWSE_6       2176
+#define IDC_RECOVER_BTN_BROWSE_7       2177
+#define IDC_RECOVER_BTN_BROWSE_8       2178
+#define IDC_RECOVER_BTN_BROWSE_9       2179
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -593,9 +625,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        102
+#define _APS_NEXT_RESOURCE_VALUE        112
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2140
+#define _APS_NEXT_CONTROL_VALUE         2180
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

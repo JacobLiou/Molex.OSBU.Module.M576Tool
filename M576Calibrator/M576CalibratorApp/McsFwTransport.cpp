@@ -434,6 +434,51 @@ static BOOL M576ValidateBurnSelection(LPCTSTR szBase, const bool* p, CString& er
 	return TRUE;
 }
 
+static BOOL M576ValidateBurnSelectionByPaths(
+	const std::array<CString, M576_BURN_FILE_COUNT>& filePaths,
+	const bool* p,
+	CString& err)
+{
+	if (!p)
+		return TRUE;
+	err.Empty();
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+	{
+		if (!p[i])
+			continue;
+		const CString path = filePaths[i];
+		if (path.IsEmpty())
+		{
+			err.Format(_T("Burn selection: path is empty for index %d."), i);
+			return FALSE;
+		}
+		const HANDLE h = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		if (h == INVALID_HANDLE_VALUE)
+		{
+			err.Format(_T("Burn selection: file missing (required when checked): %s"), (LPCTSTR)path);
+			return FALSE;
+		}
+		const DWORD sz = GetFileSize(h, NULL);
+		CloseHandle(h);
+		if (i <= 1)
+		{
+			if (sz == 0)
+			{
+				err.Format(_T("Burn selection: file empty: %s"), (LPCTSTR)path);
+				return FALSE;
+			}
+		}
+		else if (sz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
+		{
+			err.Format(
+				_T("Burn selection: %s expected %u B, got %lu (when checked)."),
+				(LPCTSTR)path, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)sz);
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
 // 多路烧录：对 g_m576FlashBurnTransChannels 中存在的分 trans bin 上载（MCS 400B 流 / 1x64 XMODEM），合并进度。
 BOOL McsFwUploadBinEx(
 	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user, const bool* pBurnFile10)
@@ -598,6 +643,157 @@ BOOL McsFwUploadBinEx(
 		progressBase += chunksThis;
 	}
 	cmd.TraceInfo(_T("FW"), _T("Burn finished all configured trans channels."));
+	return TRUE;
+}
+
+BOOL McsFwUploadBinByPathsEx(
+	Z4671Command& cmd,
+	const std::array<CString, M576_BURN_FILE_COUNT>& filePaths,
+	CString& err,
+	McsFwProgressCb cb,
+	void* user,
+	const bool* pBurnFile10)
+{
+	err.Empty();
+	if (g_m576FlashBurnTransChannelCount == 0)
+	{
+		err = _T("No burn trans channels configured.");
+		return FALSE;
+	}
+	if (pBurnFile10 && !M576AnyBurnFileSelected(pBurnFile10))
+	{
+		err = _T("No part selected for burn.");
+		return FALSE;
+	}
+	if (pBurnFile10 && !M576ValidateBurnSelectionByPaths(filePaths, pBurnFile10, err))
+		return FALSE;
+
+	CString discard;
+	(void)Board439fTransTunnel::EndTrans(cmd, discard);
+
+	std::vector<int> chunksPerChannel;
+	chunksPerChannel.resize(g_m576FlashBurnTransChannelCount);
+	int progressTotal = 0;
+	for (std::size_t pi = 0; pi < g_m576FlashBurnTransChannelCount; ++pi)
+	{
+		const int pch = g_m576FlashBurnTransChannels[pi];
+		int chunks = 0;
+		if (IsMcsTransChannel(pch))
+		{
+			const int bIdx = M576BurnFileIndexMcs(pch);
+			if (M576BurnPart(pBurnFile10, bIdx))
+			{
+				const CString path = filePaths[bIdx];
+				const HANDLE h = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+				if (h != INVALID_HANDLE_VALUE)
+				{
+					const DWORD sz = GetFileSize(h, NULL);
+					CloseHandle(h);
+					if (sz > 0)
+						chunks = (int)(sz / MAX_DATA_LENGTH) + 1;
+				}
+			}
+		}
+		else
+		{
+			int c = 0;
+			for (int sw = 0; sw < 4; ++sw)
+			{
+				const int bIdx = M576BurnFileIndex1x64(pch, sw);
+				if (!M576BurnPart(pBurnFile10, bIdx))
+					continue;
+				const CString path = filePaths[bIdx];
+				const HANDLE h = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+				if (h == INVALID_HANDLE_VALUE)
+					continue;
+				const DWORD sz = GetFileSize(h, NULL);
+				CloseHandle(h);
+				if (sz == (DWORD)M576_1X64_MEMS_BIN_SIZE)
+					c += M5761x64XmodemChunkCountForFileSize(sz);
+			}
+			chunks = c;
+		}
+		chunksPerChannel[pi] = chunks;
+		progressTotal += chunks;
+	}
+	if (progressTotal <= 0)
+	{
+		err = _T("No valid .bin to burn for the selected items (check files and selection).");
+		return FALSE;
+	}
+
+	int progressBase = 0;
+	for (std::size_t i = 0; i < g_m576FlashBurnTransChannelCount; ++i)
+	{
+		const int ch = g_m576FlashBurnTransChannels[i];
+		const int chunksThis = chunksPerChannel[i];
+		if (chunksThis <= 0)
+		{
+			cmd.TraceInfo(_T("FW"), _T("Burn skip trans=%d (missing, empty, or not selected)."), ch);
+			continue;
+		}
+		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
+		{
+			err.Format(_T("trans %d: %s"), ch, err.GetString());
+			(void)Board439fTransTunnel::EndTrans(cmd, discard);
+			return FALSE;
+		}
+		if (IsMcsTransChannel(ch))
+		{
+			const int bIdx = M576BurnFileIndexMcs(ch);
+			const CString path = filePaths[bIdx];
+			if (!UploadBinOnCurrentTunnel(cmd, path, err, cb, user, progressBase, progressTotal))
+			{
+				err.Format(_T("trans %d: %s"), ch, err.GetString());
+				(void)Board439fTransTunnel::EndTrans(cmd, discard);
+				return FALSE;
+			}
+		}
+		else
+		{
+			std::vector<CString> x64Paths;
+			for (int sw = 0; sw < 4; ++sw)
+			{
+				const int bIdx = M576BurnFileIndex1x64(ch, sw);
+				if (!M576BurnPart(pBurnFile10, bIdx))
+					continue;
+				const CString path = filePaths[bIdx];
+				const HANDLE h = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+				if (h == INVALID_HANDLE_VALUE)
+					continue;
+				const DWORD sz = GetFileSize(h, NULL);
+				CloseHandle(h);
+				if (sz == (DWORD)M576_1X64_MEMS_BIN_SIZE)
+					x64Paths.push_back(path);
+			}
+			if (x64Paths.empty())
+			{
+				err.Format(_T("trans %d: no valid selected 1x64 file."), ch);
+				(void)Board439fTransTunnel::EndTrans(cmd, discard);
+				return FALSE;
+			}
+			int progressLocal = progressBase;
+			for (size_t ui = 0; ui < x64Paths.size(); ++ui)
+			{
+				const BOOL last = (ui + 1u == x64Paths.size()) ? TRUE : FALSE;
+				if (!M576Upload1x64MemsBinOnCurrentTunnel(
+						cmd, x64Paths[ui], err, cb, user, progressLocal, progressTotal, last))
+				{
+					err.Format(_T("trans %d: %s"), ch, err.GetString());
+					(void)Board439fTransTunnel::EndTrans(cmd, discard);
+					return FALSE;
+				}
+				progressLocal += M5761x64XmodemChunkCountForFileSize((DWORD)M576_1X64_MEMS_BIN_SIZE);
+			}
+		}
+		if (!Board439fTransTunnel::EndTrans(cmd, err))
+		{
+			err.Format(_T("trans %d end $$: %s"), ch, err.GetString());
+			return FALSE;
+		}
+		progressBase += chunksThis;
+	}
+	cmd.TraceInfo(_T("FW"), _T("Burn by paths finished all configured trans channels."));
 	return TRUE;
 }
 

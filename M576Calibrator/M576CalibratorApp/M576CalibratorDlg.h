@@ -93,6 +93,7 @@ private:
 	BOOL m_burnFlashLastOk;
 	/// 上次烧录是否仅部分分文件（勾选掩码非全选）；由烧录前 UI 置位，供成功日志说明。
 	BOOL m_burnFlashLastPartial;
+	BOOL m_burnFlashLastRecover;
 	CString m_burnFlashLastMsg;
 
 	// --- 定标模式与 RECAL 步参 ---
@@ -133,6 +134,9 @@ private:
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void ReadAllSnWorkerEntry();
 	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
+	void RecoverFlashWorkerEntry(
+		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
+		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -201,6 +205,7 @@ private:
 	afx_msg void OnBnClickedMakeBin();
 	afx_msg void OnBnClickedReadAllSn();
 	afx_msg void OnBnClickedFlash();
+	afx_msg void OnBnClickedRecoverFlash();
 	afx_msg void OnBnClickedStop();
 	afx_msg void OnBnClickedExportCalibStats();
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);

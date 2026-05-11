@@ -2,6 +2,7 @@
 #include "M576Calibrator.h"
 #include "M576CalibratorDlg.h"
 #include "M576BurnSelectDlg.h"
+#include "M576RecoverSelectDlg.h"
 #include "LutMerge1310.h"
 #include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
@@ -617,6 +618,7 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_readSnLastOk(FALSE)
 	, m_burnFlashLastOk(FALSE)
 	, m_burnFlashLastPartial(FALSE)
+	, m_burnFlashLastRecover(FALSE)
 {
 	for (int i = 0; i < 4; ++i)
 	{
@@ -686,6 +688,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_MAKE_BIN, &CM576CalibratorDlg::OnBnClickedMakeBin)
 	ON_BN_CLICKED(IDC_BTN_READ_ALL_SN, &CM576CalibratorDlg::OnBnClickedReadAllSn)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
+	ON_BN_CLICKED(IDC_BTN_RECOVER_FLASH, &CM576CalibratorDlg::OnBnClickedRecoverFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
 	ON_BN_CLICKED(IDC_BTN_EXPORT_CALIB_STATS, &CM576CalibratorDlg::OnBnClickedExportCalibStats)
 	ON_WM_SYSCOMMAND()
@@ -722,6 +725,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_COM, _T("Port (439F):"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_FLASH, _T("Burn Flash"));
 	::SetDlgItemText(m_hWnd, IDC_BTN_READ_FLASH_BACKUP, _T("Read Flash Backup"));
+	::SetDlgItemText(m_hWnd, IDC_BTN_RECOVER_FLASH, _T("Recover Flash"));
 	::SetDlgItemText(m_hWnd, IDC_STATIC_LABEL_MODE, _T("Mode:"));
 	{
 		CString hint;
@@ -922,6 +926,8 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 	if (CWnd* p = GetDlgItem(IDC_BTN_MAKE_BIN))
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_FLASH))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_RECOVER_FLASH))
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_READ_FLASH_BACKUP))
 		p->EnableWindow(enable);
@@ -1148,20 +1154,34 @@ LRESULT CM576CalibratorDlg::OnBurnFlashFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	if (m_burnFlashLastOk)
 	{
-		AppendLog(_T("Flash completed: trans1-2 via MCS update stream, trans3-4 via 1x64 XMODEM (per-file from output base)."));
-		if (m_burnFlashLastPartial)
-			AppendLog(_T("Partial burn: only the selected per-trans .bin files were programmed."));
-		MessageBoxM576(
-			_T("Burn Flash completed successfully.\n\nMCS and 1x64 paths finished for the configured .bin set."),
-			MB_OK | MB_ICONINFORMATION);
+		if (m_burnFlashLastRecover)
+		{
+			AppendLog(_T("Recover Flash completed: trans1-2 via MCS update stream, trans3-4 via 1x64 XMODEM (per selected file path)."));
+			if (m_burnFlashLastPartial)
+				AppendLog(_T("Partial recover: only the selected file entries were programmed."));
+			MessageBoxM576(
+				_T("Recover Flash completed successfully.\n\nSelected MCS/1x64 files were restored to device flash."),
+				MB_OK | MB_ICONINFORMATION);
+		}
+		else
+		{
+			AppendLog(_T("Flash completed: trans1-2 via MCS update stream, trans3-4 via 1x64 XMODEM (per-file from output base)."));
+			if (m_burnFlashLastPartial)
+				AppendLog(_T("Partial burn: only the selected per-trans .bin files were programmed."));
+			MessageBoxM576(
+				_T("Burn Flash completed successfully.\n\nMCS and 1x64 paths finished for the configured .bin set."),
+				MB_OK | MB_ICONINFORMATION);
+		}
 	}
 	else
 	{
 		CString oneLine;
-		oneLine.Format(_T("Flash failed: %s"), m_burnFlashLastMsg.GetString());
+		oneLine.Format(m_burnFlashLastRecover ? _T("Recover Flash failed: %s") : _T("Flash failed: %s"), m_burnFlashLastMsg.GetString());
 		AppendLog(oneLine);
 		CString box;
-		box.Format(_T("Burn Flash failed:\n\n%s"), m_burnFlashLastMsg.GetString());
+		box.Format(
+			m_burnFlashLastRecover ? _T("Recover Flash failed:\n\n%s") : _T("Burn Flash failed:\n\n%s"),
+			m_burnFlashLastMsg.GetString());
 		MessageBoxM576(box, MB_OK | MB_ICONERROR);
 	}
 	return 0;
@@ -1326,6 +1346,53 @@ void CM576CalibratorDlg::BurnFlashWorkerEntry(
 		m_burnFlashLastMsg = _T("Burn Flash: unknown C++ exception (see m576_fatal.log).");
 		SafeAppendLog(m_burnFlashLastMsg);
 		M576AppendFatalLogUtf8("[Burn Flash] unknown C++ exception");
+	}
+	if (m_hWnd && ::IsWindow(m_hWnd))
+		::PostMessage(m_hWnd, WM_M576_BURN_FLASH_FINISHED, 0, 0);
+}
+
+void CM576CalibratorDlg::RecoverFlashWorkerEntry(
+	std::array<CString, M576_BURN_FILE_COUNT> filePaths,
+	std::array<bool, M576_BURN_FILE_COUNT> burnMask)
+{
+	try
+	{
+		CString err;
+		SafeSetProgressRange(0, 100);
+		SafeSetProgressPos(0);
+		if (!McsFwUploadBinByPathsEx(
+				m_dev429f,
+				filePaths,
+				err,
+				&CM576CalibratorDlg::ProgressThunk,
+				this,
+				burnMask.data()))
+		{
+			m_burnFlashLastOk = FALSE;
+			m_burnFlashLastMsg = err;
+		}
+		else
+		{
+			m_burnFlashLastOk = TRUE;
+			m_burnFlashLastMsg.Empty();
+			SafeSetProgressPos(100);
+		}
+	}
+	catch (const std::exception& e)
+	{
+		m_burnFlashLastOk = FALSE;
+		CStringA a;
+		a.Format("Recover Flash: std::exception: %s", e.what());
+		m_burnFlashLastMsg = CString(a);
+		SafeAppendLog(m_burnFlashLastMsg);
+		M576AppendFatalLogUtf8(a.GetString());
+	}
+	catch (...)
+	{
+		m_burnFlashLastOk = FALSE;
+		m_burnFlashLastMsg = _T("Recover Flash: unknown C++ exception (see m576_fatal.log).");
+		SafeAppendLog(m_burnFlashLastMsg);
+		M576AppendFatalLogUtf8("[Recover Flash] unknown C++ exception");
 	}
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_BURN_FLASH_FINISHED, 0, 0);
@@ -3377,6 +3444,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 			break;
 		}
 	}
+	m_burnFlashLastRecover = FALSE;
 	if (m_burnFlashThread.joinable())
 		m_burnFlashThread.join();
 	m_burnFlashRunning = true;
@@ -3384,4 +3452,84 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	AppendLog(_T("Burn Flash started in background..."));
 	m_burnFlashThread = std::thread(
 		[this, absOutBin, burnMask]() { BurnFlashWorkerEntry(absOutBin, burnMask); });
+}
+
+void CM576CalibratorDlg::OnBnClickedRecoverFlash()
+{
+	if (m_burnFlashRunning.load())
+		return;
+	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
+	if (m_pathRunning.load())
+	{
+		AppendLog(_T("Path run in progress; wait before recover flash."));
+		return;
+	}
+	if (m_readSnRunning.load())
+	{
+		AppendLog(_T("Read SN in progress; wait before recover flash."));
+		return;
+	}
+	if (m_readBackupRunning.load())
+	{
+		AppendLog(_T("Read Flash backup in progress; wait before recover flash."));
+		return;
+	}
+	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
+	{
+		if (!OpenPort())
+			return;
+		SyncSerialPortUi();
+	}
+
+	const CString absBackupBase = ResolveFilePath(m_strBackupBin);
+	CM576RecoverSelectDlg dlg(this, absBackupBase);
+	if (dlg.DoModal() != IDOK)
+	{
+		AppendLog(_T("Recover Flash cancelled (file selection)."));
+		return;
+	}
+	std::array<bool, M576_BURN_FILE_COUNT> burnMask = dlg.GetMask();
+	std::array<CString, M576_BURN_FILE_COUNT> burnPaths = dlg.GetPaths();
+
+	bool anySel = false;
+	for (bool b : burnMask)
+	{
+		if (b)
+		{
+			anySel = true;
+			break;
+		}
+	}
+	if (!anySel)
+	{
+		MessageBoxM576(_T("No part selected for recover."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	if (MessageBoxM576(
+			_T("Warning: Recover Flash will program selected files into current device tunnel(s).\n\nContinue?"),
+			MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)
+		!= IDYES)
+	{
+		AppendLog(_T("Recover Flash cancelled by user."));
+		return;
+	}
+
+	m_burnFlashLastPartial = false;
+	for (bool b : burnMask)
+	{
+		if (!b)
+		{
+			m_burnFlashLastPartial = TRUE;
+			break;
+		}
+	}
+	m_burnFlashLastRecover = TRUE;
+	if (m_burnFlashThread.joinable())
+		m_burnFlashThread.join();
+	m_burnFlashRunning = true;
+	SetPathActionButtonsEnabled(FALSE);
+	AppendLog(_T("Recover Flash started in background..."));
+	m_burnFlashThread = std::thread(
+		[this, burnPaths, burnMask]() { RecoverFlashWorkerEntry(burnPaths, burnMask); });
 }
