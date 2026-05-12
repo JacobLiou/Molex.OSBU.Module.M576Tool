@@ -1,0 +1,34 @@
+# Diagnosis input CSV. One *group* per data line.
+#
+# Format:
+#   - Each data line is one logical diagnosis step:
+#       <SW cmd 1>|<SW cmd 2>|...|<SW cmd N>
+#     The host sends every SW command in order (CR appended automatically),
+#     reads one reply line per SW (typically "OK"/"FAIL").
+#   - After all SW in the group, the host runs three *fixed* wavelength/source
+#     sequences (not from this file), each followed by pd/opm:
+#         (1) SFP_1550:  WL 1550, SW 3 1 1,  pd 1, opm 3 1
+#         (2) SFP_1310:  WL 1310, SW 3 1 4,  pd 1, opm 3 1
+#         (3) Laser_1310: WL 1310, SW 3 1 8, pd 1, opm 3 1
+#     One reply line is read after each command.
+#   - Tokens are separated by '|'. Whitespace around tokens is trimmed.
+#   - Lines starting with '#' or ';' are comments. The trimmed text after
+#     the marker is attached as the *label* of the next data line (used for
+#     reporting only; not sent over serial).
+#   - UTF-8 BOM on the first line is tolerated.
+#
+# Result CSV: output\diagnosis_<yyyymmdd_HHMMSS>.csv
+#   step,label,sw_count,sw_ok_count,sw_cmds,sw_replies,
+#   s1_* .. s3_* (wl1550, sw3, wl1310, pd, opm; unused WL column empty per scenario), total_ms
+
+# CH343
+SW 1 1 20|SW 1 2 52|SW 2 20 1|SW 2 52 1
+
+# CH378
+SW 1 1 21|SW 1 2 53|SW 2 21 18|SW 2 53 18
+
+# CH499
+SW 1 1 28|SW 1 2 60|SW 2 28 13|SW 2 60 13
+
+# CH211
+SW 1 1 12|SW 1 2 44|SW 2 12 13|SW 2 44 13

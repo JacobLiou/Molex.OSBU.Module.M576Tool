@@ -224,6 +224,7 @@ constexpr UINT WM_M576_PATH_FINISHED = WM_APP + 103;
 constexpr UINT WM_M576_READ_BACKUP_FINISHED = WM_APP + 104;
 constexpr UINT WM_M576_READ_SN_FINISHED = WM_APP + 105;
 constexpr UINT WM_M576_BURN_FLASH_FINISHED = WM_APP + 106;
+constexpr UINT WM_M576_DIAG_FINISHED = WM_APP + 107;
 
 /// RECAL 3/5 一行：`[轴上 DAC 或首列][P1..Pn]`。沿动轴在 [-range,+range] 上含端点步进时，功率点数
 /// N = floor((2*range)/step)+1 = (2*range)/step+1（整型除法），与固件一致（例 range=64 step=4 -> N=33；step=5 -> N=26；整行 1+N 个数）。旧式 ceil(2*range/step) 在 2*range 整除 step 时会少 1 点。
@@ -500,7 +501,18 @@ static void StripUtfBomForFirstLine(CString& line, int lineNo)
 	if (lineNo != 1 || line.IsEmpty())
 		return;
 	if (line[0] == 0xFEFF)
+	{
 		line = line.Mid(1);
+		return;
+	}
+	// Some UTF-8 CSV files are read as ANSI text by CStdioFile, exposing BOM as "ï»¿".
+	if (line.GetLength() >= 3
+		&& line[0] == (TCHAR)0x00EF
+		&& line[1] == (TCHAR)0x00BB
+		&& line[2] == (TCHAR)0x00BF)
+	{
+		line = line.Mid(3);
+	}
 }
 
 static void SplitCsvColumns(const CString& line, CStringArray& cols)
@@ -690,6 +702,8 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_RECOVER_FLASH, &CM576CalibratorDlg::OnBnClickedRecoverFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
+	ON_BN_CLICKED(IDC_BTN_RUN_DIAG, &CM576CalibratorDlg::OnBnClickedRunDiag)
+	ON_BN_CLICKED(IDC_BTN_STOP_DIAG, &CM576CalibratorDlg::OnBnClickedStopDiag)
 	ON_BN_CLICKED(IDC_BTN_EXPORT_CALIB_STATS, &CM576CalibratorDlg::OnBnClickedExportCalibStats)
 	ON_WM_SYSCOMMAND()
 	ON_WM_DESTROY()
@@ -700,6 +714,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_MESSAGE(WM_M576_READ_BACKUP_FINISHED, &CM576CalibratorDlg::OnReadBackupFinished)
 	ON_MESSAGE(WM_M576_READ_SN_FINISHED, &CM576CalibratorDlg::OnReadAllSnFinished)
 	ON_MESSAGE(WM_M576_BURN_FLASH_FINISHED, &CM576CalibratorDlg::OnBurnFlashFinished)
+	ON_MESSAGE(WM_M576_DIAG_FINISHED, &CM576CalibratorDlg::OnDiagFinished)
 END_MESSAGE_MAP()
 
 BOOL CM576CalibratorDlg::OnInitDialog()
@@ -935,6 +950,8 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_STOP))
 		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
+		p->EnableWindow(enable && !m_diagRunning.load());
 	if (enable)
 		SyncExportStatsButton();
 	else if (CWnd* p = GetDlgItem(IDC_BTN_EXPORT_CALIB_STATS))
@@ -975,7 +992,7 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 	if (!m_hWnd || !::IsWindow(m_hWnd))
 		return;
 	const BOOL open = IsSerialPortOpen();
-	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load();
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load() || m_diagRunning.load();
 	if (CWnd* p = GetDlgItem(IDC_BTN_OPEN_PORTS))
 		p->EnableWindow(!open && !busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_CLOSE_PORT))
@@ -984,6 +1001,10 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 		p->EnableWindow(!open);
 	if (CWnd* p = GetDlgItem(IDC_BTN_TEST_CONNECTION))
 		p->EnableWindow(!busy);
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
+		p->EnableWindow(!busy);
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
+		p->EnableWindow(m_diagRunning.load());
 }
 
 LRESULT CM576CalibratorDlg::OnPathLogFlush(WPARAM, LPARAM)
@@ -1497,6 +1518,7 @@ BOOL CM576CalibratorDlg::OpenPort()
 	M576CommLogTarget logTarget(&CM576CalibratorDlg::CommLogThunk, this);
 	m_dev429f.SetCommLogTarget(logTarget);
 	m_pRecal.reset(new CRecalSession(m_dev429f, logTarget));
+	m_pDiag.reset(new CDiagnosisSession(m_dev429f, logTarget));
 	AppendLog(_T("Port opened (439F control board)."));
 	return TRUE;
 }
@@ -1504,6 +1526,7 @@ BOOL CM576CalibratorDlg::OpenPort()
 void CM576CalibratorDlg::ClosePort()
 {
 	m_pRecal.reset();
+	m_pDiag.reset();
 	m_dev429f.ClosePort();
 	AppendLog(_T("Port closed."));
 }
@@ -1643,6 +1666,364 @@ void CM576CalibratorDlg::OnBnClickedStop()
 		m_progress.SetPos(0);
 		// Completion / notice when the path worker exits: OnPathFinished
 	}
+}
+
+// --- Diagnosis: CSV SW group(s), then three measure blocks (1550 / 1310-SFP / 1310-laser paths) ---
+
+void CM576CalibratorDlg::OnBnClickedRunDiag()
+{
+	if (m_diagRunning.load())
+	{
+		AppendLog(_T("Diagnosis: already running."));
+		return;
+	}
+	const BOOL otherBusy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load();
+	if (otherBusy)
+	{
+		AppendLog(_T("Diagnosis: another background task is running; wait for it to finish."));
+		return;
+	}
+	UpdateData(TRUE);
+	if (!IsSerialPortOpen())
+	{
+		AppendLog(_T("Diagnosis: opening port…"));
+		if (!OpenPort())
+		{
+			AppendLog(_T("Diagnosis: failed to open serial port."));
+			return;
+		}
+		SyncSerialPortUi();
+	}
+
+	const CString exeFolder = GetExeFolder();
+	EnsureOutputFolderUnderExe(exeFolder);
+	const CString outDir = exeFolder + _T("\\output");
+	const CString swCsvPath = outDir + _T("\\diagnosis_sw.csv");
+
+	std::vector<M576DiagnosisRow> rows;
+	CString loadErr;
+	if (!M576LoadDiagnosisSwCsv(swCsvPath, rows, loadErr))
+	{
+		CString msg;
+		msg.Format(_T("Diagnosis: %s"), loadErr.IsEmpty() ? _T("CSV load failed.") : loadErr.GetString());
+		AppendLog(msg);
+		MessageBoxM576(msg, MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	const CString resultPath = M576MakeDiagnosisResultCsvPath(outDir);
+
+	if (m_diagThread.joinable())
+		m_diagThread.join();
+	m_diagStop = FALSE;
+	m_diagRunning = true;
+	m_progress.SetRange32(0, (int)rows.size());
+	m_progress.SetPos(0);
+	{
+		CString msg;
+		msg.Format(_T("Diagnosis started: %d step(s) from %s -> %s"),
+			(int)rows.size(), swCsvPath.GetString(), resultPath.GetString());
+		AppendLog(msg);
+	}
+	SetPathActionButtonsEnabled(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
+		p->EnableWindow(TRUE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
+		p->EnableWindow(FALSE);
+	m_diagThread = std::thread([this, rows, resultPath]() { DiagnosisWorkerEntry(rows, resultPath); });
+}
+
+void CM576CalibratorDlg::OnBnClickedStopDiag()
+{
+	if (!m_diagRunning.load())
+		return;
+	m_diagStop = TRUE;
+	AppendLog(_T("Diagnosis: stop requested."));
+}
+
+void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString resultCsvPath)
+{
+	std::vector<M576DiagnosisResultRow> results;
+	results.reserve(rows.size());
+	const int N = (int)rows.size();
+	int completed = 0;
+
+	// Fixed inter-command pause (stop-aware, sliced) applied *between* any two
+	// consecutive serial exchanges across the whole diagnosis run — i.e. the
+	// very first SW of the very first group has no preceding pause, but every
+	// later command (including the first SW of group 2..N) waits this long
+	// after the previous one returns.
+	constexpr DWORD kDiagInterCmdDelayMs = 500;
+	constexpr DWORD kDiagInterCmdSliceMs = 50;
+
+	auto JoinPipe = [](const std::vector<CStringA>& parts) -> CStringA
+	{
+		CStringA out;
+		for (size_t k = 0; k < parts.size(); ++k)
+		{
+			if (k > 0)
+				out += '|';
+			out += parts[k];
+		}
+		return out;
+	};
+
+	auto DiagDelay = [this, kDiagInterCmdDelayMs, kDiagInterCmdSliceMs]()
+	{
+		DWORD remaining = kDiagInterCmdDelayMs;
+		while (remaining > 0 && !m_diagStop)
+		{
+			const DWORD t = remaining > kDiagInterCmdSliceMs ? kDiagInterCmdSliceMs : remaining;
+			::Sleep(t);
+			remaining -= t;
+		}
+	};
+
+	bool firstDiagCmd = true;
+	auto MaybeDelay = [&]()
+	{
+		if (firstDiagCmd)
+		{
+			firstDiagCmd = false;
+			return;
+		}
+		DiagDelay();
+	};
+
+	for (int i = 0; i < N; ++i)
+	{
+		if (m_diagStop)
+			break;
+		const M576DiagnosisRow& src = rows[(size_t)i];
+
+		M576DiagnosisResultRow r;
+		r.step = i + 1;
+		r.label = src.label;
+		r.swCount = (int)src.swCommands.size();
+		r.swCmds = JoinPipe(src.swCommands);
+
+		CDiagnosisSession* session = m_pDiag.get();
+		if (session == NULL)
+		{
+			SafeAppendLog(_T("Diagnosis: serial port closed mid-run; aborting."));
+			break;
+		}
+
+		if (!src.label.IsEmpty())
+			session->EmitNote(_T("[group %d/%d] %hs (SWx%d)"), i + 1, N, src.label.GetString(), r.swCount);
+		else
+			session->EmitNote(_T("[group %d/%d] (SWx%d)"), i + 1, N, r.swCount);
+
+		CString err;
+		DWORD elapsedSw = 0;
+		std::vector<CStringA> swReplies;
+		swReplies.reserve(src.swCommands.size());
+
+		BOOL stoppedMid = FALSE;
+		for (size_t k = 0; k < src.swCommands.size(); ++k)
+		{
+			if (m_diagStop)
+			{
+				stoppedMid = TRUE;
+				break;
+			}
+			CString labelSw;
+			labelSw.Format(_T("SW %d.%d/%d"), i + 1, (int)k + 1, (int)src.swCommands.size());
+			CStringA reply;
+			DWORD ms = 0;
+			MaybeDelay();
+			if (m_diagStop) { stoppedMid = TRUE; break; }
+			const BOOL ok = session->ExchangeAsciiLine(labelSw.GetString(), src.swCommands[k], reply, 3000, ms, err);
+			elapsedSw += ms;
+			swReplies.push_back(reply);
+			if (ok && reply.CompareNoCase("OK") == 0)
+				++r.swOkCount;
+		}
+		r.swReplies = JoinPipe(swReplies);
+
+		if (stoppedMid)
+		{
+			r.totalMs = elapsedSw;
+			results.push_back(r);
+			completed = i + 1;
+			break;
+		}
+
+		// Three paths (production order): SFP_1550, SFP_1310, Laser_1310 — each ends with pd 1 + opm 3 1.
+		// s1: WL 1550 -> SW 3 1 1 -> pd -> opm (no WL 1310 on 1550 path).
+		// s2: WL 1310 -> SW 3 1 4 -> pd -> opm (no WL 1550).
+		// s3: WL 1310 -> SW 3 1 8 -> pd -> opm.
+		static const int kDiagSw3Third[] = { 1, 4, 8 };
+		DWORD totalElapsed = elapsedSw;
+		for (int scen = 0; scen < 3; ++scen)
+		{
+			if (m_diagStop)
+			{
+				r.totalMs = totalElapsed;
+				results.push_back(r);
+				completed = i + 1;
+				stoppedMid = TRUE;
+				break;
+			}
+			const int third = kDiagSw3Third[scen];
+			r.wlScen[scen].sw3Third = third;
+			DWORD ms = 0;
+
+			if (scen == 0)
+			{
+				CString label1550;
+				label1550.Format(_T("WL1550 s%d (SW3 1 %d)"), scen + 1, third);
+				MaybeDelay();
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					results.push_back(r);
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+				(void)session->ExchangeAsciiLine(label1550.GetString(), CStringA("WL 1550"), r.wlScen[scen].wl1550Reply, 3000, ms, err);
+				totalElapsed += ms;
+			}
+			else
+			{
+				CString label1310;
+				label1310.Format(_T("WL1310 s%d (SW3 1 %d)"), scen + 1, third);
+				MaybeDelay();
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					results.push_back(r);
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+				(void)session->ExchangeAsciiLine(label1310.GetString(), CStringA("WL 1310"), r.wlScen[scen].wl1310Reply, 3000, ms, err);
+				totalElapsed += ms;
+			}
+
+			if (m_diagStop)
+			{
+				r.totalMs = totalElapsed;
+				results.push_back(r);
+				completed = i + 1;
+				stoppedMid = TRUE;
+				break;
+			}
+
+			CStringA sw3;
+			sw3.Format("SW 3 1 %d", third);
+			CString labelSw3;
+			labelSw3.Format(_T("SW31 %d s%d"), third, scen + 1);
+			MaybeDelay();
+			if (m_diagStop)
+			{
+				r.totalMs = totalElapsed;
+				results.push_back(r);
+				completed = i + 1;
+				stoppedMid = TRUE;
+				break;
+			}
+			(void)session->ExchangeAsciiLine(labelSw3.GetString(), sw3, r.wlScen[scen].sw3Reply, 3000, ms, err);
+			totalElapsed += ms;
+
+			if (m_diagStop)
+			{
+				r.totalMs = totalElapsed;
+				results.push_back(r);
+				completed = i + 1;
+				stoppedMid = TRUE;
+				break;
+			}
+
+			CString labelPd;
+			labelPd.Format(_T("PD s%d (SW3 1 %d)"), scen + 1, third);
+			MaybeDelay();
+			if (m_diagStop)
+			{
+				r.totalMs = totalElapsed;
+				results.push_back(r);
+				completed = i + 1;
+				stoppedMid = TRUE;
+				break;
+			}
+			(void)session->ExchangeAsciiLine(labelPd.GetString(), CStringA("pd 1"), r.wlScen[scen].pdReply, 3000, ms, err);
+			totalElapsed += ms;
+
+			if (m_diagStop)
+			{
+				r.totalMs = totalElapsed;
+				results.push_back(r);
+				completed = i + 1;
+				stoppedMid = TRUE;
+				break;
+			}
+
+			CString labelOpm;
+			labelOpm.Format(_T("OPM s%d (SW3 1 %d)"), scen + 1, third);
+			MaybeDelay();
+			if (m_diagStop)
+			{
+				r.totalMs = totalElapsed;
+				results.push_back(r);
+				completed = i + 1;
+				stoppedMid = TRUE;
+				break;
+			}
+			(void)session->ExchangeAsciiLine(labelOpm.GetString(), CStringA("opm 3 1"), r.wlScen[scen].opmReply, 3000, ms, err);
+			totalElapsed += ms;
+		}
+
+		if (stoppedMid)
+			break;
+
+		r.totalMs = totalElapsed;
+		results.push_back(r);
+		completed = i + 1;
+
+		if (m_hWnd && ::IsWindow(m_hWnd))
+			::PostMessage(m_hWnd, WM_M576_PATH_PROGRESS_POS, (WPARAM)completed, 0);
+	}
+
+	if (m_pDiag && m_diagStop)
+		m_pDiag->EmitNote(_T("Diagnosis stopped at step %d/%d"), completed, N);
+
+	CString writeErr;
+	const BOOL wrote = M576WriteDiagnosisResultCsv(resultCsvPath, results, writeErr);
+	if (!wrote)
+	{
+		CString msg;
+		msg.Format(_T("Diagnosis: result CSV write failed: %s"), writeErr.IsEmpty() ? _T("(unknown)") : writeErr.GetString());
+		SafeAppendLog(msg);
+	}
+
+	if (m_hWnd && ::IsWindow(m_hWnd))
+		::PostMessage(m_hWnd, WM_M576_DIAG_FINISHED, (WPARAM)(m_diagStop ? 1 : 0), (LPARAM)completed);
+}
+
+LRESULT CM576CalibratorDlg::OnDiagFinished(WPARAM wParam, LPARAM lParam)
+{
+	if (m_diagThread.joinable())
+		m_diagThread.join();
+	m_diagRunning = false;
+	const BOOL stopped = wParam ? TRUE : FALSE;
+	const int completed = (int)lParam;
+	m_diagStop = FALSE;
+
+	SetPathActionButtonsEnabled(TRUE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
+		p->EnableWindow(FALSE);
+
+	m_progress.SetRange(0, 100);
+	m_progress.SetPos(0);
+
+	CString summary;
+	if (stopped)
+		summary.Format(_T("Diagnosis stopped after %d step(s). See output\\diagnosis_<ts>.csv."), completed);
+	else
+		summary.Format(_T("Diagnosis finished: %d step(s). See output\\diagnosis_<ts>.csv."), completed);
+	AppendLog(summary);
+	return 0;
 }
 
 void CM576CalibratorDlg::OnBnClickedExportCalibStats()
@@ -2246,6 +2627,27 @@ void CM576CalibratorDlg::OnBnClickedClearLog()
 void CM576CalibratorDlg::OnDestroy()
 {
 	m_bStop = TRUE;
+	m_diagStop = TRUE;
+	if (m_diagThread.joinable())
+	{
+		HANDLE h = (HANDLE)m_diagThread.native_handle();
+		for (;;)
+		{
+			const DWORD w = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+			if (w == WAIT_OBJECT_0)
+				break;
+			MSG msg;
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				if (!IsDialogMessage(&msg))
+				{
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
+			}
+		}
+		m_diagThread.join();
+	}
 	if (m_pathThread.joinable())
 	{
 		HANDLE h = (HANDLE)m_pathThread.native_handle();
@@ -2330,6 +2732,7 @@ void CM576CalibratorDlg::OnDestroy()
 	m_readBackupRunning = false;
 	m_readSnRunning = false;
 	m_burnFlashRunning = false;
+	m_diagRunning = false;
 	m_suppressPathProgress = false;
 	CDialogEx::OnDestroy();
 }

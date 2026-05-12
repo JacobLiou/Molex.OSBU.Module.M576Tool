@@ -99,6 +99,20 @@ for %%F in (
     if not errorlevel 1 set "CSV_OK=1"
   )
 )
+
+set "DIAG_OK=0"
+if exist "%OUT_SRC%\diagnosis_sw.csv" (
+  copy /Y "%OUT_SRC%\diagnosis_sw.csv" "%DIST%\output\" >nul
+  if not errorlevel 1 set "DIAG_OK=1"
+)
+if "!DIAG_OK!"=="0" if exist "%CSV_SRC%\diagnosis_sw.csv" (
+  copy /Y "%CSV_SRC%\diagnosis_sw.csv" "%DIST%\output\" >nul
+  if not errorlevel 1 set "DIAG_OK=1"
+)
+if "!DIAG_OK!"=="0" (
+  echo WARNING: Diagnosis sw CSV not found in "%OUT_SRC%" or "%CSV_SRC%": diagnosis_sw.csv
+  echo          Run Diagnosis will fail until a valid CSV is placed at exe\output\diagnosis_sw.csv.
+)
 if "!CSV_OK!"=="0" (
   echo WARNING: No per-trans path CSVs found in "%OUT_SRC%" or "%CSV_SRC%".
   echo          Expected: pm_mcs1, pm_mcs2, pm_1x64_1, pm_1x64_2, pm_1x64_1Mapping, pm_1x64_2Mapping, pd_mcs1, pd_mcs2, pd_1x64_1, pd_1x64_2 ^(.csv^).
@@ -180,6 +194,11 @@ if exist "!VCREDIST!" (
   echo       plus firmware MEMS slot map: pm_1x64_1Mapping.csv, pm_1x64_2Mapping.csv ^(required for PM 1x64 calibration^).
   echo   PD: pd_mcs1.csv, pd_mcs2.csv, pd_1x64_1.csv, pd_1x64_2.csv
   echo Optional: generate the eight PM/PD path CSVs from standard_pm or standard_pd via tools\split_path_csv_eight.ps1 under repo output\.
+  echo.
+  echo Diagnosis flow (Run/Stop Diagnosis buttons):
+  echo   Input:  output\diagnosis_sw.csv  ^(SW groups with ^|'^|; see file header^)
+  echo   Output: output\diagnosis_^<timestamp^>.csv  ^(SW block + 3 measure paths: 1550/SW311; 1310/SW314; 1310/SW318 + pd/opm^)
+  echo   After each SW group: ^(1^) WL 1550, SW 3 1 1, pd, opm  ^(2^) WL 1310, SW 3 1 4, pd, opm  ^(3^) WL 1310, SW 3 1 8, pd, opm.
 )
 
 echo.
