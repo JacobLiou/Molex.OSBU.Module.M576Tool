@@ -55,13 +55,96 @@ static WORD XmodemCRC16Bytes(const BYTE* pb, WORD wLength)
 	return wCRC;
 }
 
-static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen, BOOL bFileDone)
+/// Render up to `cap` head bytes as printable ASCII (control chars escaped) for log lines.
+static CString XmodemBytesToPrintable(const BYTE* p, DWORD n, DWORD cap)
+{
+	CString s;
+	if (!p || n == 0)
+		return s;
+	const DWORD m = (n < cap) ? n : cap;
+	s.Preallocate((int)(m * 4 + 8));
+	for (DWORD i = 0; i < m; ++i)
+	{
+		const BYTE b = p[i];
+		if (b == XMODEM_ACK)
+			s += _T("<ACK>");
+		else if (b == XMODEM_NAK)
+			s += _T("<NAK>");
+		else if (b == XMODEM_CAN)
+			s += _T("<CAN>");
+		else if (b == XMODEM_EOT)
+			s += _T("<EOT>");
+		else if (b == 0x43)
+			s += _T("<C>");
+		else if (b >= 0x20 && b <= 0x7E)
+			s.AppendFormat(_T("%c"), (TCHAR)b);
+		else if (b == '\r')
+			s += _T("\\r");
+		else if (b == '\n')
+			s += _T("\\n");
+		else
+			s.AppendFormat(_T("\\x%02X"), (unsigned)b);
+	}
+	if (n > cap)
+		s.AppendFormat(_T("...(+%lu)"), (unsigned long)(n - cap));
+	return s;
+}
+
+/// Drain RX as ASCII for at most `maxWaitMs` ending early after `idleMs` of silence; returns bytes accumulated.
+static DWORD Upload1x64DrainAscii(Z4671Command& cmd, BYTE* outBuf, DWORD outCap, DWORD maxWaitMs, DWORD idleMs)
+{
+	if (!outBuf || outCap == 0)
+		return 0;
+	DWORD have = 0;
+	const DWORD t0 = GetTickCount();
+	DWORD lastDataTick = t0;
+	while (GetTickCount() - t0 < maxWaitMs)
+	{
+		const DWORD avail = cmd.RxBytesWaiting();
+		if (avail > 0 && have < outCap)
+		{
+			const DWORD want = ((outCap - have) < avail) ? (outCap - have) : avail;
+			DWORD nread = 0;
+			if (cmd.ReadBuffer((char*)(outBuf + have), want, &nread) && nread > 0)
+			{
+				have += nread;
+				lastDataTick = GetTickCount();
+			}
+			continue;
+		}
+		if (have > 0 && (GetTickCount() - lastDataTick) >= idleMs)
+			break;
+		Sleep(2);
+	}
+	return have;
+}
+
+/// Emit per-block traces (TX/RX byte distinct cause) for the 1x64 XMODEM stream so failure mode is clear from the log.
+static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen, BOOL bFileDone, int blockNo, int totalBlocks)
 {
 	char byTempBuf[256];
 	int nRetry = 0;
+	const bool verbose = (blockNo == 1) || (blockNo == totalBlocks) || ((blockNo % 4) == 0) || bFileDone;
 
+	if (verbose)
+	{
+		const BYTE head = pbBinData[XMODEM_BLOCK_HEAD_INDEX];
+		cmd.TraceInfo(
+			_T("FW-1x64"),
+			_T("XMODEM tx block %d/%d: head=0x%02X seq=%u inv=0x%02X wire=%u eotLast=%d"),
+			blockNo,
+			totalBlocks,
+			(unsigned)head,
+			(unsigned)pbBinData[XMODEM_BLOCK_NO_INDEX],
+			(unsigned)pbBinData[XMODEM_BLOCK_NON_INDEX],
+			(unsigned)wWireLen,
+			(int)bFileDone);
+	}
 	if (!cmd.WriteBuffer((char*)pbBinData, wWireLen))
+	{
+		cmd.TraceError(_T("FW-1x64"), _T("XMODEM block %d/%d: initial TX (WriteBuffer) failed."), blockNo, totalBlocks);
 		return XMODEM_COMMUNICATION_FAIL;
+	}
 
 	int nTimeOut = 0;
 	while (1) {
@@ -70,12 +153,48 @@ static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen,
 		if (cmd.ReadBuffer(byTempBuf, sizeof(byTempBuf) - 1, &dwReadLength) && dwReadLength > 0) {
 			const BYTE lastB = (BYTE)byTempBuf[dwReadLength - 1];
 			if (lastB == XMODEM_ACK)
+			{
+				if (verbose)
+				{
+					cmd.TraceInfo(
+						_T("FW-1x64"),
+						_T("XMODEM block %d/%d ACK after %d retry, rx_len=%lu, wait_ms~%d"),
+						blockNo,
+						totalBlocks,
+						nRetry,
+						(unsigned long)dwReadLength,
+						nTimeOut * 50);
+				}
 				break;
+			}
 			if (lastB == XMODEM_NAK) {
+				cmd.TraceInfo(
+					_T("FW-1x64"),
+					_T("XMODEM block %d/%d NAK (retry %d/%d), rx_len=%lu head=%s"),
+					blockNo,
+					totalBlocks,
+					nRetry + 1,
+					10,
+					(unsigned long)dwReadLength,
+					XmodemBytesToPrintable((const BYTE*)byTempBuf, dwReadLength, 32).GetString());
 				if (!cmd.WriteBuffer((char*)pbBinData, wWireLen))
+				{
+					cmd.TraceError(
+						_T("FW-1x64"),
+						_T("XMODEM block %d/%d retry-TX (WriteBuffer) failed at retry %d."),
+						blockNo,
+						totalBlocks,
+						nRetry + 1);
 					return XMODEM_COMMUNICATION_FAIL;
+				}
 				nRetry++;
 				if (nRetry > 10) {
+					cmd.TraceError(
+						_T("FW-1x64"),
+						_T("XMODEM block %d/%d aborted: NAK retries exceeded (%d)."),
+						blockNo,
+						totalBlocks,
+						nRetry);
 					char can[3] = { (char)XMODEM_CAN, (char)XMODEM_CAN, (char)XMODEM_CAN };
 					(void)cmd.WriteBuffer(can, 3);
 					return XMODEM_COMMUNICATION_FAIL;
@@ -84,12 +203,38 @@ static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen,
 				continue;
 			}
 			if (lastB == XMODEM_CAN)
+			{
+				cmd.TraceError(
+					_T("FW-1x64"),
+					_T("XMODEM block %d/%d aborted: CAN received from device, rx_len=%lu head=%s"),
+					blockNo,
+					totalBlocks,
+					(unsigned long)dwReadLength,
+					XmodemBytesToPrintable((const BYTE*)byTempBuf, dwReadLength, 32).GetString());
 				return XMODEM_COMMUNICATION_FAIL;
+			}
+			cmd.TraceError(
+				_T("FW-1x64"),
+				_T("XMODEM block %d/%d unexpected response: last=0x%02X rx_len=%lu head=%s"),
+				blockNo,
+				totalBlocks,
+				(unsigned)lastB,
+				(unsigned long)dwReadLength,
+				XmodemBytesToPrintable((const BYTE*)byTempBuf, dwReadLength, 32).GetString());
 			return XMODEM_COMMUNICATION_FAIL;
 		}
 		nTimeOut++;
 		if (nTimeOut >= 210)
+		{
+			cmd.TraceError(
+				_T("FW-1x64"),
+				_T("XMODEM block %d/%d timeout: no ACK/NAK in %d ms (after %d retry)."),
+				blockNo,
+				totalBlocks,
+				nTimeOut * 50,
+				nRetry);
 			return XMODEM_COMMUNICATION_FAIL;
+		}
 	}
 
 	if (bFileDone) {
@@ -98,9 +243,16 @@ static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen,
 		// 3) 外层有上界，避免无界 for(;;)。
 		const char eot3[3] = { (char)XMODEM_EOT, (char)XMODEM_EOT, (char)XMODEM_EOT };
 		int eotNakResends = 0;
+		cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM EOT phase begin (block %d/%d was last)."), blockNo, totalBlocks);
 		for (int eotPass = 0; eotPass < 40; eotPass++) {
 			if (!cmd.WriteBufferNoPurge((char*)eot3, 3))
+			{
+				cmd.TraceError(
+					_T("FW-1x64"),
+					_T("XMODEM EOT pass %d/40 TX (WriteBufferNoPurge) failed."),
+					eotPass + 1);
 				return XMODEM_COMMUNICATION_FAIL;
+			}
 			int nEotTo = 0;
 			for (; nEotTo < 210; nEotTo++) {
 				Sleep(50);
@@ -111,24 +263,60 @@ static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen,
 						byTempBuf[dwr] = 0;
 					const BYTE lastB = (BYTE)byTempBuf[dwr - 1];
 					if (lastB == XMODEM_ACK) {
-						if (dwr > 1 && strstr(byTempBuf, "Successful") != nullptr)
-							return XMODEM_DOWNLOAD_SUCCESS;
-						// 单字节 ACK 或 带前后缀的尾部 ACK
+						const bool gotBanner = (dwr > 1 && strstr(byTempBuf, "Successful") != nullptr);
+						cmd.TraceInfo(
+							_T("FW-1x64"),
+							_T("XMODEM EOT ACK at pass %d/40 (rx_len=%lu, banner=%d): %s"),
+							eotPass + 1,
+							(unsigned long)dwr,
+							(int)gotBanner,
+							XmodemBytesToPrintable((const BYTE*)byTempBuf, dwr, 64).GetString());
 						return XMODEM_DOWNLOAD_SUCCESS;
 					}
 					if (lastB == XMODEM_NAK) {
 						eotNakResends++;
+						cmd.TraceInfo(
+							_T("FW-1x64"),
+							_T("XMODEM EOT NAK at pass %d/40 (resend %d/32), rx_len=%lu head=%s"),
+							eotPass + 1,
+							eotNakResends,
+							(unsigned long)dwr,
+							XmodemBytesToPrintable((const BYTE*)byTempBuf, dwr, 32).GetString());
 						if (eotNakResends > 32)
+						{
+							cmd.TraceError(
+								_T("FW-1x64"),
+								_T("XMODEM EOT aborted: NAK resends exceeded (%d)."),
+								eotNakResends);
 							return XMODEM_DOWNLOAD_FAIL;
+						}
 						break; // 下一 eotPass 再发 EOT
 					}
 					if (lastB == XMODEM_CAN)
+					{
+						cmd.TraceError(
+							_T("FW-1x64"),
+							_T("XMODEM EOT aborted: CAN received at pass %d/40, rx_len=%lu head=%s"),
+							eotPass + 1,
+							(unsigned long)dwr,
+							XmodemBytesToPrintable((const BYTE*)byTempBuf, dwr, 32).GetString());
 						return XMODEM_COMMUNICATION_FAIL;
+					}
 				}
 			}
 			if (nEotTo >= 210)
+			{
+				cmd.TraceError(
+					_T("FW-1x64"),
+					_T("XMODEM EOT pass %d/40 timeout: no ACK/NAK in %d ms (NAK resends so far=%d)."),
+					eotPass + 1,
+					nEotTo * 50,
+					eotNakResends);
 				return XMODEM_COMMUNICATION_FAIL;
+			}
 		}
+		cmd.TraceError(
+			_T("FW-1x64"), _T("XMODEM EOT exhausted 40 passes (NAK resends=%d) without ACK."), eotNakResends);
 		return XMODEM_DOWNLOAD_FAIL;
 	}
 	return XMODEM_DOWNLOAD_SUCCESS;
@@ -567,18 +755,52 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal, BOOL bSendRset)
 {
 	err.Empty();
-	cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM burn (fwdl): %s; RSET=%d"), szBinPath, (int)bSendRset);
+	const int totalBlocks = M5761x64XmodemChunkCountForFileSize((DWORD)M576_1X64_MEMS_BIN_SIZE);
+	cmd.TraceInfo(
+		_T("FW-1x64"),
+		_T("XMODEM burn begin: bin=%s; size=%u B; planned blocks=%d; RSET_at_end=%d"),
+		szBinPath,
+		(unsigned)M576_1X64_MEMS_BIN_SIZE,
+		totalBlocks,
+		(int)bSendRset);
+
+	// Stage 1: send `fwdl\r` and capture the firmware banner during the settle window.
 	const char* fwdl = "fwdl\r";
+	cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM stage 1/4 (fwdl): TX 'fwdl\\r' -> %s"), szBinPath);
 	if (!cmd.WriteBuffer((char*)fwdl, (DWORD)strlen(fwdl)))
 	{
 		err = _T("fwdl write failed.");
+		cmd.TraceError(_T("FW-1x64"), _T("XMODEM stage 1/4 (fwdl): TX failed."));
 		return FALSE;
 	}
-	Sleep((DWORD)M576_1X64_FWDL_PRE_MS);
+	{
+		BYTE banner[512];
+		const DWORD bn = Upload1x64DrainAscii(
+			cmd, banner, sizeof(banner), (DWORD)M576_1X64_FWDL_PRE_MS, 250u);
+		if (bn > 0)
+		{
+			cmd.TraceInfo(
+				_T("FW-1x64"),
+				_T("XMODEM stage 1/4 (fwdl) banner (%lu B): %s"),
+				(unsigned long)bn,
+				XmodemBytesToPrintable(banner, bn, 256).GetString());
+		}
+		else
+		{
+			cmd.TraceInfo(
+				_T("FW-1x64"),
+				_T("XMODEM stage 1/4 (fwdl): no banner bytes within %u ms (continuing anyway)."),
+				(unsigned)M576_1X64_FWDL_PRE_MS);
+		}
+	}
+
+	// Stage 2: open the bin file and validate size against the wire contract (2208 B).
+	cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM stage 2/4 (open): %s"), szBinPath);
 	HANDLE hBin = CreateFile(szBinPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (hBin == INVALID_HANDLE_VALUE)
 	{
 		err.Format(_T("Open 1x64 bin failed: %s"), szBinPath);
+		cmd.TraceError(_T("FW-1x64"), _T("%s (GLE=%lu)"), err.GetString(), (unsigned long)GetLastError());
 		return FALSE;
 	}
 	const DWORD dwFile = GetFileSize(hBin, NULL);
@@ -586,6 +808,7 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 	{
 		CloseHandle(hBin);
 		err = _T("1x64 bin: GetFileSize failed.");
+		cmd.TraceError(_T("FW-1x64"), _T("%s (GLE=%lu)"), err.GetString(), (unsigned long)GetLastError());
 		return FALSE;
 	}
 	if (dwFile != (DWORD)M576_1X64_MEMS_BIN_SIZE)
@@ -597,12 +820,20 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
 		return FALSE;
 	}
+	cmd.TraceInfo(
+		_T("FW-1x64"),
+		_T("XMODEM stage 2/4 (open) ok: file=%lu B, blocks=%d (1K + 128/last)"),
+		(unsigned long)dwFile,
+		totalBlocks);
+
+	// Stage 3: per-block XMODEM-1K stream until the file is consumed; failures are logged with a distinct cause inside `XmodemSendOneBlock`.
 	DWORD dwCodeSizeLeft = (DWORD)M576_1X64_MEMS_BIN_SIZE;
 	std::vector<BYTE> blockbuf((size_t)(XMODEM_BLOCK_BODY_SIZE_1K + 32u));
 	BYTE* pbBinData = blockbuf.data();
 	int iCount = 0;
 	BYTE bPacketIndex = 1;
 	BOOL bFunctionOK = TRUE;
+	cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM stage 3/4 (stream): start sending %d blocks."), totalBlocks);
 
 	while (dwCodeSizeLeft > 0)
 	{
@@ -622,6 +853,14 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		if (!ReadFile(hBin, pbBinData + XMODEM_BLOCK_DATA_INDEX, thisRead, &dbr, NULL) || dbr != thisRead)
 		{
 			err = _T("1x64 XMODEM: read from bin file failed.");
+			cmd.TraceError(
+				_T("FW-1x64"),
+				_T("XMODEM stage 3/4 block %d/%d: ReadFile failed (want=%lu got=%lu, GLE=%lu)."),
+				iCount,
+				totalBlocks,
+				(unsigned long)thisRead,
+				(unsigned long)dbr,
+				(unsigned long)GetLastError());
 			bFunctionOK = FALSE;
 			break;
 		}
@@ -638,14 +877,33 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		pbBinData[XMODEM_BLOCK_DATA_INDEX + wCrcSize] = (BYTE)(wCRC >> 8);
 		pbBinData[XMODEM_BLOCK_DATA_INDEX + wCrcSize + 1] = (BYTE)wCRC;
 		const WORD wWire = (WORD)(wCrcSize + 5);
-		const int xr = XmodemSendOneBlock(cmd, pbBinData, wWire, bFileDone);
+		const bool verbose = (iCount == 1) || (iCount == totalBlocks) || ((iCount % 4) == 0) || bFileDone;
+		if (verbose)
+		{
+			cmd.TraceInfo(
+				_T("FW-1x64"),
+				_T("XMODEM stage 3/4 prep block %d/%d: body=%u crc_size=%u wire=%u crc=0x%04X file_left=%lu eotLast=%d"),
+				iCount,
+				totalBlocks,
+				(unsigned)wBody,
+				(unsigned)wCrcSize,
+				(unsigned)wWire,
+				(unsigned)wCRC,
+				(unsigned long)dwCodeSizeLeft,
+				(int)bFileDone);
+		}
+		const int xr = XmodemSendOneBlock(cmd, pbBinData, wWire, bFileDone, iCount, totalBlocks);
 		if (xr != XMODEM_DOWNLOAD_SUCCESS)
 		{
 			err.Format(
-				_T("1x64 XMODEM: block NAK/timeout or EOT failed (xr=%d, block#%d, eotLast=%d)."),
+				_T("1x64 XMODEM: block NAK/timeout or EOT failed (xr=%d, block#%d/%d, eotLast=%d, body=%u, wire=%u, crc=0x%04X)."),
 				xr,
 				iCount,
-				(int)bFileDone);
+				totalBlocks,
+				(int)bFileDone,
+				(unsigned)wBody,
+				(unsigned)wWire,
+				(unsigned)wCRC);
 			bFunctionOK = FALSE;
 			break;
 		}
@@ -658,19 +916,33 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 	{
 		if (err.IsEmpty())
 			err = _T("1x64 XMODEM failed.");
-		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
+		cmd.TraceError(_T("FW-1x64"), _T("XMODEM stage 3/4 abort: %s"), err.GetString());
 		return FALSE;
 	}
+	cmd.TraceInfo(
+		_T("FW-1x64"),
+		_T("XMODEM stage 3/4 (stream) done: %d/%d blocks ACK'd, EOT ACK'd."),
+		iCount,
+		totalBlocks);
+
+	// Stage 4: optional RSET so firmware reboots once after the last switch in the burn list.
 	if (bSendRset)
 	{
+		cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM stage 4/4 (RSET): sleep 4 s then send RSET."));
 		Sleep(4000);
 		{
 			const char* rset = "RSET\r";
-			(void)cmd.WriteBuffer((char*)rset, (DWORD)strlen(rset));
+			if (!cmd.WriteBuffer((char*)rset, (DWORD)strlen(rset)))
+				cmd.TraceError(_T("FW-1x64"), _T("XMODEM stage 4/4 (RSET): WriteBuffer returned FALSE."));
 		}
 		cmd.TraceInfo(_T("FW-1x64"), _T("1x64 burn done (RSET sent): %s"), szBinPath);
 	}
 	else
-		cmd.TraceInfo(_T("FW-1x64"), _T("1x64 burn XMODEM done (no RSET, more blocks may follow): %s"), szBinPath);
+	{
+		cmd.TraceInfo(
+			_T("FW-1x64"),
+			_T("XMODEM stage 4/4 (RSET): skipped (more switches in burn list to follow): %s"),
+			szBinPath);
+	}
 	return TRUE;
 }

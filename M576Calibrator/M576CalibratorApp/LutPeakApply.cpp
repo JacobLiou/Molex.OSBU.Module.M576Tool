@@ -47,25 +47,23 @@ void ApplyRecalPeakToLut(
 
 	if (t == 3)
 	{
-		if (occTarget3 < 0 || occTarget3 > 575)
+		(void)occTarget3;
+		if (step.c1 < 1 || step.c1 > 32 || step.c2 < 1 || step.c2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
 			return;
-		const int sw = occTarget3 / 18 + 1;
-		const int ch = occTarget3 % 18 + 1;
-		const int swIdx = (sw - 1);
-		const int chIdx = (ch - 1);
+		const int swIdx = M576McsBlock1To32ToLutSwIdx0(step.c1);
+		const int chIdx = step.c2 - 1;
 		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
 		return;
 	}
 	if (t == 4)
 	{
-		if (occTarget4 < 0 || occTarget4 > 575)
+		(void)occTarget4;
+		if (step.c1 < 1 || step.c1 > 32 || step.c2 < 1 || step.c2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
 			return;
-		const int sw = occTarget4 / 18 + 1;
-		const int ch = occTarget4 % 18 + 1;
-		int swIdx = (sw - 1) + M576_MCS2_SW_INDEX_OFFSET;
+		int swIdx = M576McsBlock1To32ToLutSwIdx0(step.c1) + M576_MCS2_SW_INDEX_OFFSET;
 		if (swIdx > 33)
 			swIdx = 33;
-		const int chIdx = (ch - 1);
+		const int chIdx = step.c2 - 1;
 		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
 		return;
 	}
@@ -164,25 +162,24 @@ void ApplyRecalPeakToLutPd(
 
 	if (t == 3)
 	{
-		if (occTarget3 < 0 || occTarget3 > 575)
+		(void)occTarget3;
+		if (step.ch1 < 1 || step.ch1 > 32 || step.ch2 < 1 || step.ch2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
 			return;
-		const int sw = occTarget3 / 18 + 1;
-		const int ch = occTarget3 % 18 + 1;
-		const int swIdx = (sw - 1);
-		const int chIdx = (ch - 1);
+		const int swIdx = M576McsBlock1To32ToLutSwIdx0(step.ch1);
+		const int chIdx = step.ch2 - 1;
 		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
 		return;
 	}
 	if (t == 4)
 	{
-		if (occTarget4 < 0 || occTarget4 > 575)
+		(void)occTarget4;
+		if (step.ch1 < 33 || step.ch1 > 64 || step.ch2 < 1 || step.ch2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
 			return;
-		const int sw = occTarget4 / 18 + 1;
-		const int ch = occTarget4 % 18 + 1;
-		int swIdx = (sw - 1) + M576_MCS2_SW_INDEX_OFFSET;
+		const int block = step.ch1 - 32;
+		int swIdx = M576McsBlock1To32ToLutSwIdx0(block) + M576_MCS2_SW_INDEX_OFFSET;
 		if (swIdx > 33)
 			swIdx = 33;
-		const int chIdx = (ch - 1);
+		const int chIdx = step.ch2 - 1;
 		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
 		return;
 	}

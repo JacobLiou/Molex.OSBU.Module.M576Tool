@@ -18,6 +18,8 @@
 #include "TransLutRoute.h"
 #include "CalibWriteMeta.h"
 
+namespace M576 { struct Peak1DFitTrace; }
+
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
 class CM576CalibratorDlg : public CDialogEx
@@ -35,6 +37,7 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 private:
+	friend void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, const M576::Peak1DFitTrace& tr);
 	// --- UI 与路径字符串 ---
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;
@@ -90,6 +93,7 @@ private:
 	BOOL m_burnFlashLastOk;
 	/// 上次烧录是否仅部分分文件（勾选掩码非全选）；由烧录前 UI 置位，供成功日志说明。
 	BOOL m_burnFlashLastPartial;
+	BOOL m_burnFlashLastRecover;
 	CString m_burnFlashLastMsg;
 
 	// --- 定标模式与 RECAL 步参 ---
@@ -130,6 +134,9 @@ private:
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void ReadAllSnWorkerEntry();
 	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
+	void RecoverFlashWorkerEntry(
+		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
+		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -163,6 +170,21 @@ private:
 	/// Before Run path: COM, PM wavelength (if PM), built-in CSV files exist. MessageBox and return FALSE when invalid.
 	// 跑路径前：串口、（PM 时）波长、内置 CSV 等输入校验。
 	BOOL ValidateRunPathInputs(CString& errMsg);
+	/// MakeBin: standardAll1310DAC.csv + all backup bins must be present and readable.
+	BOOL ValidateMakeBinInputs(const CString& absBackupBin, const CString& absCsvPath, CString& errMsg);
+	/// Parse low-temp 1310 DAC CSV into session structures used for bin generation.
+	BOOL ParseLowTemp1310DacCsv(
+		LPCTSTR csvPath,
+		stLutSettingZ4671 lutOut[2],
+		stM576OneX64MemsSwCoef memsOut[2][4],
+		CString& errMsg);
+	/// Reuse Write BIN merge/write core for both Write BIN and MakeBin.
+	BOOL GenerateStandardBinFiles(
+		const CString& absBackupBin,
+		const CString& absOutBase,
+		CString& errMsg,
+		BOOL preserveMcsMetaFromBackup);
+	CString BuildStandardAll1310DacCsvPath(const CString& absOutBase) const;
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	// 进度回调节点，调用约定须与 McsFwProgressCb 一致（__cdecl）。
 	static void ProgressThunk(int cur, int total, void* user);
@@ -180,8 +202,10 @@ private:
 	afx_msg void OnBnClickedRunPath();
 	afx_msg void OnBnClickedClearLog();
 	afx_msg void OnBnClickedGenBin();
+	afx_msg void OnBnClickedMakeBin();
 	afx_msg void OnBnClickedReadAllSn();
 	afx_msg void OnBnClickedFlash();
+	afx_msg void OnBnClickedRecoverFlash();
 	afx_msg void OnBnClickedStop();
 	afx_msg void OnBnClickedExportCalibStats();
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);

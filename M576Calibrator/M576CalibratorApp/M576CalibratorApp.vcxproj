@@ -143,6 +143,7 @@
     <ClInclude Include="M576Version.h" />
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576BurnSelectDlg.h" />
+    <ClInclude Include="M576RecoverSelectDlg.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
     <ClInclude Include="McsFwTransport.h" />
     <ClInclude Include="Switch1x64FwTransport.h" />
@@ -163,6 +164,7 @@
     <ClCompile Include="M576GlobalException.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576BurnSelectDlg.cpp" />
+    <ClCompile Include="M576RecoverSelectDlg.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />
     <ClCompile Include="Switch1x64FwTransport.cpp" />

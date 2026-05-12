@@ -16,7 +16,7 @@
 #define M576_MAX_TLS_SOURCE 8
 #endif
 #ifndef M576_DEFAULT_TLS_SOURCE
-#define M576_DEFAULT_TLS_SOURCE 4
+#define M576_DEFAULT_TLS_SOURCE 8
 #endif
 /// RECAL 0: wavelength (nm, int), PRD 850~1650.
 // RECAL 0 波长（nm 整数，PRD 约 850~1650）。
@@ -106,6 +106,17 @@
 // 2# MCS 行在 LUT 中的下标偏移（与 1# 对齐或分 bank 时由集成态确认；默认 0 表示与 1# 同下标，后写覆盖需验证）。
 #ifndef M576_MCS2_SW_INDEX_OFFSET
 #define M576_MCS2_SW_INDEX_OFFSET 0
+#endif
+
+#if defined(__cplusplus)
+/// MCS 块号 1..32 → `wCalibPtrDAC` 第一维下标 0..31（固件约定；**非** row = block-1）。越界时返回 0。
+inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
+{
+	if (block1to32 < 1 || block1to32 > 32)
+		return 0;
+	const int ch0 = block1to32 - 1;
+	return (ch0 < 16) ? (ch0 + 16) : (ch0 - 16);
+}
 #endif
 
 /// Z4671 GetLogFileData (0xC4): 16-bit file type (default 0x007B per FW); flash base `M576_FLASH_LUT_READ_BASE`.

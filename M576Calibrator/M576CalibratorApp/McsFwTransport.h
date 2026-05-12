@@ -2,6 +2,7 @@
 // 经 439F 的 trans/$$ 隧道在单 COM 上跑 Z4671 二进制：MCS LUT 分 trans 上载、分文件命名读回/备份等。
 
 #include "Z4671Command.h"
+#include <array>
 
 /// Per-trans SN from devices: MCS trans1–2 (GetProductSN); 1x64 trans3–4 (four switches × SN per MEM read).
 // UI / 写 bin 头用：MCS 各一路 SN；1x64 每片四开关 SN（ADDR_SWITCHn_COEF + 0x7E0）。
@@ -25,6 +26,13 @@ typedef void (__cdecl *McsFwProgressCb)(int current, int total, void* user); // 
 BOOL McsFwUploadBinEx(
 	Z4671Command& cmd,
 	LPCTSTR szBinPath,
+	CString& err,
+	McsFwProgressCb cb,
+	void* user,
+	const bool* pBurnFile10 = NULL);
+BOOL McsFwUploadBinByPathsEx(
+	Z4671Command& cmd,
+	const std::array<CString, M576_BURN_FILE_COUNT>& filePaths,
 	CString& err,
 	McsFwProgressCb cb,
 	void* user,

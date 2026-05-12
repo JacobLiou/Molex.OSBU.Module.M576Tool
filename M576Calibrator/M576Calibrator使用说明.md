@@ -1,5 +1,7 @@
 # M576Calibrator 校准工具使用说明
 
+**产线傻瓜式操作手册**（备份 / 校准 / 写 BIN / 烧录及上架前固件步骤）：请参阅 [Docs/USER_MANUAL_CN.md](Docs/USER_MANUAL_CN.md)。
+
 ## 1. 工具用途
 
 **M576Calibrator** 用于 M576 / 1310 波长相关校准流程中的上位机辅助，主要能力包括：
