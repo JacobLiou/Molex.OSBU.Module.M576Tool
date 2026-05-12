@@ -17,16 +17,19 @@ Columns:
   max_cross_x: power at cross X-axis global max log line; NULL if missing/skipped.
   max_cross_y: power at cross Y-axis global max log line; NULL if missing/skipped.
   fit_x, fit_y: from linear DAC at cross-peak Y= ... X= ...; NULL if missing.
+  dac_y_at_max_cross, dac_x_at_max_cross: base + index * step from last SEND RECAL 3/5 in step block; NULL if missing.
 
-Optional --format stats (8 columns for analysis):
-  base_dac_y, base_dac_x, max_cross_x_index, max_cross_y_index, max_cross_x, max_cross_y, fit_x, fit_y
-  base_dac_y: PM RECAL 3 0 sweep col0; PD RECAL 5 0 X_start=.
-  base_dac_x: PM RECAL 3 1 sweep col0; PD RECAL 5 1 sweep col0.
-  indices from cross-axis global-max log lines (subscript before power).
+Optional --format stats (10 columns for analysis):
+  base_dac_y, base_dac_x, max_cross_x_index, max_cross_y_index, max_cross_x, max_cross_y, fit_x, fit_y,
+  dac_y_at_max_cross, dac_x_at_max_cross
+  dac_y_at_max_cross = base_dac_y + max_cross_y_index * step_y (step from last SEND RECAL 3/5 mode 0 in step block).
+  dac_x_at_max_cross = base_dac_x + max_cross_x_index * step_x (from SEND RECAL 3/5 mode 1).
+  Use --dac-step N if logs omit SEND lines (fallback for both axes when missing).
 
 Examples:
   python tools/extract_recal_peak_summary_csv.py comm_2026-05-07.log
   python tools/extract_recal_peak_summary_csv.py dataAnalysis/comm_2026-05-06.log -o dataAnalysis/comm_2026-05-06_peak_summary.csv --format stats
+  python tools/extract_recal_peak_summary_csv.py dataAnalysis/comm_2026-05-11.log -o dataAnalysis/comm_2026-05-11_peak_summary.csv --format stats --utf8-bom
   python tools/extract_recal_peak_summary_csv.py comm_2026-05-06.log -o out.csv --utf8-bom
 """
 
@@ -76,6 +79,10 @@ _RECAL51_SWEEP_COL0_RE = re.compile(
 )
 _SEND_RECAL1_RE = re.compile(r"SEND RECAL 1 \| RECAL 1 (\d+)")
 _SEND_RECAL2_RE = re.compile(r"SEND RECAL 2 \| RECAL 2 (\d+)")
+# TraceSend: RECAL 3/5 <mode> <base> <offset> <step> <delay> (see RecalSession::ExchangeRecal3ReadSweep).
+_SEND_RECAL35_SWEEP_RE = re.compile(
+    r"SEND RECAL ([35]) ([01]) \| RECAL \1 \2\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)",
+)
 
 
 def _split_runs(lines: Iterable[str]) -> List[List[str]]:
@@ -123,8 +130,10 @@ def _parse_block(
     str | None,
     str | None,
     str | None,
+    str | None,
+    str | None,
 ]:
-    """Returns base_dac_y, base_dac_x, idx_x, idx_y, max_x_power, max_y_power, fit_x, fit_y (last match wins)."""
+    """Returns base_dac_y, base_dac_x, idx_x, idx_y, max_x_power, max_y_power, fit_x, fit_y, step_y, step_x (last match wins)."""
     max_x: str | None = None
     max_y: str | None = None
     idx_x: str | None = None
@@ -133,7 +142,17 @@ def _parse_block(
     fit_y: str | None = None
     base_y: str | None = None
     base_x: str | None = None
+    step_y: str | None = None
+    step_x: str | None = None
     for line in block_lines:
+        sm = _SEND_RECAL35_SWEEP_RE.search(line)
+        if sm:
+            sweep_mode = sm.group(2)
+            step_val = sm.group(5)
+            if sweep_mode == "0":
+                step_y = step_val
+            else:
+                step_x = step_val
         m30 = _RECAL30_SWEEP_COL0_RE.search(line)
         if m30:
             base_y = m30.group(1)
@@ -161,14 +180,35 @@ def _parse_block(
         if fm:
             fit_x = fm.group(1)
             fit_y = fm.group(2)
-    return base_y, base_x, idx_x, idx_y, max_x, max_y, fit_x, fit_y
+    return base_y, base_x, idx_x, idx_y, max_x, max_y, fit_x, fit_y, step_y, step_x
 
 
 def _null(v: str | None) -> str:
     return v if v is not None else "NULL"
 
 
-def extract_rows(all_run_lines: List[str], run_index: int) -> List[dict[str, str]]:
+def _dac_at_max_cross(base_s: str | None, idx_s: str | None, step_s: str | None) -> str:
+    """base + index * step; NULL if any operand missing or non-numeric."""
+    if base_s is None or idx_s is None or step_s is None:
+        return "NULL"
+    try:
+        b = float(base_s)
+        i = int(idx_s)
+        s = int(step_s)
+        v = b + float(i) * float(s)
+        if v == int(v):
+            return str(int(v))
+        return str(v)
+    except (ValueError, OverflowError):
+        return "NULL"
+
+
+def extract_rows(
+    all_run_lines: List[str],
+    run_index: int,
+    *,
+    dac_step_fallback: int | None = None,
+) -> List[dict[str, str]]:
     rows: List[dict[str, str]] = []
     step_indices: List[int] = []
     for i, line in enumerate(all_run_lines):
@@ -181,7 +221,13 @@ def extract_rows(all_run_lines: List[str], run_index: int) -> List[dict[str, str
         end = step_indices[k + 1] if k + 1 < len(step_indices) else len(all_run_lines)
         block = all_run_lines[idx + 1 : end]
         sw = _lookup_recal_switch(all_run_lines, idx, recal_cmd)
-        b_y, b_x, ix, iy, max_x, max_y, fx, fy = _parse_block(block)
+        b_y, b_x, ix, iy, max_x, max_y, fx, fy, st_y, st_x = _parse_block(block)
+        if st_y is None and dac_step_fallback is not None:
+            st_y = str(dac_step_fallback)
+        if st_x is None and dac_step_fallback is not None:
+            st_x = str(dac_step_fallback)
+        dac_y_max = _dac_at_max_cross(b_y, iy, st_y)
+        dac_x_max = _dac_at_max_cross(b_x, ix, st_x)
         rows.append(
             {
                 "run_index": str(run_index),
@@ -198,6 +244,8 @@ def extract_rows(all_run_lines: List[str], run_index: int) -> List[dict[str, str
                 "max_cross_y": _null(max_y),
                 "fit_x": _null(fx),
                 "fit_y": _null(fy),
+                "dac_y_at_max_cross": dac_y_max,
+                "dac_x_at_max_cross": dac_x_max,
             }
         )
     return rows
@@ -222,7 +270,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--format",
         choices=("full", "stats"),
         default="full",
-        help="full: all columns; stats: 8 columns (base_dac_y/x from RECAL3/5 sweep starts; peaks; fit)",
+        help="full: all columns; stats: 10 columns (adds dac_*_at_max_cross vs fit)",
+    )
+    ap.add_argument(
+        "--dac-step",
+        type=int,
+        default=None,
+        metavar="N",
+        help="If SEND RECAL 3/5 step cannot be parsed, use N for both step_y and step_x.",
     )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
@@ -254,6 +309,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "max_cross_y",
         "fit_x",
         "fit_y",
+        "dac_y_at_max_cross",
+        "dac_x_at_max_cross",
     ]
     fieldnames_stats = [
         "base_dac_y",
@@ -264,10 +321,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "max_cross_y",
         "fit_x",
         "fit_y",
+        "dac_y_at_max_cross",
+        "dac_x_at_max_cross",
     ]
     all_rows: List[dict[str, str]] = []
     for ri, run_lines in enumerate(runs, start=1):
-        all_rows.extend(extract_rows(run_lines, ri))
+        all_rows.extend(
+            extract_rows(run_lines, ri, dac_step_fallback=args.dac_step),
+        )
 
     enc = "utf-8-sig" if args.utf8_bom else "utf-8"
     out.parent.mkdir(parents=True, exist_ok=True)
