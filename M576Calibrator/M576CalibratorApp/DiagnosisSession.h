@@ -18,6 +18,7 @@ public:
 	/// `cmdLabel` is the user-visible token in trace lines (e.g. "SW 1/200", "PD 1/200").
 	/// Always returns the actual elapsed time in `outElapsedMs`. On failure, `reply` may
 	/// still hold the partial bytes read (best effort) and the function returns FALSE.
+	/// Read path skips empty line frames (lone CR/LF) until a non-empty line or timeout.
 	BOOL ExchangeAsciiLine(LPCTSTR cmdLabel,
 		const CStringA& payloadNoCr,
 		CStringA& reply,

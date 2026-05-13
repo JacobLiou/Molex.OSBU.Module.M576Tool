@@ -52,6 +52,7 @@ BOOL CDiagnosisSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 {
 	line.Empty();
 	PushNonBlockingTimeouts();
+	CStringA rx;
 	char buf[16384];
 	const DWORD start = GetTickCount();
 	while (GetTickCount() - start < timeoutMs + 50)
@@ -67,22 +68,44 @@ BOOL CDiagnosisSession::ReadLineBlocking(CStringA& line, DWORD timeoutMs)
 		if (!m_comm.ReadBuffer(buf, chunk, &nread) || nread == 0)
 			continue;
 		buf[nread] = 0;
-		line += buf;
-		int p = line.Find('\n');
-		if (p < 0)
-			p = line.Find('\r');
-		if (p >= 0)
+		rx += buf;
+		// Peel complete lines; ignore empty frames (bare \r / \n) so we do not return
+		// success with an empty reply while the real OK/FAIL or numeric line is still in flight.
+		for (;;)
 		{
-			line = line.Left(p);
-			line.TrimRight("\r");
+			const int pN = rx.Find('\n');
+			const int pR = rx.Find('\r');
+			int p = -1;
+			if (pN >= 0 && pR >= 0)
+				p = (pN < pR) ? pN : pR;
+			else if (pN >= 0)
+				p = pN;
+			else if (pR >= 0)
+				p = pR;
+			else
+				break;
+			CStringA piece = rx.Left(p);
+			rx = rx.Mid(p + 1);
+			while (rx.GetLength() > 0 && (rx[0] == '\n' || rx[0] == '\r'))
+				rx = rx.Mid(1);
+			piece.Trim();
+			if (piece.IsEmpty())
+				continue;
+			line = piece;
 			PopTimeouts();
 			return TRUE;
 		}
-		if (line.GetLength() > 8000)
+		if (rx.GetLength() > 8000)
 			break;
 	}
 	PopTimeouts();
-	return !line.IsEmpty();
+	rx.Trim();
+	if (!rx.IsEmpty())
+	{
+		line = rx;
+		return TRUE;
+	}
+	return FALSE;
 }
 
 BOOL CDiagnosisSession::WriteNoPurgeReliable(const CStringA& wire, LPCTSTR cmdLabel, CString& err)
