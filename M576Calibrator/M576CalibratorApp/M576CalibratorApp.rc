@@ -49,7 +49,7 @@ BEGIN
     GROUPBOX        "Diagnosis",IDC_GROUP_DIAG,7,38,409,28
     PUSHBUTTON      "Run Diagnosis",IDC_BTN_RUN_DIAG,16,49,72,14
     PUSHBUTTON      "Stop Diagnosis",IDC_BTN_STOP_DIAG,94,49,72,14
-    LTEXT           "CSV: diagnosis_sw.csv -> diagnosis_<ts>.csv (+3x WL1550/SW31x/WL1310+pd+opm)",IDC_STATIC_DIAG_HINT,176,52,235,9
+    LTEXT           "CSV: diagnosis_sw.csv -> diagnosis_log.csv (append: Channel + s1/s2/s3 pd+opm)",IDC_STATIC_DIAG_HINT,176,52,235,9
     GROUPBOX        "Backup",IDC_GROUP_BACKUP,7,70,409,96
     GROUPBOX        "Read SN (trans1-4)",IDC_GROUP_BK_READ_SN,12,80,399,54
     LTEXT           "MCS1,2",-1,16,93,18,8

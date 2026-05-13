@@ -196,8 +196,8 @@ if exist "!VCREDIST!" (
   echo Optional: generate the eight PM/PD path CSVs from standard_pm or standard_pd via tools\split_path_csv_eight.ps1 under repo output\.
   echo.
   echo Diagnosis flow (Run/Stop Diagnosis buttons):
-  echo   Input:  output\diagnosis_sw.csv  ^(SW groups with ^|'^|; see file header^)
-  echo   Output: output\diagnosis_^<timestamp^>.csv  ^(SW block + 3 measure paths: 1550/SW311; 1310/SW314; 1310/SW318 + pd/opm^)
+  echo   Input:  output\diagnosis_sw.csv  ^(SW groups with ^|'^|; optional first token = channel^)
+  echo   Output: output\diagnosis_log.csv  ^(append: Channel + s1/s2/s3 pd+opm replies; fflush per row^)
   echo   After each SW group: ^(1^) WL 1550, SW 3 1 1, pd, opm  ^(2^) WL 1310, SW 3 1 4, pd, opm  ^(3^) WL 1310, SW 3 1 8, pd, opm.
 )
 

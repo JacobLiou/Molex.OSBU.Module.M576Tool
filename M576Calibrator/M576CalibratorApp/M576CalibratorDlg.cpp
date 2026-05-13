@@ -1711,8 +1711,6 @@ void CM576CalibratorDlg::OnBnClickedRunDiag()
 		return;
 	}
 
-	const CString resultPath = M576MakeDiagnosisResultCsvPath(outDir);
-
 	if (m_diagThread.joinable())
 		m_diagThread.join();
 	m_diagStop = FALSE;
@@ -1720,9 +1718,13 @@ void CM576CalibratorDlg::OnBnClickedRunDiag()
 	m_progress.SetRange32(0, (int)rows.size());
 	m_progress.SetPos(0);
 	{
+		const CString logPath = M576GetDiagnosisUnifiedLogCsvPath(outDir);
 		CString msg;
-		msg.Format(_T("Diagnosis started: %d step(s) from %s -> %s"),
-			(int)rows.size(), swCsvPath.GetString(), resultPath.GetString());
+		msg.Format(
+			_T("Diagnosis started (loops full CSV until Stop): %d group(s) from %s — appends PD/OPM rows to %s."),
+			(int)rows.size(),
+			swCsvPath.GetString(),
+			logPath.GetString());
 		AppendLog(msg);
 	}
 	SetPathActionButtonsEnabled(FALSE);
@@ -1730,7 +1732,7 @@ void CM576CalibratorDlg::OnBnClickedRunDiag()
 		p->EnableWindow(TRUE);
 	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
 		p->EnableWindow(FALSE);
-	m_diagThread = std::thread([this, rows, resultPath]() { DiagnosisWorkerEntry(rows, resultPath); });
+	m_diagThread = std::thread([this, rows, outDir]() { DiagnosisWorkerEntry(rows, outDir); });
 }
 
 void CM576CalibratorDlg::OnBnClickedStopDiag()
@@ -1741,19 +1743,20 @@ void CM576CalibratorDlg::OnBnClickedStopDiag()
 	AppendLog(_T("Diagnosis: stop requested."));
 }
 
-void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString resultCsvPath)
+void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString outDir)
 {
-	std::vector<M576DiagnosisResultRow> results;
-	results.reserve(rows.size());
 	const int N = (int)rows.size();
 	int completed = 0;
+	int fullLapsDone = 0;
+	const CString appendPath = M576GetDiagnosisUnifiedLogCsvPath(outDir);
 
-	// Fixed inter-command pause (stop-aware, sliced) applied *between* any two
-	// consecutive serial exchanges across the whole diagnosis run — i.e. the
-	// very first SW of the very first group has no preceding pause, but every
-	// later command (including the first SW of group 2..N) waits this long
-	// after the previous one returns.
-	constexpr DWORD kDiagInterCmdDelayMs = 500;
+	// Fixed inter-command pause (stop-aware, sliced) between consecutive serial exchanges
+	// within a lap. The first SW of the first group of lap 0 has no preceding pause; every
+	// later command in that lap uses kDiagInterCmdDelayMs. Before each `pd 1`, an additional
+	// kDiagPdPreDelayMs wait runs after the normal gap. Between full laps, one extra DiagDelay()
+	// runs before the next lap's first SW (see outer loop).
+	constexpr DWORD kDiagInterCmdDelayMs = 40;
+	constexpr DWORD kDiagPdPreDelayMs = 1000;
 	constexpr DWORD kDiagInterCmdSliceMs = 50;
 
 	auto JoinPipe = [](const std::vector<CStringA>& parts) -> CStringA
@@ -1768,9 +1771,9 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 		return out;
 	};
 
-	auto DiagDelay = [this, kDiagInterCmdDelayMs, kDiagInterCmdSliceMs]()
+	auto DiagDelayMs = [this, kDiagInterCmdSliceMs](DWORD delayMs)
 	{
-		DWORD remaining = kDiagInterCmdDelayMs;
+		DWORD remaining = delayMs;
 		while (remaining > 0 && !m_diagStop)
 		{
 			const DWORD t = remaining > kDiagInterCmdSliceMs ? kDiagInterCmdSliceMs : remaining;
@@ -1778,6 +1781,8 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 			remaining -= t;
 		}
 	};
+
+	auto DiagDelay = [&]() { DiagDelayMs(kDiagInterCmdDelayMs); };
 
 	bool firstDiagCmd = true;
 	auto MaybeDelay = [&]()
@@ -1790,212 +1795,243 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 		DiagDelay();
 	};
 
-	for (int i = 0; i < N; ++i)
+	for (;;)
 	{
 		if (m_diagStop)
 			break;
-		const M576DiagnosisRow& src = rows[(size_t)i];
 
-		M576DiagnosisResultRow r;
-		r.step = i + 1;
-		r.label = src.label;
-		r.swCount = (int)src.swCommands.size();
-		r.swCmds = JoinPipe(src.swCommands);
+		if (fullLapsDone > 0)
+			DiagDelay();
 
-		CDiagnosisSession* session = m_pDiag.get();
-		if (session == NULL)
-		{
-			SafeAppendLog(_T("Diagnosis: serial port closed mid-run; aborting."));
-			break;
-		}
-
-		if (!src.label.IsEmpty())
-			session->EmitNote(_T("[group %d/%d] %hs (SWx%d)"), i + 1, N, src.label.GetString(), r.swCount);
-		else
-			session->EmitNote(_T("[group %d/%d] (SWx%d)"), i + 1, N, r.swCount);
-
-		CString err;
-		DWORD elapsedSw = 0;
-		std::vector<CStringA> swReplies;
-		swReplies.reserve(src.swCommands.size());
-
-		BOOL stoppedMid = FALSE;
-		for (size_t k = 0; k < src.swCommands.size(); ++k)
-		{
-			if (m_diagStop)
-			{
-				stoppedMid = TRUE;
-				break;
-			}
-			CString labelSw;
-			labelSw.Format(_T("SW %d.%d/%d"), i + 1, (int)k + 1, (int)src.swCommands.size());
-			CStringA reply;
-			DWORD ms = 0;
-			MaybeDelay();
-			if (m_diagStop) { stoppedMid = TRUE; break; }
-			const BOOL ok = session->ExchangeAsciiLine(labelSw.GetString(), src.swCommands[k], reply, 3000, ms, err);
-			elapsedSw += ms;
-			swReplies.push_back(reply);
-			if (ok && reply.CompareNoCase("OK") == 0)
-				++r.swOkCount;
-		}
-		r.swReplies = JoinPipe(swReplies);
-
-		if (stoppedMid)
-		{
-			r.totalMs = elapsedSw;
-			results.push_back(r);
-			completed = i + 1;
-			break;
-		}
-
-		// Three paths (production order): SFP_1550, SFP_1310, Laser_1310 — each ends with pd 1 + opm 3 1.
-		// s1: WL 1550 -> SW 3 1 1 -> pd -> opm (no WL 1310 on 1550 path).
-		// s2: WL 1310 -> SW 3 1 4 -> pd -> opm (no WL 1550).
-		// s3: WL 1310 -> SW 3 1 8 -> pd -> opm.
-		static const int kDiagSw3Third[] = { 1, 4, 8 };
-		DWORD totalElapsed = elapsedSw;
-		for (int scen = 0; scen < 3; ++scen)
-		{
-			if (m_diagStop)
-			{
-				r.totalMs = totalElapsed;
-				results.push_back(r);
-				completed = i + 1;
-				stoppedMid = TRUE;
-				break;
-			}
-			const int third = kDiagSw3Third[scen];
-			r.wlScen[scen].sw3Third = third;
-			DWORD ms = 0;
-
-			if (scen == 0)
-			{
-				CString label1550;
-				label1550.Format(_T("WL1550 s%d (SW3 1 %d)"), scen + 1, third);
-				MaybeDelay();
-				if (m_diagStop)
-				{
-					r.totalMs = totalElapsed;
-					results.push_back(r);
-					completed = i + 1;
-					stoppedMid = TRUE;
-					break;
-				}
-				(void)session->ExchangeAsciiLine(label1550.GetString(), CStringA("WL 1550"), r.wlScen[scen].wl1550Reply, 3000, ms, err);
-				totalElapsed += ms;
-			}
-			else
-			{
-				CString label1310;
-				label1310.Format(_T("WL1310 s%d (SW3 1 %d)"), scen + 1, third);
-				MaybeDelay();
-				if (m_diagStop)
-				{
-					r.totalMs = totalElapsed;
-					results.push_back(r);
-					completed = i + 1;
-					stoppedMid = TRUE;
-					break;
-				}
-				(void)session->ExchangeAsciiLine(label1310.GetString(), CStringA("WL 1310"), r.wlScen[scen].wl1310Reply, 3000, ms, err);
-				totalElapsed += ms;
-			}
-
-			if (m_diagStop)
-			{
-				r.totalMs = totalElapsed;
-				results.push_back(r);
-				completed = i + 1;
-				stoppedMid = TRUE;
-				break;
-			}
-
-			CStringA sw3;
-			sw3.Format("SW 3 1 %d", third);
-			CString labelSw3;
-			labelSw3.Format(_T("SW31 %d s%d"), third, scen + 1);
-			MaybeDelay();
-			if (m_diagStop)
-			{
-				r.totalMs = totalElapsed;
-				results.push_back(r);
-				completed = i + 1;
-				stoppedMid = TRUE;
-				break;
-			}
-			(void)session->ExchangeAsciiLine(labelSw3.GetString(), sw3, r.wlScen[scen].sw3Reply, 3000, ms, err);
-			totalElapsed += ms;
-
-			if (m_diagStop)
-			{
-				r.totalMs = totalElapsed;
-				results.push_back(r);
-				completed = i + 1;
-				stoppedMid = TRUE;
-				break;
-			}
-
-			CString labelPd;
-			labelPd.Format(_T("PD s%d (SW3 1 %d)"), scen + 1, third);
-			MaybeDelay();
-			if (m_diagStop)
-			{
-				r.totalMs = totalElapsed;
-				results.push_back(r);
-				completed = i + 1;
-				stoppedMid = TRUE;
-				break;
-			}
-			(void)session->ExchangeAsciiLine(labelPd.GetString(), CStringA("pd 1"), r.wlScen[scen].pdReply, 3000, ms, err);
-			totalElapsed += ms;
-
-			if (m_diagStop)
-			{
-				r.totalMs = totalElapsed;
-				results.push_back(r);
-				completed = i + 1;
-				stoppedMid = TRUE;
-				break;
-			}
-
-			CString labelOpm;
-			labelOpm.Format(_T("OPM s%d (SW3 1 %d)"), scen + 1, third);
-			MaybeDelay();
-			if (m_diagStop)
-			{
-				r.totalMs = totalElapsed;
-				results.push_back(r);
-				completed = i + 1;
-				stoppedMid = TRUE;
-				break;
-			}
-			(void)session->ExchangeAsciiLine(labelOpm.GetString(), CStringA("opm 3 1"), r.wlScen[scen].opmReply, 3000, ms, err);
-			totalElapsed += ms;
-		}
-
-		if (stoppedMid)
+		if (m_diagStop)
 			break;
 
-		r.totalMs = totalElapsed;
-		results.push_back(r);
-		completed = i + 1;
+		completed = 0;
+		firstDiagCmd = true;
 
 		if (m_hWnd && ::IsWindow(m_hWnd))
-			::PostMessage(m_hWnd, WM_M576_PATH_PROGRESS_POS, (WPARAM)completed, 0);
+			::PostMessage(m_hWnd, WM_M576_PATH_PROGRESS_POS, (WPARAM)0, 0);
+
+		BOOL abortNoSession = FALSE;
+		for (int i = 0; i < N; ++i)
+		{
+			if (m_diagStop)
+				break;
+			const M576DiagnosisRow& src = rows[(size_t)i];
+
+			M576DiagnosisResultRow r;
+			r.step = i + 1;
+			r.label = src.label;
+			r.swCount = (int)src.swCommands.size();
+			r.swCmds = JoinPipe(src.swCommands);
+
+			CDiagnosisSession* session = m_pDiag.get();
+			if (session == NULL)
+			{
+				SafeAppendLog(_T("Diagnosis: serial port closed mid-run; aborting."));
+				abortNoSession = TRUE;
+				break;
+			}
+
+			if (!src.channel.IsEmpty())
+				session->EmitNote(_T("[group %d/%d] %hs (SWx%d)"), i + 1, N, src.channel.GetString(), r.swCount);
+			else if (!src.label.IsEmpty())
+				session->EmitNote(_T("[group %d/%d] %hs (SWx%d)"), i + 1, N, src.label.GetString(), r.swCount);
+			else
+				session->EmitNote(_T("[group %d/%d] (SWx%d)"), i + 1, N, r.swCount);
+
+			CString err;
+			DWORD elapsedSw = 0;
+			std::vector<CStringA> swReplies;
+			swReplies.reserve(src.swCommands.size());
+
+			BOOL stoppedMid = FALSE;
+			for (size_t k = 0; k < src.swCommands.size(); ++k)
+			{
+				if (m_diagStop)
+				{
+					stoppedMid = TRUE;
+					break;
+				}
+				CString labelSw;
+				labelSw.Format(_T("SW %d.%d/%d"), i + 1, (int)k + 1, (int)src.swCommands.size());
+				CStringA reply;
+				DWORD ms = 0;
+				MaybeDelay();
+				if (m_diagStop) { stoppedMid = TRUE; break; }
+				const BOOL ok = session->ExchangeAsciiLine(labelSw.GetString(), src.swCommands[k], reply, 3000, ms, err);
+				elapsedSw += ms;
+				swReplies.push_back(reply);
+				if (ok && reply.CompareNoCase("OK") == 0)
+					++r.swOkCount;
+			}
+			r.swReplies = JoinPipe(swReplies);
+
+			if (stoppedMid)
+			{
+				r.totalMs = elapsedSw;
+				completed = i + 1;
+				break;
+			}
+
+			// Three paths (production order): SFP_1550, SFP_1310, Laser_1310 — each ends with pd 1 + opm 3 1.
+			// s1: WL 1550 -> SW 3 1 1 -> pd -> opm (no WL 1310 on 1550 path).
+			// s2: WL 1310 -> SW 3 1 4 -> pd -> opm (no WL 1550).
+			// s3: WL 1310 -> SW 3 1 8 -> pd -> opm.
+			static const int kDiagSw3Third[] = { 1, 4, 8 };
+			DWORD totalElapsed = elapsedSw;
+			for (int scen = 0; scen < 3; ++scen)
+			{
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+				const int third = kDiagSw3Third[scen];
+				r.wlScen[scen].sw3Third = third;
+				DWORD ms = 0;
+
+				if (scen == 0)
+				{
+					CString label1550;
+					label1550.Format(_T("WL1550 s%d (SW3 1 %d)"), scen + 1, third);
+					MaybeDelay();
+					if (m_diagStop)
+					{
+						r.totalMs = totalElapsed;
+						completed = i + 1;
+						stoppedMid = TRUE;
+						break;
+					}
+					(void)session->ExchangeAsciiLine(label1550.GetString(), CStringA("WL 1550"), r.wlScen[scen].wl1550Reply, 3000, ms, err);
+					totalElapsed += ms;
+				}
+				else
+				{
+					CString label1310;
+					label1310.Format(_T("WL1310 s%d (SW3 1 %d)"), scen + 1, third);
+					MaybeDelay();
+					if (m_diagStop)
+					{
+						r.totalMs = totalElapsed;
+						completed = i + 1;
+						stoppedMid = TRUE;
+						break;
+					}
+					(void)session->ExchangeAsciiLine(label1310.GetString(), CStringA("WL 1310"), r.wlScen[scen].wl1310Reply, 3000, ms, err);
+					totalElapsed += ms;
+				}
+
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+
+				CStringA sw3;
+				sw3.Format("SW 3 1 %d", third);
+				CString labelSw3;
+				labelSw3.Format(_T("SW31 %d s%d"), third, scen + 1);
+				MaybeDelay();
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+				(void)session->ExchangeAsciiLine(labelSw3.GetString(), sw3, r.wlScen[scen].sw3Reply, 3000, ms, err);
+				totalElapsed += ms;
+
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+
+				CString labelPd;
+				labelPd.Format(_T("PD s%d (SW3 1 %d)"), scen + 1, third);
+				MaybeDelay();
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+				DiagDelayMs(kDiagPdPreDelayMs);
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+				(void)session->ExchangeAsciiLine(labelPd.GetString(), CStringA("pd 1"), r.wlScen[scen].pdReply, 3000, ms, err);
+				totalElapsed += ms;
+
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+
+				CString labelOpm;
+				labelOpm.Format(_T("OPM s%d (SW3 1 %d)"), scen + 1, third);
+				MaybeDelay();
+				if (m_diagStop)
+				{
+					r.totalMs = totalElapsed;
+					completed = i + 1;
+					stoppedMid = TRUE;
+					break;
+				}
+				(void)session->ExchangeAsciiLine(labelOpm.GetString(), CStringA("opm 3 1"), r.wlScen[scen].opmReply, 3000, ms, err);
+				totalElapsed += ms;
+			}
+
+			if (stoppedMid)
+				break;
+
+			r.totalMs = totalElapsed;
+			CStringA channelOut = src.channel;
+			if (channelOut.IsEmpty())
+				channelOut = src.label;
+			CString appendErr;
+			if (!M576AppendDiagnosisPythonRow(appendPath, channelOut, r.wlScen, appendErr))
+			{
+				CString msg;
+				msg.Format(_T("Diagnosis: append CSV failed: %s"), appendErr.IsEmpty() ? _T("(unknown)") : appendErr.GetString());
+				SafeAppendLog(msg);
+			}
+			completed = i + 1;
+
+			if (m_hWnd && ::IsWindow(m_hWnd))
+				::PostMessage(m_hWnd, WM_M576_PATH_PROGRESS_POS, (WPARAM)completed, 0);
+		}
+
+		const BOOL fullLap = (!abortNoSession && completed == N);
+		if (fullLap)
+			++fullLapsDone;
+
+		if (abortNoSession || !fullLap || m_diagStop)
+			break;
 	}
 
 	if (m_pDiag && m_diagStop)
 		m_pDiag->EmitNote(_T("Diagnosis stopped at step %d/%d"), completed, N);
 
-	CString writeErr;
-	const BOOL wrote = M576WriteDiagnosisResultCsv(resultCsvPath, results, writeErr);
-	if (!wrote)
-	{
-		CString msg;
-		msg.Format(_T("Diagnosis: result CSV write failed: %s"), writeErr.IsEmpty() ? _T("(unknown)") : writeErr.GetString());
-		SafeAppendLog(msg);
-	}
+	m_diagFinishFullLaps = fullLapsDone;
+	m_diagFinishLastSteps = completed;
+	m_diagFinishTotalGroups = N;
 
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_DIAG_FINISHED, (WPARAM)(m_diagStop ? 1 : 0), (LPARAM)completed);
@@ -2007,7 +2043,7 @@ LRESULT CM576CalibratorDlg::OnDiagFinished(WPARAM wParam, LPARAM lParam)
 		m_diagThread.join();
 	m_diagRunning = false;
 	const BOOL stopped = wParam ? TRUE : FALSE;
-	const int completed = (int)lParam;
+	(void)lParam;
 	m_diagStop = FALSE;
 
 	SetPathActionButtonsEnabled(TRUE);
@@ -2018,10 +2054,12 @@ LRESULT CM576CalibratorDlg::OnDiagFinished(WPARAM wParam, LPARAM lParam)
 	m_progress.SetPos(0);
 
 	CString summary;
-	if (stopped)
-		summary.Format(_T("Diagnosis stopped after %d step(s). See output\\diagnosis_<ts>.csv."), completed);
-	else
-		summary.Format(_T("Diagnosis finished: %d step(s). See output\\diagnosis_<ts>.csv."), completed);
+	summary.Format(
+		_T("Diagnosis %s: %d full lap(s); last progress %d/%d group(s). PD/OPM log appended under output\\diagnosis_log.csv."),
+		stopped ? _T("stopped by user") : _T("ended (port closed or incomplete lap)"),
+		m_diagFinishFullLaps,
+		m_diagFinishLastSteps,
+		m_diagFinishTotalGroups);
 	AppendLog(summary);
 	return 0;
 }

@@ -80,6 +80,10 @@ private:
 	std::atomic<bool> m_burnFlashRunning{ false };
 	std::atomic<bool> m_diagRunning{ false };
 	volatile BOOL m_diagStop{ FALSE };
+	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
+	int m_diagFinishFullLaps{ 0 };
+	int m_diagFinishLastSteps{ 0 };
+	int m_diagFinishTotalGroups{ 0 };
 	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
 	// 用户点停止后，路径线程未退出前忽略子线程的进度回写，防 UI 抖动。
 	std::atomic<bool> m_suppressPathProgress{ false };
@@ -141,7 +145,7 @@ private:
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void ReadAllSnWorkerEntry();
 	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
-	void DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString resultCsvPath);
+	void DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString outDir);
 	void RecoverFlashWorkerEntry(
 		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
 		std::array<bool, M576_BURN_FILE_COUNT> burnMask);

@@ -17,9 +17,9 @@
 #     reporting only; not sent over serial).
 #   - UTF-8 BOM on the first line is tolerated.
 #
-# Result CSV: output\diagnosis_<yyyymmdd_HHMMSS>.csv
-#   step,label,sw_count,sw_ok_count,sw_cmds,sw_replies,
-#   s1_* .. s3_* (wl1550, sw3, wl1310, pd, opm; unused WL column empty per scenario), total_ms
+# Result log (append): output\diagnosis_log.csv
+#   Channel,s1_pd_reply,s1_opm_reply,s2_pd_reply,s2_opm_reply,s3_pd_reply,s3_opm_reply
+#   Optional: first | token = channel (e.g. CH343|SW 1 1 20|...); else use # comment as Channel.
 
 # CH343
 SW 1 1 20|SW 1 2 52|SW 2 20 1|SW 2 52 1
@@ -32,3 +32,24 @@ SW 1 1 28|SW 1 2 60|SW 2 28 13|SW 2 60 13
 
 # CH211
 SW 1 1 12|SW 1 2 44|SW 2 12 13|SW 2 44 13
+
+# CH163
+SW 1 1 10|SW 1 2 42|SW 2 10 1|SW 2 42 1
+
+# CH265
+SW 1 1 15|SW 1 2 47|SW 2 15 13|SW 2 47 13
+
+# CH168
+SW 1 1 10|SW 1 2 42|SW 2 10 6|SW 2 42 6
+
+# CH271
+SW 1 1 16|SW 1 2 48|SW 2 16 1|SW 2 48 1
+
+# CH355
+SW 1 1 20|SW 1 2 52|SW 2 20 13|SW 2 52 13
+
+# CH366
+SW 1 1 21|SW 1 2 53|SW 2 21 6|SW 2 53 6
+
+# CH354
+SW 1 1 20|SW 1 2 52|SW 2 20 12|SW 2 52 12

@@ -2,6 +2,7 @@
 #include "DiagnosisCsv.h"
 
 #include <stdio.h>
+#include <io.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -70,6 +71,11 @@ namespace
 			start = p + 1;
 		}
 	}
+
+	BOOL TokenStartsWithSw(const CStringA& tok)
+	{
+		return tok.GetLength() >= 2 && tok.Left(2).CompareNoCase("SW") == 0;
+	}
 }
 
 BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, CString& err)
@@ -136,7 +142,22 @@ BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, C
 
 		M576DiagnosisRow r;
 		r.label = pendingLabel;
-		r.swCommands.swap(tokens);
+		if (TokenStartsWithSw(tokens[0]))
+		{
+			r.channel.Empty();
+			r.swCommands.swap(tokens);
+		}
+		else
+		{
+			r.channel = tokens[0];
+			std::vector<CStringA> swTok;
+			swTok.reserve(tokens.size() > 0 ? (size_t)tokens.size() - 1 : 0);
+			for (size_t ti = 1; ti < tokens.size(); ++ti)
+				swTok.push_back(tokens[ti]);
+			r.swCommands.swap(swTok);
+		}
+		if (r.swCommands.empty())
+			continue;
 		rows.push_back(r);
 		pendingLabel.Empty();
 	}
@@ -146,6 +167,88 @@ BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, C
 		err.Format(_T("Diagnosis CSV has no data rows: %s"), path);
 		return FALSE;
 	}
+	return TRUE;
+}
+
+CString M576GetDiagnosisUnifiedLogCsvPath(LPCTSTR outBaseDir)
+{
+	CString out;
+	if (outBaseDir && outBaseDir[0])
+		out.Format(_T("%s\\diagnosis_log.csv"), outBaseDir);
+	else
+		out = _T("diagnosis_log.csv");
+	return out;
+}
+
+BOOL M576AppendDiagnosisPythonRow(LPCTSTR path, const CStringA& channel, const M576DiagnosisWlScenarioResult wlScen[3], CString& err)
+{
+	err.Empty();
+	if (!path || path[0] == 0)
+	{
+		err = _T("Diagnosis append CSV: empty path.");
+		return FALSE;
+	}
+	{
+		const CString full(path);
+		const int slash = full.ReverseFind(_T('\\'));
+		if (slash > 0)
+		{
+			const CString dir = full.Left(slash);
+			struct _stat sb;
+			if (_tstat(dir, &sb) != 0)
+			{
+				if (!CreateDirectory(dir, NULL))
+				{
+					const DWORD ec = GetLastError();
+					if (ec != ERROR_ALREADY_EXISTS)
+					{
+						err.Format(_T("Create dir failed: %s (err=%lu)"), dir.GetString(), (unsigned long)ec);
+						return FALSE;
+					}
+				}
+			}
+		}
+	}
+
+	FILE* fp = NULL;
+	if (_tfopen_s(&fp, path, _T("ab")) != 0 || fp == NULL)
+	{
+		err.Format(_T("Cannot open diagnosis log CSV for append: %s"), path);
+		return FALSE;
+	}
+
+	const int fh = _fileno(fp);
+	const long len = (fh >= 0) ? _filelength(fh) : 0;
+	if (len <= 0)
+	{
+		static const char kHeader[] =
+			"Channel,s1_pd_reply,s1_opm_reply,s2_pd_reply,s2_opm_reply,s3_pd_reply,s3_opm_reply\r\n";
+		if (fwrite(kHeader, 1, sizeof(kHeader) - 1, fp) != (size_t)(sizeof(kHeader) - 1))
+		{
+			err = _T("Diagnosis append CSV: failed to write header.");
+			fclose(fp);
+			return FALSE;
+		}
+	}
+
+	CStringA line;
+	line.Format(
+		"%s,%s,%s,%s,%s,%s,%s\r\n",
+		RfcQuote(channel).GetString(),
+		RfcQuote(wlScen[0].pdReply).GetString(),
+		RfcQuote(wlScen[0].opmReply).GetString(),
+		RfcQuote(wlScen[1].pdReply).GetString(),
+		RfcQuote(wlScen[1].opmReply).GetString(),
+		RfcQuote(wlScen[2].pdReply).GetString(),
+		RfcQuote(wlScen[2].opmReply).GetString());
+	if (fwrite(line.GetString(), 1, line.GetLength(), fp) != (size_t)line.GetLength())
+	{
+		err = _T("Diagnosis append CSV: failed to write data row.");
+		fclose(fp);
+		return FALSE;
+	}
+	fflush(fp);
+	fclose(fp);
 	return TRUE;
 }
 

@@ -6,13 +6,16 @@
 /// One input *group* loaded from output/diagnosis_sw.csv.
 ///
 /// CSV semantics (per group, one CSV data line):
-///   - Multiple SW commands joined with `|`: `SW 1 1 20|SW 1 2 52|SW 2 20 1|SW 2 52 1`
-///   - Trailing CR is added automatically by the host before sending.
-/// `label` is the optional preceding `# CHxxx` / `; CHxxx` comment, used only for
-/// reporting (it is **not** sent over serial).
+///   - **Legacy:** `# CH343` comment then a line of SW only: `SW 1 1 20|SW 1 2 52|…`
+///     — `label` holds the comment text; `channel` is empty (Python CSV uses `label` as Channel).
+///   - **Inline channel:** first `|` token is not an SW command: `CH343|SW 1 1 20|…`
+///     — `channel` is that token; remaining tokens are SW commands (channel is **not** sent on serial).
+///   - Trailing CR is added automatically by the host before each SW line.
+/// `label` is the optional preceding `#` / `;` comment (reporting / fallback channel).
 struct M576DiagnosisRow
 {
 	CStringA label;
+	CStringA channel;
 	std::vector<CStringA> swCommands;
 };
 
@@ -66,11 +69,20 @@ struct M576DiagnosisResultRow
 /// - Lines starting with `#` or `;` are comments. The trimmed text after the
 ///   marker becomes the *next* data line's `label` (subsequent comment lines
 ///   overwrite earlier ones; empty lines do not clear the pending label).
-/// - Each non-comment line is split by `|` into one or more SW commands; empty
-///   tokens are skipped. A line yielding zero tokens is ignored.
+/// - Each non-comment line is split by `|`; empty tokens are skipped.
+///   If the first token starts with `SW` (case-insensitive), all tokens are SW commands
+///   and `channel` is left empty (use `label` for Python Channel column). Otherwise the
+///   first token is `channel` and the rest are SW commands.
 /// - UTF-8 BOM on the first line is tolerated.
 /// Returns FALSE only on hard I/O errors or when no groups were parsed.
 BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, CString& err);
+
+/// Fixed unified log path: `{outBaseDir}\diagnosis_log.csv` (append-only PD/OPM rows).
+CString M576GetDiagnosisUnifiedLogCsvPath(LPCTSTR outBaseDir);
+
+/// Append one Python-format row (Channel + s1..s3 pd/opm replies). Opens in binary append
+/// mode; writes UTF-8 header if file is empty. Calls fflush after each row.
+BOOL M576AppendDiagnosisPythonRow(LPCTSTR path, const CStringA& channel, const M576DiagnosisWlScenarioResult wlScen[3], CString& err);
 
 /// Compose `output/diagnosis_<yyyymmdd_HHMMSS>.csv` next to the exe under
 /// the given output dir. The returned path is absolute and includes the
