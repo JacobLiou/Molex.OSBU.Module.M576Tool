@@ -197,8 +197,8 @@ if exist "!VCREDIST!" (
   echo.
   echo Diagnosis flow (Run/Stop Diagnosis buttons):
   echo   Input:  output\diagnosis_sw.csv  ^(SW groups with ^|'^|; optional first token = channel^)
-  echo   Output: output\diagnosis_log.csv  ^(append: Channel + s1/s2/s3 pd+opm replies; fflush per row^)
-  echo   After each SW group: ^(1^) WL 1550, SW 3 1 1, pd, opm  ^(2^) WL 1310, SW 3 1 4, pd, opm  ^(3^) WL 1310, SW 3 1 8, pd, opm.
+  echo   Output: output\diagnosis_log.csv  ^(append: 25 cols — Channel, s1/s2/s3 each: 6 pre_* + pd+opm; fflush per row^)
+  echo   After each SW group: per s1,s2,s3: 6-step precheck then SW3+WL+pd+opm ^(see diagnosis_sw.csv.example^).
 )
 
 echo.

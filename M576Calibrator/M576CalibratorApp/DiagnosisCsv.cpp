@@ -180,7 +180,12 @@ CString M576GetDiagnosisUnifiedLogCsvPath(LPCTSTR outBaseDir)
 	return out;
 }
 
-BOOL M576AppendDiagnosisPythonRow(LPCTSTR path, const CStringA& channel, const M576DiagnosisWlScenarioResult wlScen[3], CString& err)
+BOOL M576AppendDiagnosisPythonRow(
+	LPCTSTR path,
+	const CStringA& channel,
+	const M576DiagnosisWlScenarioResult wlScen[3],
+	const CStringA prePdPm[3][6],
+	CString& err)
 {
 	err.Empty();
 	if (!path || path[0] == 0)
@@ -222,7 +227,13 @@ BOOL M576AppendDiagnosisPythonRow(LPCTSTR path, const CStringA& channel, const M
 	if (len <= 0)
 	{
 		static const char kHeader[] =
-			"Channel,s1_pd_reply,s1_opm_reply,s2_pd_reply,s2_opm_reply,s3_pd_reply,s3_opm_reply\r\n";
+			"Channel,"
+			"s1_pre_pd_sw312,s1_pre_pd_sw311,s1_pre_opm_sw1119,s1_pre_opm_sw1120,s1_pre_opm_sw1251,s1_pre_opm_sw1252,"
+			"s1_pd_reply,s1_opm_reply,"
+			"s2_pre_pd_sw312,s2_pre_pd_sw311,s2_pre_opm_sw1119,s2_pre_opm_sw1120,s2_pre_opm_sw1251,s2_pre_opm_sw1252,"
+			"s2_pd_reply,s2_opm_reply,"
+			"s3_pre_pd_sw312,s3_pre_pd_sw311,s3_pre_opm_sw1119,s3_pre_opm_sw1120,s3_pre_opm_sw1251,s3_pre_opm_sw1252,"
+			"s3_pd_reply,s3_opm_reply\r\n";
 		if (fwrite(kHeader, 1, sizeof(kHeader) - 1, fp) != (size_t)(sizeof(kHeader) - 1))
 		{
 			err = _T("Diagnosis append CSV: failed to write header.");
@@ -230,17 +241,54 @@ BOOL M576AppendDiagnosisPythonRow(LPCTSTR path, const CStringA& channel, const M
 			return FALSE;
 		}
 	}
+	else
+	{
+		fclose(fp);
+		fp = NULL;
+		FILE* fr = NULL;
+		if (_tfopen_s(&fr, path, _T("rb")) != 0 || fr == NULL)
+		{
+			err.Format(_T("Cannot read diagnosis log CSV for header check: %s"), path);
+			return FALSE;
+		}
+		char hdrBuf[4096] = {};
+		if (fgets(hdrBuf, (int)sizeof(hdrBuf), fr) == NULL)
+		{
+			fclose(fr);
+			err.Format(_T("Diagnosis log CSV has no header line: %s"), path);
+			return FALSE;
+		}
+		fclose(fr);
+		CStringA hdrLine(hdrBuf);
+		if (hdrLine.Find("s1_pre_pd_sw312") < 0)
+		{
+			err.Format(
+				_T("diagnosis_log.csv header is not the current 25-column format (need s1_pre_pd_sw312). "
+				   "Delete or rename this file then retry: %s"),
+				path);
+			return FALSE;
+		}
+		if (_tfopen_s(&fp, path, _T("ab")) != 0 || fp == NULL)
+		{
+			err.Format(_T("Cannot reopen diagnosis log CSV for append: %s"), path);
+			return FALSE;
+		}
+	}
 
-	CStringA line;
-	line.Format(
-		"%s,%s,%s,%s,%s,%s,%s\r\n",
-		RfcQuote(channel).GetString(),
-		RfcQuote(wlScen[0].pdReply).GetString(),
-		RfcQuote(wlScen[0].opmReply).GetString(),
-		RfcQuote(wlScen[1].pdReply).GetString(),
-		RfcQuote(wlScen[1].opmReply).GetString(),
-		RfcQuote(wlScen[2].pdReply).GetString(),
-		RfcQuote(wlScen[2].opmReply).GetString());
+	CStringA line(RfcQuote(channel));
+	for (int s = 0; s < 3; ++s)
+	{
+		for (int j = 0; j < 6; ++j)
+		{
+			line += ',';
+			line += RfcQuote(prePdPm[s][j]);
+		}
+		line += ',';
+		line += RfcQuote(wlScen[s].pdReply);
+		line += ',';
+		line += RfcQuote(wlScen[s].opmReply);
+	}
+	line += "\r\n";
 	if (fwrite(line.GetString(), 1, line.GetLength(), fp) != (size_t)line.GetLength())
 	{
 		err = _T("Diagnosis append CSV: failed to write data row.");

@@ -1,8 +1,14 @@
 # Diagnosis input CSV. One *group* per data line.
 #
-# Result log (append, survives power loss per row): output\diagnosis_log.csv
-#   Header: Channel,s1_pd_reply,s1_opm_reply,s2_pd_reply,s2_opm_reply,s3_pd_reply,s3_opm_reply
-#   One data row is appended after each group completes all SW + three measure blocks.
+# Result log (append): output\diagnosis_log.csv
+#   After each group's CSV SW commands: for s1, then s2, then s3 — run the fixed 6-step precheck, then that path
+#   (SW 3 1 + WL + pd + opm). Precheck uses SW 3 1 2/1 + SW 1 1 19/20 + SW 1 2 51/52 with 1s before each pd/opm read.
+#   Header (25 columns): Channel,
+#     s1_pre_pd_sw312,s1_pre_pd_sw311,s1_pre_opm_sw1119,s1_pre_opm_sw1120,s1_pre_opm_sw1251,s1_pre_opm_sw1252,s1_pd_reply,s1_opm_reply,
+#     s2_pre_…(same six),s2_pd_reply,s2_opm_reply,
+#     s3_pre_…(same six),s3_pd_reply,s3_opm_reply.
+#   If diagnosis_log.csv exists without s1_pre_pd_sw312 in the first line, delete or rename it before first run.
+#   One data row is appended after each group completes 3×precheck + three measure blocks.
 #
 # Format:
 #   - Each data line is one logical diagnosis step. Tokens are separated by '|'.
@@ -15,12 +21,7 @@
 #           The first token is **not** sent on serial; only SW tokens are sent.
 #   - The host sends every SW command in order (CR appended automatically),
 #     reads one reply line per SW (typically "OK"/"FAIL").
-#   - After all SW in the group, the host runs three *fixed* wavelength/source
-#     sequences (not from this file), each followed by pd/opm:
-#         (1) SFP_1550:  WL 1550, SW 3 1 1,  pd 1, opm 3 1
-#         (2) SFP_1310:  WL 1310, SW 3 1 4,  pd 1, opm 3 1
-#         (3) Laser_1310: WL 1310, SW 3 1 8, pd 1, opm 3 1
-#     One reply line is read after each command.
+#   - After all SW in the group: for each of s1/s2/s3, run the 6-step precheck then SW 3 1 + WL + pd/opm (see top).
 #   - UTF-8 BOM on the first line is tolerated.
 #
 # --- Legacy style (comment + SW-only line) ---

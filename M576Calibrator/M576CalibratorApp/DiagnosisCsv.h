@@ -19,10 +19,10 @@ struct M576DiagnosisRow
 	std::vector<CStringA> swCommands;
 };
 
-/// Fixed post-path (three blocks after the CSV SW group):
-///   s1 (SFP_1550): `WL 1550`, `SW 3 1 1`, `pd 1`, `opm 3 1` — `wl1310Reply` unused.
-///   s2 (SFP_1310): `WL 1310`, `SW 3 1 4`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
-///   s3 (Laser_1310): `WL 1310`, `SW 3 1 8`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
+/// Fixed post-path (three blocks after the CSV SW group); order matches hardware: switch source then wavelength:
+///   s1 (SFP_1550): `SW 3 1 1`, `WL 1550`, `pd 1`, `opm 3 1` — `wl1310Reply` unused.
+///   s2 (SFP_1310): `SW 3 1 4`, `WL 1310`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
+///   s3 (Laser_1310): `SW 3 1 8`, `WL 1310`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
 /// `sw3Third` is the third token of `SW 3 1 <n>` (1, 4, or 8). Result CSV columns
 /// keep the same names; empty fields mean that wavelength line was not sent for that scenario.
 struct M576DiagnosisWlScenarioResult
@@ -44,7 +44,7 @@ struct M576DiagnosisWlScenarioResult
 /// with `|` so the row reproduces the input grouping verbatim. `swOkCount` /
 /// `swCount` give a quick FAIL summary without needing to re-parse the joined
 /// reply column. `totalMs` is the sum of every sub-exchange (all CSV SW +
-/// three measure blocks: WL + SW + pd + opm each, with per-scenario WL as above).
+/// three measure blocks: SW 3 1 + WL + pd + opm each, per scenario as above).
 struct M576DiagnosisResultRow
 {
 	int step;
@@ -54,6 +54,9 @@ struct M576DiagnosisResultRow
 	int swCount;
 	int swOkCount;
 	M576DiagnosisWlScenarioResult wlScen[3];
+	/// Six-step dark/light precheck before each wlScen path: index [0]=s1,[1]=s2,[2]=s3; each [6] is
+	/// pd/opm replies in order SW 3 1 2, SW 3 1 1, SW 1 1 19, SW 1 1 20, SW 1 2 51, SW 1 2 52 — matches `diagnosis_log.csv` s*_pre_* columns.
+	CStringA prePdPm[3][6];
 	DWORD totalMs;
 
 	M576DiagnosisResultRow()
@@ -80,9 +83,16 @@ BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, C
 /// Fixed unified log path: `{outBaseDir}\diagnosis_log.csv` (append-only PD/OPM rows).
 CString M576GetDiagnosisUnifiedLogCsvPath(LPCTSTR outBaseDir);
 
-/// Append one Python-format row (Channel + s1..s3 pd/opm replies). Opens in binary append
-/// mode; writes UTF-8 header if file is empty. Calls fflush after each row.
-BOOL M576AppendDiagnosisPythonRow(LPCTSTR path, const CStringA& channel, const M576DiagnosisWlScenarioResult wlScen[3], CString& err);
+/// Append one Python-format row: Channel, then per scenario s1/s2/s3 — six precheck pd/opm columns, then pd/opm.
+/// Opens in binary append mode; writes UTF-8 header if file is empty. If the file exists but the first line lacks
+/// `s1_pre_pd_sw312` (25-column layout), returns FALSE — delete/rename incompatible `diagnosis_log.csv` then retry.
+/// Calls fflush after each row.
+BOOL M576AppendDiagnosisPythonRow(
+	LPCTSTR path,
+	const CStringA& channel,
+	const M576DiagnosisWlScenarioResult wlScen[3],
+	const CStringA prePdPm[3][6],
+	CString& err);
 
 /// Compose `output/diagnosis_<yyyymmdd_HHMMSS>.csv` next to the exe under
 /// the given output dir. The returned path is absolute and includes the
