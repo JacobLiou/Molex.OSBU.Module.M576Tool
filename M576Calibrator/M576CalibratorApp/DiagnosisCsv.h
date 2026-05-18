@@ -55,7 +55,7 @@ struct M576DiagnosisResultRow
 	int swOkCount;
 	M576DiagnosisWlScenarioResult wlScen[3];
 	/// Six-step dark/light precheck before each wlScen path: index [0]=s1,[1]=s2,[2]=s3; each [6] is
-	/// pd/opm replies in order SW 3 1 2, SW 3 1 1, SW 1 1 19, SW 1 1 20, SW 1 2 51, SW 1 2 52 — matches `diagnosis_log.csv` s*_pre_* columns.
+	/// pd/opm replies: SW 3 1 2; SW 3 1 (1|4|8); SW 1 1 (n-1); SW 1 1 n; SW 1 2 (m-1); SW 1 2 m — n,m from group CSV first SW 1 1 / SW 1 2.
 	CStringA prePdPm[3][6];
 	DWORD totalMs;
 
@@ -79,6 +79,15 @@ struct M576DiagnosisResultRow
 /// - UTF-8 BOM on the first line is tolerated.
 /// Returns FALSE only on hard I/O errors or when no groups were parsed.
 BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, CString& err);
+
+/// First matching `SW 1 1 n` and `SW 1 2 m` in `cmds` (case-insensitive `SW`, order preserved).
+/// Requires `n >= 2` and `m >= 2` so precheck can use `SW 1 1 (n-1)` / `SW 1 2 (m-1)` for dark.
+/// On failure, `errA` is ASCII English for logging.
+BOOL M576DiagnosisParseFirstSw11Sw12LightPorts(
+	const std::vector<CStringA>& cmds,
+	int& outN,
+	int& outM,
+	CStringA& errA);
 
 /// Fixed unified log path: `{outBaseDir}\diagnosis_log.csv` (append-only PD/OPM rows).
 CString M576GetDiagnosisUnifiedLogCsvPath(LPCTSTR outBaseDir);

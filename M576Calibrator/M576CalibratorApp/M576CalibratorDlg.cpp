@@ -1884,8 +1884,25 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 
 				DWORD totalElapsed = elapsedSw;
 
-				static const char* const kDiagPreSw[6] = {
-					"SW 3 1 2", "SW 3 1 1", "SW 1 1 19", "SW 1 1 20", "SW 1 2 51", "SW 1 2 52"};
+				static const int kDiagSw3Third[] = { 1, 4, 8 };
+				int sw11Light = 0;
+				int sw12Light = 0;
+				CStringA parseErrA;
+				if (!M576DiagnosisParseFirstSw11Sw12LightPorts(src.swCommands, sw11Light, sw12Light, parseErrA))
+				{
+					CString log;
+					log.Format(
+						_T("Diagnosis: group %d/%d: %hs"),
+						i + 1,
+						N,
+						parseErrA.IsEmpty() ? "SW1 port parse failed." : parseErrA.GetString());
+					SafeAppendLog(log);
+					stoppedMid = TRUE;
+					completed = i + 1;
+					r.totalMs = totalElapsed;
+					break;
+				}
+
 				static const BOOL kDiagPreIsPd[6] = { TRUE, TRUE, FALSE, FALSE, FALSE, FALSE };
 				auto RunSixStepPrecheck = [&](int preIdx) -> void
 				{
@@ -1897,7 +1914,19 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 							completed = i + 1;
 							return;
 						}
-						CStringA swLine(kDiagPreSw[pi]);
+						CStringA swLine;
+						if (pi == 0)
+							swLine = "SW 3 1 2";
+						else if (pi == 1)
+							swLine.Format("SW 3 1 %d", kDiagSw3Third[preIdx]);
+						else if (pi == 2)
+							swLine.Format("SW 1 1 %d", sw11Light - 1);
+						else if (pi == 3)
+							swLine.Format("SW 1 1 %d", sw11Light);
+						else if (pi == 4)
+							swLine.Format("SW 1 2 %d", sw12Light - 1);
+						else
+							swLine.Format("SW 1 2 %d", sw12Light);
 						CString labelPreSw;
 						labelPreSw.Format(_T("S%d pre %d/6 "), preIdx + 1, pi + 1);
 						labelPreSw += CString(swLine);
@@ -1946,7 +1975,6 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 
 				// Three paths: after each source switch, set wavelength then read PD/OPM.
 				// s1: SW 3 1 1, WL 1550, pd 1, opm 3 1 — s2/s3: SW 3 1 4|8, WL 1310, pd 1, opm 3 1.
-				static const int kDiagSw3Third[] = { 1, 4, 8 };
 				for (int scen = 0; scen < 3; ++scen)
 				{
 					if (m_diagStop)

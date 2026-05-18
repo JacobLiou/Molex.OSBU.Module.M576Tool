@@ -1,8 +1,9 @@
 # Diagnosis input CSV. One *group* per data line.
 #
 # Result log (append): output\diagnosis_log.csv
-#   After each group's CSV SW commands: for s1, then s2, then s3 — run the fixed 6-step precheck, then that path
-#   (SW 3 1 + WL + pd + opm). Precheck uses SW 3 1 2/1 + SW 1 1 19/20 + SW 1 2 51/52 with 1s before each pd/opm read.
+#   After each group's CSV SW commands: for s1, then s2, then s3 — run a 6-step precheck, then that path
+#   (SW 3 1 + WL + pd + opm). Precheck: SW 3 1 2; SW 3 1 (1|4|8) for that scenario; SW 1 1 (n-1)/n and SW 1 2 (m-1)/m
+#   from the **first** SW 1 1 n and SW 1 2 m in the group (n,m >= 2); 1s before each pd/opm read.
 #   Header (25 columns): Channel,
 #     s1_pre_pd_sw312,s1_pre_pd_sw311,s1_pre_opm_sw1119,s1_pre_opm_sw1120,s1_pre_opm_sw1251,s1_pre_opm_sw1252,s1_pd_reply,s1_opm_reply,
 #     s2_pre_…(same six),s2_pd_reply,s2_opm_reply,
@@ -21,7 +22,7 @@
 #           The first token is **not** sent on serial; only SW tokens are sent.
 #   - The host sends every SW command in order (CR appended automatically),
 #     reads one reply line per SW (typically "OK"/"FAIL").
-#   - After all SW in the group: for each of s1/s2/s3, run the 6-step precheck then SW 3 1 + WL + pd/opm (see top).
+#   - After all SW in the group: for each of s1/s2/s3, run 6-step precheck (SW3 + dynamic SW1 n-1/n, m-1/m from group) then SW 3 1 + WL + pd/opm (see top).
 #   - UTF-8 BOM on the first line is tolerated.
 #
 # --- Legacy style (comment + SW-only line) ---

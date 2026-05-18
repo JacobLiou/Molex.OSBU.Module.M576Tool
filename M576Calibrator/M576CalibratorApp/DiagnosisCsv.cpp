@@ -78,6 +78,71 @@ namespace
 	}
 }
 
+BOOL M576DiagnosisParseFirstSw11Sw12LightPorts(
+	const std::vector<CStringA>& cmds,
+	int& outN,
+	int& outM,
+	CStringA& errA)
+{
+	outN = 0;
+	outM = 0;
+	errA.Empty();
+	BOOL got11 = FALSE;
+	BOOL got12 = FALSE;
+	for (size_t i = 0; i < cmds.size(); ++i)
+	{
+		CStringA t = cmds[i];
+		t.Trim();
+		if (t.GetLength() < 8 || t.Left(2).CompareNoCase("SW") != 0)
+			continue;
+		CStringA rest = t.Mid(2);
+		rest.TrimLeft();
+		int a = 0;
+		int b = 0;
+		int c = 0;
+		if (sscanf_s(rest, "%d %d %d", &a, &b, &c) != 3)
+			continue;
+		if (a != 1)
+			continue;
+		if (b == 1 && !got11)
+		{
+			outN = c;
+			got11 = TRUE;
+		}
+		else if (b == 2 && !got12)
+		{
+			outM = c;
+			got12 = TRUE;
+		}
+		if (got11 && got12)
+			break;
+	}
+	if (!got11 && !got12)
+	{
+		errA = "no SW 1 1 <n> and no SW 1 2 <m> in diagnosis SW group";
+		return FALSE;
+	}
+	if (!got11)
+	{
+		errA = "no SW 1 1 <n> in diagnosis SW group";
+		return FALSE;
+	}
+	if (!got12)
+	{
+		errA = "no SW 1 2 <m> in diagnosis SW group";
+		return FALSE;
+	}
+	if (outN < 2 || outM < 2)
+	{
+		errA.Format(
+			"SW 1 1 port %d / SW 1 2 port %d must be >= 2 for dark precheck (n-1, m-1)",
+			outN,
+			outM);
+		return FALSE;
+	}
+	return TRUE;
+}
+
 BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, CString& err)
 {
 	rows.clear();

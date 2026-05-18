@@ -6,8 +6,9 @@
 #     The host sends every SW command in order (CR appended automatically),
 #     reads one reply line per SW (typically "OK"/"FAIL").
 #   - After all SW in the group, the host runs three measure paths (s1/s2/s3). Before **each** path it runs
-#     the same fixed 6-step dark/light precheck (SW3/SW1 + pd/opm, 1s before each pd/opm read), then that path:
-#     SW 3 1 (select source), matching WL, then pd/opm:
+#     a 6-step dark/light precheck (SW3/SW1 + pd/opm, 1s before each pd/opm read), then that path:
+#     SW 3 1 (select source), matching WL, then pd/opm. Precheck: SW 3 1 2; SW 3 1 (1|4|8) per scenario; SW 1 1 (n-1)/n
+#     and SW 1 2 (m-1)/m where n,m are the first SW 1 1 n and SW 1 2 m in this group (ports must be >= 2).
 #         (1) SFP_1550:  SW 3 1 1,  WL 1550, pd 1, opm 3 1
 #         (2) SFP_1310:  SW 3 1 4,  WL 1310, pd 1, opm 3 1
 #         (3) Laser_1310: SW 3 1 8, WL 1310, pd 1, opm 3 1
