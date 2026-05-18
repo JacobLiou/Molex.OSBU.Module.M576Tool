@@ -88,7 +88,8 @@
   copy /Y "$(SolutionDir)output\pd_mcs1.csv" "$(OutDir)output\pd_mcs1.csv"
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
-  copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"</Command>
+  copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"
+  if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -129,7 +130,8 @@
   copy /Y "$(SolutionDir)output\pd_mcs1.csv" "$(OutDir)output\pd_mcs1.csv"
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
-  copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"</Command>
+  copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"
+  if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -140,6 +142,8 @@
     <ClInclude Include="LutMerge1310.h" />
     <ClInclude Include="LutPeakApply.h" />
     <ClInclude Include="M576GlobalException.h" />
+    <ClInclude Include="DiagnosisSession.h" />
+    <ClInclude Include="DiagnosisCsv.h" />
     <ClInclude Include="M576Version.h" />
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576BurnSelectDlg.h" />
@@ -162,6 +166,8 @@
     <ClCompile Include="LutMerge1310.cpp" />
     <ClCompile Include="LutPeakApply.cpp" />
     <ClCompile Include="M576GlobalException.cpp" />
+    <ClCompile Include="DiagnosisSession.cpp" />
+    <ClCompile Include="DiagnosisCsv.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576BurnSelectDlg.cpp" />
     <ClCompile Include="M576RecoverSelectDlg.cpp" />

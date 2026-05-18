@@ -120,6 +120,10 @@
 #define IDC_RECOVER_BTN_BROWSE_7       2177
 #define IDC_RECOVER_BTN_BROWSE_8       2178
 #define IDC_RECOVER_BTN_BROWSE_9       2179
+#define IDC_GROUP_DIAG                 1060
+#define IDC_BTN_RUN_DIAG               1061
+#define IDC_BTN_STOP_DIAG              1062
+#define IDC_STATIC_DIAG_HINT           1063
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102

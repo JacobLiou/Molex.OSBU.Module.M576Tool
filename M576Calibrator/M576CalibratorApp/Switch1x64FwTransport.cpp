@@ -119,6 +119,21 @@ static DWORD Upload1x64DrainAscii(Z4671Command& cmd, BYTE* outBuf, DWORD outCap,
 	return have;
 }
 
+/// True when 1x64 CLI rejected `fwdl` (e.g. `E:Invalid command`); do not start XMODEM.
+static BOOL M576FwdlBannerIsDeviceError(const BYTE* banner, DWORD bn)
+{
+	if (!banner || bn == 0)
+		return FALSE;
+	CStringA raw((const char*)banner, (int)bn);
+	CString s(raw);
+	s.MakeLower();
+	if (s.Find(_T("invalid command")) >= 0)
+		return TRUE;
+	if (s.Find(_T("e:invalid")) >= 0)
+		return TRUE;
+	return FALSE;
+}
+
 /// Emit per-block traces (TX/RX byte distinct cause) for the 1x64 XMODEM stream so failure mode is clear from the log.
 static int XmodemSendOneBlock(Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen, BOOL bFileDone, int blockNo, int totalBlocks)
 {
@@ -777,13 +792,20 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		BYTE banner[512];
 		const DWORD bn = Upload1x64DrainAscii(
 			cmd, banner, sizeof(banner), (DWORD)M576_1X64_FWDL_PRE_MS, 250u);
+		const CString bannerPrint = (bn > 0) ? XmodemBytesToPrintable(banner, bn, 256) : CString();
 		if (bn > 0)
 		{
 			cmd.TraceInfo(
 				_T("FW-1x64"),
 				_T("XMODEM stage 1/4 (fwdl) banner (%lu B): %s"),
 				(unsigned long)bn,
-				XmodemBytesToPrintable(banner, bn, 256).GetString());
+				bannerPrint.GetString());
+			if (M576FwdlBannerIsDeviceError(banner, bn))
+			{
+				err.Format(_T("1x64 fwdl rejected by device: %s"), bannerPrint.GetString());
+				cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
+				return FALSE;
+			}
 		}
 		else
 		{

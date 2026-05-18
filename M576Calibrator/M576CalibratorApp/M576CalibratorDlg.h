@@ -17,6 +17,8 @@
 #include "McsFwTransport.h"
 #include "TransLutRoute.h"
 #include "CalibWriteMeta.h"
+#include "DiagnosisSession.h"
+#include "DiagnosisCsv.h"
 
 namespace M576 { struct Peak1DFitTrace; }
 
@@ -57,6 +59,8 @@ private:
 	// 单路 Z4671Command 绑定 429F 串口；CRecalSession 封装 RECAL 文本层。
 	Z4671Command m_dev429f;
 	std::unique_ptr<CRecalSession> m_pRecal;
+	/// Diagnosis: CSV SW groups + three measure blocks (1550 / 1310-SFP / 1310-laser) + pd/opm — independent from CRecalSession.
+	std::unique_ptr<CDiagnosisSession> m_pDiag;
 
 	/// Trans 1-2: Z4671 LUT; Trans 3-4: 1x64 为 4x2K stMemsSwCoef（126S，与 MCS 不共用同结构体）。
 	// 仅 0,1 槽使用 m_lut；2,3 使用 m_mems1x64[0]=1#1x64、 m_mems1x64[1]=2#1x64。
@@ -69,10 +73,17 @@ private:
 	std::thread m_readBackupThread;
 	std::thread m_readSnThread;
 	std::thread m_burnFlashThread;
+	std::thread m_diagThread;
 	std::atomic<bool> m_pathRunning{ false };
 	std::atomic<bool> m_readBackupRunning{ false };
 	std::atomic<bool> m_readSnRunning{ false };
 	std::atomic<bool> m_burnFlashRunning{ false };
+	std::atomic<bool> m_diagRunning{ false };
+	volatile BOOL m_diagStop{ FALSE };
+	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
+	int m_diagFinishFullLaps{ 0 };
+	int m_diagFinishLastSteps{ 0 };
+	int m_diagFinishTotalGroups{ 0 };
 	/// After user clicks Stop: ignore worker-thread progress updates until path thread exits.
 	// 用户点停止后，路径线程未退出前忽略子线程的进度回写，防 UI 抖动。
 	std::atomic<bool> m_suppressPathProgress{ false };
@@ -134,6 +145,7 @@ private:
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void ReadAllSnWorkerEntry();
 	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
+	void DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString outDir);
 	void RecoverFlashWorkerEntry(
 		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
 		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
@@ -207,6 +219,8 @@ private:
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedRecoverFlash();
 	afx_msg void OnBnClickedStop();
+	afx_msg void OnBnClickedRunDiag();
+	afx_msg void OnBnClickedStopDiag();
 	afx_msg void OnBnClickedExportCalibStats();
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg LRESULT OnPathLogFlush(WPARAM wParam, LPARAM lParam);
@@ -216,4 +230,5 @@ private:
 	afx_msg LRESULT OnReadBackupFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnReadAllSnFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnBurnFlashFinished(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnDiagFinished(WPARAM wParam, LPARAM lParam);
 };
