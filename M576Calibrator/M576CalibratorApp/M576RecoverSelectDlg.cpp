@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576RecoverSelectDlg.h"
+#include "M576UiTheme.h"
 
 namespace {
 const UINT kRecoverCheckIds[M576_BURN_FILE_COUNT] = {
@@ -71,6 +72,7 @@ BOOL CM576RecoverSelectDlg::OnInitDialog()
 		m_pathEdits[i] = p;
 	}
 	UpdateData(FALSE);
+	M576UiTheme::ApplyDialog(this);
 	return TRUE;
 }
 

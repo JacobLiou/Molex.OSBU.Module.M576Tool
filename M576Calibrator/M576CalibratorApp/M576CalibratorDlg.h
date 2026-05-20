@@ -222,6 +222,8 @@ private:
 	afx_msg void OnBnClickedRunDiag();
 	afx_msg void OnBnClickedStopDiag();
 	afx_msg void OnBnClickedExportCalibStats();
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
+	afx_msg void OnGetMinMaxInfo(MINMAXINFO* lpMMI);
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg LRESULT OnPathLogFlush(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnPathProgressRange(WPARAM wParam, LPARAM lParam);

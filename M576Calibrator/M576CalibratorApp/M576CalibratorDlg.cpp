@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576CalibratorDlg.h"
+#include "M576UiTheme.h"
 #include "M576BurnSelectDlg.h"
 #include "M576RecoverSelectDlg.h"
 #include "LutMerge1310.h"
@@ -705,6 +706,8 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_RUN_DIAG, &CM576CalibratorDlg::OnBnClickedRunDiag)
 	ON_BN_CLICKED(IDC_BTN_STOP_DIAG, &CM576CalibratorDlg::OnBnClickedStopDiag)
 	ON_BN_CLICKED(IDC_BTN_EXPORT_CALIB_STATS, &CM576CalibratorDlg::OnBnClickedExportCalibStats)
+	ON_WM_CTLCOLOR()
+	ON_WM_GETMINMAXINFO()
 	ON_WM_SYSCOMMAND()
 	ON_WM_DESTROY()
 	ON_MESSAGE(WM_M576_PATH_LOG_FLUSH, &CM576CalibratorDlg::OnPathLogFlush)
@@ -720,12 +723,9 @@ END_MESSAGE_MAP()
 BOOL CM576CalibratorDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
-	ModifyStyle(WS_MINIMIZEBOX | WS_MAXIMIZEBOX, 0, SWP_FRAMECHANGED);
+	ModifyStyle(WS_MINIMIZEBOX, 0, SWP_FRAMECHANGED);
 	if (CMenu* pSys = GetSystemMenu(FALSE))
-	{
 		pSys->RemoveMenu(SC_MINIMIZE, MF_BYCOMMAND);
-		pSys->RemoveMenu(SC_MAXIMIZE, MF_BYCOMMAND);
-	}
 	HICON hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	if (hIcon)
 	{
@@ -807,7 +807,30 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	SyncExportStatsButton();
+	M576UiTheme::ApplyDialog(this);
+	M576UiTheme::SetupMainDynamicLayout(this);
+	M576UiTheme::ApplyProgress(&m_progress);
+	SetDefID(IDC_BTN_RUN_PATH);
 	return TRUE;
+}
+
+HBRUSH CM576CalibratorDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	HBRUSH h = M576UiTheme::OnCtlColor(pWnd, pDC, nCtlColor);
+	if (h)
+		return h;
+	return CDialogEx::OnCtlColor(pDC, pWnd, nCtlColor);
+}
+
+void CM576CalibratorDlg::OnGetMinMaxInfo(MINMAXINFO* lpMMI)
+{
+	CDialogEx::OnGetMinMaxInfo(lpMMI);
+	if (!lpMMI)
+		return;
+	CSize minTrack;
+	M576UiTheme::GetMainMinTrackSize(this, minTrack);
+	lpMMI->ptMinTrackSize.x = minTrack.cx;
+	lpMMI->ptMinTrackSize.y = minTrack.cy;
 }
 
 void CM576CalibratorDlg::ApplyFixedBinBasePaths(BOOL syncUi)

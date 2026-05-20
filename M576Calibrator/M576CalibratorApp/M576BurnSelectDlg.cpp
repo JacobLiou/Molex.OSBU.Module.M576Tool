@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576BurnSelectDlg.h"
+#include "M576UiTheme.h"
 #include "resource.h"
 
 namespace {
@@ -38,6 +39,7 @@ BOOL CM576BurnSelectDlg::OnInitDialog()
 	// Default all checkboxes on (CheckDlgButton, not CButton downcast).
 	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
 		CheckDlgButton(kCheckIds[i], BST_CHECKED);
+	M576UiTheme::ApplyDialog(this);
 	return TRUE;
 }
 

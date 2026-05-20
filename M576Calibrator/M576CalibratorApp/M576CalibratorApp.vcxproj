@@ -149,6 +149,7 @@
     <ClInclude Include="M576BurnSelectDlg.h" />
     <ClInclude Include="M576RecoverSelectDlg.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
+    <ClInclude Include="M576UiTheme.h" />
     <ClInclude Include="McsFwTransport.h" />
     <ClInclude Include="Switch1x64FwTransport.h" />
     <ClInclude Include="PathCsvDriver.h" />
@@ -172,6 +173,7 @@
     <ClCompile Include="M576BurnSelectDlg.cpp" />
     <ClCompile Include="M576RecoverSelectDlg.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
+    <ClCompile Include="M576UiTheme.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />
     <ClCompile Include="Switch1x64FwTransport.cpp" />
     <ClCompile Include="PathCsvDriver.cpp" />
