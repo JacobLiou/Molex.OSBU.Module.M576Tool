@@ -3,7 +3,7 @@
 #include "CalibConstants.h"
 #include <algorithm>
 #include <cmath>
-// MCS -> Z4671 LUT; 1x64 -> 126S stMemsSwCoef (four 2K blocks, low-temp stChnDAC).
+// MCS -> Z4671 LUT; 1x64 -> 126S stMemsSwCoef (four 2K blocks, stChnDAC per temp slot).
 // Clamped to int16, stored as 16-bit two's-complement in WORD/SHORT (MCS and 1x64).
 
 static short U16ToShortDac(unsigned short w)
@@ -25,14 +25,22 @@ void RawCrossPeakDacToU16Pair(double rawDacX, double rawDacY, unsigned short& ou
 }
 
 // Logical cross-peak dacX/dacY from RECAL0/1 sweeps. Firmware: [0] and sDACx hold Y; [1] and sDACy hold X.
-static void WriteDacPair(stLutSettingZ4671& lut, int swIdx, int chIdx, unsigned short dacX, unsigned short dacY)
+static void WriteDacPair(
+	stLutSettingZ4671& lut,
+	int swIdx,
+	int chIdx,
+	int tempIdx,
+	unsigned short dacX,
+	unsigned short dacY)
 {
 	if (swIdx < 0 || swIdx >= 34)
 		return;
 	if (chIdx < 0 || chIdx >= PORT_MAX_COUNT + MID_MAX_COUNT)
 		return;
-	lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][0] = dacY;
-	lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][1] = dacX;
+	if (tempIdx < 0 || tempIdx >= TEMP_CALIB_NUM)
+		return;
+	lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][0] = dacY;
+	lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][1] = dacX;
 }
 
 void ApplyRecalPeakToLut(
@@ -41,6 +49,7 @@ void ApplyRecalPeakToLut(
 	int occTarget4,
 	unsigned short dacX,
 	unsigned short dacY,
+	int mcsTempSlot,
 	stLutSettingZ4671& lut)
 {
 	const int t = step.targetSwitchIndex;
@@ -53,7 +62,7 @@ void ApplyRecalPeakToLut(
 		const int ch = occTarget3 % 18 + 1;
 		const int swIdx = (sw - 1);
 		const int chIdx = (ch - 1);
-		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
+		WriteDacPair(lut, swIdx, chIdx, mcsTempSlot, dacX, dacY);
 		return;
 	}
 	if (t == 4)
@@ -66,7 +75,7 @@ void ApplyRecalPeakToLut(
 		if (swIdx > 33)
 			swIdx = 33;
 		const int chIdx = (ch - 1);
-		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
+		WriteDacPair(lut, swIdx, chIdx, mcsTempSlot, dacX, dacY);
 		return;
 	}
 
@@ -78,7 +87,7 @@ void ApplyRecalPeakToLut(
 		const int ch0 = ch1 - 1;
 		const int swSlot = (ch0 < 32) ? 32 : 33;
 		const int chIdx = ch0 % 32;
-		WriteDacPair(lut, swSlot, chIdx, dacX, dacY);
+		WriteDacPair(lut, swSlot, chIdx, mcsTempSlot, dacX, dacY);
 		return;
 	}
 
@@ -90,17 +99,18 @@ void ApplyRecalPeakToLut(
 		const int ch0 = ch4 - 1;
 		const int swSlot = (ch0 < 32) ? 32 : 33;
 		const int chIdx = ch0 % 32;
-		WriteDacPair(lut, swSlot, chIdx, dacX, dacY);
+		WriteDacPair(lut, swSlot, chIdx, mcsTempSlot, dacX, dacY);
 		return;
 	}
 }
 
-void WriteMems1x64LowTempDacPair(
+void WriteMems1x64DacPair(
 	stM576OneX64MemsSwCoef* pSw4,
 	int block0to3,
 	int inBlk0based,
 	unsigned short dacX,
-	unsigned short dacY)
+	unsigned short dacY,
+	int calibSlot)
 {
 	if (pSw4 == NULL)
 		return;
@@ -108,7 +118,9 @@ void WriteMems1x64LowTempDacPair(
 		return;
 	if (inBlk0based < 0 || inBlk0based >= (int)M576_1X64_MAX_CHANNEL_NUM)
 		return;
-	stM576OneX64ChnDAC& d = pSw4[block0to3].stCalibDAC[0];
+	if (calibSlot < 0 || calibSlot >= M576_1X64_TEMPT_SWITCH_NUM)
+		return;
+	stM576OneX64ChnDAC& d = pSw4[block0to3].stCalibDAC[calibSlot];
 	d.stChnDAC[inBlk0based].sDACx = U16ToShortDac(dacY);
 	d.stChnDAC[inBlk0based].sDACy = U16ToShortDac(dacX);
 	(void)d.wValid;
@@ -121,6 +133,7 @@ void ApplyRecalPeakToMems1x64(
 	int /*occTarget4*/,
 	unsigned short dacX,
 	unsigned short dacY,
+	int calibSlot,
 	stM576OneX64MemsSwCoef* pSw4)
 {
 	if (pSw4 == NULL)
@@ -139,11 +152,7 @@ void ApplyRecalPeakToMems1x64(
 		const int inBlk = ch0 % 16;
 		if (block < 0 || block > 3)
 			return;
-		stM576OneX64ChnDAC& d = pSw4[block].stCalibDAC[0];
-		d.stChnDAC[inBlk].sDACx = U16ToShortDac(dacY);
-		d.stChnDAC[inBlk].sDACy = U16ToShortDac(dacX);
-		(void)d.wValid;
-		(void)d.sTemperature;
+		WriteMems1x64DacPair(pSw4, block, inBlk, dacX, dacY, calibSlot);
 	};
 
 	if (t == 1 || t == 2)
@@ -158,6 +167,7 @@ void ApplyRecalPeakToLutPd(
 	int occTarget4,
 	unsigned short dacX,
 	unsigned short dacY,
+	int mcsTempSlot,
 	stLutSettingZ4671& lut)
 {
 	const int t = step.targetSwitchIndex;
@@ -170,7 +180,7 @@ void ApplyRecalPeakToLutPd(
 		const int ch = occTarget3 % 18 + 1;
 		const int swIdx = (sw - 1);
 		const int chIdx = (ch - 1);
-		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
+		WriteDacPair(lut, swIdx, chIdx, mcsTempSlot, dacX, dacY);
 		return;
 	}
 	if (t == 4)
@@ -183,7 +193,7 @@ void ApplyRecalPeakToLutPd(
 		if (swIdx > 33)
 			swIdx = 33;
 		const int chIdx = (ch - 1);
-		WriteDacPair(lut, swIdx, chIdx, dacX, dacY);
+		WriteDacPair(lut, swIdx, chIdx, mcsTempSlot, dacX, dacY);
 		return;
 	}
 
@@ -195,7 +205,7 @@ void ApplyRecalPeakToLutPd(
 		const int ch0 = ch64 - 1;
 		const int swSlot = (ch0 < 32) ? 32 : 33;
 		const int chIdx = ch0 % 32;
-		WriteDacPair(lut, swSlot, chIdx, dacX, dacY);
+		WriteDacPair(lut, swSlot, chIdx, mcsTempSlot, dacX, dacY);
 		return;
 	}
 }
@@ -206,6 +216,7 @@ void ApplyRecalPeakToMems1x64Pd(
 	int /*occTarget4*/,
 	unsigned short dacX,
 	unsigned short dacY,
+	int calibSlot,
 	stM576OneX64MemsSwCoef* pSw4)
 {
 	if (pSw4 == NULL)
@@ -222,7 +233,5 @@ void ApplyRecalPeakToMems1x64Pd(
 	const int inBlk = ch0 % 16;
 	if (block < 0 || block > 3)
 		return;
-	stM576OneX64ChnDAC& d = pSw4[block].stCalibDAC[0];
-	d.stChnDAC[inBlk].sDACx = U16ToShortDac(dacY);
-	d.stChnDAC[inBlk].sDACy = U16ToShortDac(dacX);
+	WriteMems1x64DacPair(pSw4, block, inBlk, dacX, dacY, calibSlot);
 }

@@ -33,12 +33,14 @@ static SIZE_T McsWCalibByteOffsetInLut(int swIdx, int tempIdx, int chIdx, int ax
 	return offsetof(stLutSettingZ4671, wCalibPtrDAC) + (SIZE_T)lin * sizeof(WORD);
 }
 
-static BOOL Mems1x64OffsetsIn8k(int block, int inBlk, SIZE_T& oX, SIZE_T& oY)
+static BOOL Mems1x64OffsetsIn8k(int block, int inBlk, int calibSlot, SIZE_T& oX, SIZE_T& oY)
 {
 	if (block < 0 || block > 3 || inBlk < 0 || inBlk >= (int)M576_1X64_MAX_CHANNEL_NUM)
 		return FALSE;
+	if (calibSlot < 0 || calibSlot >= M576_1X64_TEMPT_SWITCH_NUM)
+		return FALSE;
 	SIZE_T base = (SIZE_T)block * (SIZE_T)M576_1X64_MEMS_BODY_SIZE
-		+ offsetof(stM576OneX64MemsSwCoef, stCalibDAC[0])
+		+ offsetof(stM576OneX64MemsSwCoef, stCalibDAC[calibSlot])
 		- offsetof(stM576OneX64MemsSwCoef, bSWTypeChanNum)
 		+ offsetof(stM576OneX64ChnDAC, stChnDAC)
 		+ (SIZE_T)inBlk * sizeof(stM576OneX64AxisDAC);
@@ -60,9 +62,12 @@ BOOL CalibBuildStatRowPmLut(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int mcsTempSlot,
 	SCalibrationStatRow& row)
 {
 	if (fileSlot < 0 || fileSlot > 3)
+		return FALSE;
+	if (mcsTempSlot < 0 || mcsTempSlot >= TEMP_CALIB_NUM)
 		return FALSE;
 	const int t = step.targetSwitchIndex;
 	row.calMode = _T("PM");
@@ -81,7 +86,8 @@ BOOL CalibBuildStatRowPmLut(
 	row.dacX = (int)DacU16ToSigned16(dac.uX);
 	row.dacY = (int)DacU16ToSigned16(dac.uY);
 	const SIZE_T poff = (SIZE_T)CLutBinWriter::LutPayloadOffset();
-	int swIdx = 0, chIdx = 0, tempI = (int)IDX_TEMP_LOW;
+	int swIdx = 0, chIdx = 0;
+	const int tempI = mcsTempSlot;
 	SIZE_T bx = 0, by = 0;
 
 	if (t == 3)
@@ -132,10 +138,10 @@ BOOL CalibBuildStatRowPmLut(
 		return FALSE;
 	CStringA pathYword, pathXword;
 	pathYword.Format(
-		"wCalibPtrDAC[%d][%d(=IDX_TEMP_LOW) low temp][%d][0]  ; 1b channel=%d  swIdx(MCS)=%d  (Y word)",
-		swIdx, (int)IDX_TEMP_LOW, chIdx, chIdx + 1, swIdx + 1);
+		"wCalibPtrDAC[%d][%d][%d][0]  ; 1b channel=%d  swIdx(MCS)=%d  (Y word)",
+		swIdx, tempI, chIdx, chIdx + 1, swIdx + 1);
 	pathXword.Format(
-		"wCalibPtrDAC[%d][%d(=IDX_TEMP_LOW) low temp][%d][1]  (X word)", swIdx, (int)IDX_TEMP_LOW, chIdx);
+		"wCalibPtrDAC[%d][%d][%d][1]  (X word)", swIdx, tempI, chIdx);
 	row.structPathDacX = CString(pathXword);
 	row.structPathDacY = CString(pathYword);
 	row.offsetLutOrMems8kDacX = offX;
@@ -155,9 +161,12 @@ BOOL CalibBuildStatRowPmMems(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int memsCalibSlot,
 	SCalibrationStatRow& row)
 {
 	if (fileSlot < 2 || fileSlot > 3)
+		return FALSE;
+	if (memsCalibSlot < 0 || memsCalibSlot >= M576_1X64_TEMPT_SWITCH_NUM)
 		return FALSE;
 	const int t = step.targetSwitchIndex;
 	if (t == 3 || t == 4)
@@ -186,13 +195,16 @@ BOOL CalibBuildStatRowPmMems(
 		const int block = ch0 / 16;
 		const int inBlk = ch0 % 16;
 		SIZE_T oX, oY;
-		if (!Mems1x64OffsetsIn8k(block, inBlk, oX, oY))
+		if (!Mems1x64OffsetsIn8k(block, inBlk, memsCalibSlot, oX, oY))
 			return FALSE;
 		// oX = sDACx (Y value in bin), oY = sDACy (X value); see LutPeakApply mems write.
 		CStringA pathSdacXfield, pathSdacYfield;
-		pathSdacXfield.Format("stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACx  (Y)  ; 1#1x64 ch(1b)=%d",
-			block, inBlk, ch1to64);
-		pathSdacYfield.Format("stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACy (X)", block, inBlk);
+		pathSdacXfield.Format(
+			"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[%d].stChnDAC[%d] (stAxisDAC).sDACx  (Y)  ; 1#1x64 ch(1b)=%d",
+			block, memsCalibSlot, inBlk, ch1to64);
+		pathSdacYfield.Format(
+			"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[%d].stChnDAC[%d] (stAxisDAC).sDACy (X)",
+			block, memsCalibSlot, inBlk);
 		row.structPathDacX = CString(pathSdacYfield);
 		row.structPathDacY = CString(pathSdacXfield);
 		row.offsetLutOrMems8kDacX = oY;
@@ -221,6 +233,7 @@ BOOL CalibBuildStatRowPmMemsMapped(
 	SDacU16 dac,
 	int block0to3,
 	int inBlk0based,
+	int memsCalibSlot,
 	SCalibrationStatRow& row)
 {
 	if (fileSlot < 2 || fileSlot > 3)
@@ -229,6 +242,8 @@ BOOL CalibBuildStatRowPmMemsMapped(
 	if (t == 3 || t == 4)
 		return FALSE;
 	if (block0to3 < 0 || block0to3 > 3 || inBlk0based < 0 || inBlk0based >= (int)M576_1X64_MAX_CHANNEL_NUM)
+		return FALSE;
+	if (memsCalibSlot < 0 || memsCalibSlot >= M576_1X64_TEMPT_SWITCH_NUM)
 		return FALSE;
 
 	row.calMode = _T("PM");
@@ -248,21 +263,23 @@ BOOL CalibBuildStatRowPmMemsMapped(
 	row.dacY = (int)DacU16ToSigned16(dac.uY);
 
 	SIZE_T oX, oY;
-	if (!Mems1x64OffsetsIn8k(block0to3, inBlk0based, oX, oY))
+	if (!Mems1x64OffsetsIn8k(block0to3, inBlk0based, memsCalibSlot, oX, oY))
 		return FALSE;
 
 	const int sw1b = block0to3 + 1;
 	const int chY1b = inBlk0based + 1;
 	CStringA pathSdacXfield, pathSdacYfield;
 	pathSdacXfield.Format(
-		"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACx  (Y)  ; FW_map SW=%d CH_y(1b)=%d",
+		"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[%d].stChnDAC[%d] (stAxisDAC).sDACx  (Y)  ; FW_map SW=%d CH_y(1b)=%d",
 		block0to3,
+		memsCalibSlot,
 		inBlk0based,
 		sw1b,
 		chY1b);
 	pathSdacYfield.Format(
-		"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[0].stChnDAC[%d] (stAxisDAC).sDACy (X)",
+		"stM576OneX64MemsSwCoef[blk=%d].stCalibDAC[%d].stChnDAC[%d] (stAxisDAC).sDACy (X)",
 		block0to3,
+		memsCalibSlot,
 		inBlk0based);
 	row.structPathDacX = CString(pathSdacYfield);
 	row.structPathDacY = CString(pathSdacXfield);
@@ -285,6 +302,7 @@ BOOL CalibBuildStatRowPdLut(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int mcsTempSlot,
 	SCalibrationStatRow& row)
 {
 	const int t = step.targetSwitchIndex;
@@ -294,7 +312,19 @@ BOOL CalibBuildStatRowPdLut(
 	if (t == 1 || t == 2)
 		pm.c1 = step.ch1;
 	if (!CalibBuildStatRowPmLut(
-			pm, occT3, occT4, fileSlot, pathLine1Based, peakRow, peakCol, gridN, rawDacX, rawDacY, dac, row))
+			pm,
+			occT3,
+			occT4,
+			fileSlot,
+			pathLine1Based,
+			peakRow,
+			peakCol,
+			gridN,
+			rawDacX,
+			rawDacY,
+			dac,
+			mcsTempSlot,
+			row))
 		return FALSE;
 	row.calMode = _T("PD");
 	CStringA a;
@@ -313,6 +343,7 @@ BOOL CalibBuildStatRowPdMems(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int memsCalibSlot,
 	SCalibrationStatRow& row)
 {
 	SPathStep s;
@@ -320,7 +351,17 @@ BOOL CalibBuildStatRowPdMems(
 	s.targetSwitchIndex = step.targetSwitchIndex;
 	s.c1 = step.ch1;
 	if (!CalibBuildStatRowPmMems(
-			s, fileSlot, pathLine1Based, peakRow, peakCol, gridN, rawDacX, rawDacY, dac, row))
+			s,
+			fileSlot,
+			pathLine1Based,
+			peakRow,
+			peakCol,
+			gridN,
+			rawDacX,
+			rawDacY,
+			dac,
+			memsCalibSlot,
+			row))
 		return FALSE;
 	row.calMode = _T("PD");
 	CStringA a;
