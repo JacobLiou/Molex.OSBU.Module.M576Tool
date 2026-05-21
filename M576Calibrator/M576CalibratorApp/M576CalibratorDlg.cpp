@@ -1884,7 +1884,9 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 
 				DWORD totalElapsed = elapsedSw;
 
+				// Six-step dark/light precheck disabled per production requirement (see #if 0 block below).
 				static const int kDiagSw3Third[] = { 1, 4, 8 };
+#if 0
 				int sw11Light = 0;
 				int sw12Light = 0;
 				CStringA parseErrA;
@@ -1972,6 +1974,7 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 						}
 					}
 				};
+#endif
 
 				// Three paths: after each source switch, set wavelength then read PD/OPM.
 				// s1: SW 3 1 1, WL 1550, pd 1, opm 3 1 — s2/s3: SW 3 1 4|8, WL 1310, pd 1, opm 3 1.
@@ -1982,12 +1985,6 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 						r.totalMs = totalElapsed;
 						completed = i + 1;
 						stoppedMid = TRUE;
-						break;
-					}
-					RunSixStepPrecheck(scen);
-					if (stoppedMid)
-					{
-						r.totalMs = totalElapsed;
 						break;
 					}
 					const int third = kDiagSw3Third[scen];
@@ -2107,7 +2104,7 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 				if (channelOut.IsEmpty())
 					channelOut = src.label;
 				CString appendErr;
-				if (!M576AppendDiagnosisPythonRow(appendPath, channelOut, r.wlScen, r.prePdPm, appendErr))
+				if (!M576AppendDiagnosisPythonRow(appendPath, channelOut, r.wlScen, appendErr))
 				{
 					CString msg;
 					msg.Format(_T("Diagnosis: append CSV failed: %s"), appendErr.IsEmpty() ? _T("(unknown)") : appendErr.GetString());

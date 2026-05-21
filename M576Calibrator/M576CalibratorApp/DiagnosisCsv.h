@@ -54,9 +54,6 @@ struct M576DiagnosisResultRow
 	int swCount;
 	int swOkCount;
 	M576DiagnosisWlScenarioResult wlScen[3];
-	/// Six-step dark/light precheck before each wlScen path: index [0]=s1,[1]=s2,[2]=s3; each [6] is
-	/// pd/opm replies: SW 3 1 2; SW 3 1 (1|4|8); SW 1 1 (n-1); SW 1 1 n; SW 1 2 (m-1); SW 1 2 m — n,m from group CSV first SW 1 1 / SW 1 2.
-	CStringA prePdPm[3][6];
 	DWORD totalMs;
 
 	M576DiagnosisResultRow()
@@ -80,27 +77,17 @@ struct M576DiagnosisResultRow
 /// Returns FALSE only on hard I/O errors or when no groups were parsed.
 BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, CString& err);
 
-/// First matching `SW 1 1 n` and `SW 1 2 m` in `cmds` (case-insensitive `SW`, order preserved).
-/// Requires `n >= 2` and `m >= 2` so precheck can use `SW 1 1 (n-1)` / `SW 1 2 (m-1)` for dark.
-/// On failure, `errA` is ASCII English for logging.
-BOOL M576DiagnosisParseFirstSw11Sw12LightPorts(
-	const std::vector<CStringA>& cmds,
-	int& outN,
-	int& outM,
-	CStringA& errA);
-
 /// Fixed unified log path: `{outBaseDir}\diagnosis_log.csv` (append-only PD/OPM rows).
 CString M576GetDiagnosisUnifiedLogCsvPath(LPCTSTR outBaseDir);
 
-/// Append one Python-format row: Channel, then per scenario s1/s2/s3 — six precheck pd/opm columns, then pd/opm.
+/// Append one Python-format row: Channel, then s1/s2/s3 pd_reply and opm_reply (7 columns).
 /// Opens in binary append mode; writes UTF-8 header if file is empty. If the file exists but the first line lacks
-/// `s1_pre_pd_sw312` (25-column layout), returns FALSE — delete/rename incompatible `diagnosis_log.csv` then retry.
+/// `s1_pd_reply` (7-column layout), returns FALSE — delete/rename incompatible `diagnosis_log.csv` then retry.
 /// Calls fflush after each row.
 BOOL M576AppendDiagnosisPythonRow(
 	LPCTSTR path,
 	const CStringA& channel,
 	const M576DiagnosisWlScenarioResult wlScen[3],
-	const CStringA prePdPm[3][6],
 	CString& err);
 
 /// Compose `output/diagnosis_<yyyymmdd_HHMMSS>.csv` next to the exe under

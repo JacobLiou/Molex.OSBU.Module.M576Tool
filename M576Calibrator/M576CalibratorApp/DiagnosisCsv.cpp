@@ -78,71 +78,6 @@ namespace
 	}
 }
 
-BOOL M576DiagnosisParseFirstSw11Sw12LightPorts(
-	const std::vector<CStringA>& cmds,
-	int& outN,
-	int& outM,
-	CStringA& errA)
-{
-	outN = 0;
-	outM = 0;
-	errA.Empty();
-	BOOL got11 = FALSE;
-	BOOL got12 = FALSE;
-	for (size_t i = 0; i < cmds.size(); ++i)
-	{
-		CStringA t = cmds[i];
-		t.Trim();
-		if (t.GetLength() < 8 || t.Left(2).CompareNoCase("SW") != 0)
-			continue;
-		CStringA rest = t.Mid(2);
-		rest.TrimLeft();
-		int a = 0;
-		int b = 0;
-		int c = 0;
-		if (sscanf_s(rest, "%d %d %d", &a, &b, &c) != 3)
-			continue;
-		if (a != 1)
-			continue;
-		if (b == 1 && !got11)
-		{
-			outN = c;
-			got11 = TRUE;
-		}
-		else if (b == 2 && !got12)
-		{
-			outM = c;
-			got12 = TRUE;
-		}
-		if (got11 && got12)
-			break;
-	}
-	if (!got11 && !got12)
-	{
-		errA = "no SW 1 1 <n> and no SW 1 2 <m> in diagnosis SW group";
-		return FALSE;
-	}
-	if (!got11)
-	{
-		errA = "no SW 1 1 <n> in diagnosis SW group";
-		return FALSE;
-	}
-	if (!got12)
-	{
-		errA = "no SW 1 2 <m> in diagnosis SW group";
-		return FALSE;
-	}
-	if (outN < 2 || outM < 2)
-	{
-		errA.Format(
-			"SW 1 1 port %d / SW 1 2 port %d must be >= 2 for dark precheck (n-1, m-1)",
-			outN,
-			outM);
-		return FALSE;
-	}
-	return TRUE;
-}
-
 BOOL M576LoadDiagnosisSwCsv(LPCTSTR path, std::vector<M576DiagnosisRow>& rows, CString& err)
 {
 	rows.clear();
@@ -249,7 +184,6 @@ BOOL M576AppendDiagnosisPythonRow(
 	LPCTSTR path,
 	const CStringA& channel,
 	const M576DiagnosisWlScenarioResult wlScen[3],
-	const CStringA prePdPm[3][6],
 	CString& err)
 {
 	err.Empty();
@@ -293,11 +227,8 @@ BOOL M576AppendDiagnosisPythonRow(
 	{
 		static const char kHeader[] =
 			"Channel,"
-			"s1_pre_pd_sw312,s1_pre_pd_sw311,s1_pre_opm_sw1119,s1_pre_opm_sw1120,s1_pre_opm_sw1251,s1_pre_opm_sw1252,"
 			"s1_pd_reply,s1_opm_reply,"
-			"s2_pre_pd_sw312,s2_pre_pd_sw311,s2_pre_opm_sw1119,s2_pre_opm_sw1120,s2_pre_opm_sw1251,s2_pre_opm_sw1252,"
 			"s2_pd_reply,s2_opm_reply,"
-			"s3_pre_pd_sw312,s3_pre_pd_sw311,s3_pre_opm_sw1119,s3_pre_opm_sw1120,s3_pre_opm_sw1251,s3_pre_opm_sw1252,"
 			"s3_pd_reply,s3_opm_reply\r\n";
 		if (fwrite(kHeader, 1, sizeof(kHeader) - 1, fp) != (size_t)(sizeof(kHeader) - 1))
 		{
@@ -325,10 +256,10 @@ BOOL M576AppendDiagnosisPythonRow(
 		}
 		fclose(fr);
 		CStringA hdrLine(hdrBuf);
-		if (hdrLine.Find("s1_pre_pd_sw312") < 0)
+		if (hdrLine.Find("s1_pd_reply") < 0)
 		{
 			err.Format(
-				_T("diagnosis_log.csv header is not the current 25-column format (need s1_pre_pd_sw312). "
+				_T("diagnosis_log.csv header is not the current 7-column format (need s1_pd_reply). "
 				   "Delete or rename this file then retry: %s"),
 				path);
 			return FALSE;
@@ -343,11 +274,6 @@ BOOL M576AppendDiagnosisPythonRow(
 	CStringA line(RfcQuote(channel));
 	for (int s = 0; s < 3; ++s)
 	{
-		for (int j = 0; j < 6; ++j)
-		{
-			line += ',';
-			line += RfcQuote(prePdPm[s][j]);
-		}
 		line += ',';
 		line += RfcQuote(wlScen[s].pdReply);
 		line += ',';
