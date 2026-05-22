@@ -19,6 +19,7 @@
 #include "CalibWriteMeta.h"
 #include "DiagnosisSession.h"
 #include "DiagnosisCsv.h"
+#include "CalibWavelengthPolicy.h"
 
 namespace M576 { struct Peak1DFitTrace; }
 
@@ -119,6 +120,9 @@ private:
 	CString m_strWavelength;
 	/// PM range 0-4 -> combo index.
 	int m_pmRangeIndex;
+	/// Set at Run Path start from wavelength; Write BIN / DAC CSV use this (not live UI if changed).
+	M576CalibBinWritePolicy m_sessionCalibPolicy{ M576CalibBinWritePolicy::Slot1310Low };
+	int m_sessionCalibWavelengthNm{ M576_DEFAULT_WAVELENGTH_NM };
 
 	/// 本会话定标步统计（供 CSV 导出）；与路径线程用 `m_statsRowsMutex` 同步。
 	std::vector<SCalibrationStatRow> m_statsRows;
@@ -164,9 +168,11 @@ private:
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();
-	/// Low-temp 1310 DAC only: UTF-8 CSV in output BIN directory (`csvLeafName`, e.g. backupAll1310DAC.csv).
-	void ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR logPreamble);
-	/// Run Path only: if Backup BIN base set, write `backupAll1310DAC.csv` (same schema as Write BIN standard export).
+	/// Session primary temp slot DAC: UTF-8 CSV in output BIN directory.
+	void ExportSessionDacCsv(M576CalibBinWritePolicy policy, LPCTSTR csvLeafName, LPCTSTR logPreamble);
+	void StartSessionCalibPolicyFromWavelength(int wavelengthNm);
+	void WarnIfUiWavelengthDiffersFromSession();
+	/// Run Path only: if Backup BIN base set, write backupAll1310DAC.csv or backupAll1550DAC.csv.
 	void ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 	void FillComPorts();
 	CString GetComboCom();

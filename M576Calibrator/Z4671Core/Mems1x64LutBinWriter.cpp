@@ -124,6 +124,7 @@ void M576OneX64ApplyStandardTempMeta(stM576OneX64MemsSwCoef& coef)
 {
 	coef.stCalibDAC[0].sTemperature = (short)M576_1X64_STEMP_CENTI_LOW;
 	coef.stCalibDAC[1].sTemperature = (short)M576_1X64_STEMP_CENTI_ROOM;
+	coef.stCalibDAC[2].sTemperature = (short)M576_1X64_STEMP_CENTI_HIGH;
 }
 
 BOOL CMems1x64LutBinWriter::WriteSingleSwitch(

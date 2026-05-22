@@ -1,5 +1,5 @@
 #pragma once
-// Cross-peak raw DACs -> WORD/SHORT in MCS LUT or 1x64 mems (low-temp stChnDAC). Same lround+int16 as CalibWriteMeta CSV.
+// Cross-peak raw DACs -> WORD/SHORT in MCS LUT or 1x64 mems. Same lround+int16 as CalibWriteMeta CSV.
 
 #include "Z4767StructDefine.h"
 #include "M576OneX64Coef.h"
@@ -14,6 +14,7 @@ void ApplyRecalPeakToLut(
 	int occTarget4,
 	unsigned short dacX,
 	unsigned short dacY,
+	int mcsTempSlot,
 	stLutSettingZ4671& lut);
 
 void ApplyRecalPeakToLutPd(
@@ -22,15 +23,26 @@ void ApplyRecalPeakToLutPd(
 	int occTarget4,
 	unsigned short dacX,
 	unsigned short dacY,
+	int mcsTempSlot,
 	stLutSettingZ4671& lut);
 
-/// PM firmware mapping: write cross-peak DAC to explicit MEMS block / stChnDAC index (low temp).
-void WriteMems1x64LowTempDacPair(
+void WriteMems1x64DacPair(
 	stM576OneX64MemsSwCoef* pSw4,
 	int block0to3,
 	int inBlk0based,
 	unsigned short dacX,
-	unsigned short dacY);
+	unsigned short dacY,
+	int calibSlot);
+
+inline void WriteMems1x64LowTempDacPair(
+	stM576OneX64MemsSwCoef* pSw4,
+	int block0to3,
+	int inBlk0based,
+	unsigned short dacX,
+	unsigned short dacY)
+{
+	WriteMems1x64DacPair(pSw4, block0to3, inBlk0based, dacX, dacY, 0);
+}
 
 void ApplyRecalPeakToMems1x64(
 	const SPathStep& step,
@@ -38,6 +50,7 @@ void ApplyRecalPeakToMems1x64(
 	int occTarget4,
 	unsigned short dacX,
 	unsigned short dacY,
+	int calibSlot,
 	stM576OneX64MemsSwCoef* pSw4);
 
 void ApplyRecalPeakToMems1x64Pd(
@@ -46,4 +59,5 @@ void ApplyRecalPeakToMems1x64Pd(
 	int occTarget4,
 	unsigned short dacX,
 	unsigned short dacY,
+	int calibSlot,
 	stM576OneX64MemsSwCoef* pSw4);

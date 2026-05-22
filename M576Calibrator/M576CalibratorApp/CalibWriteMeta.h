@@ -52,6 +52,7 @@ BOOL CalibBuildStatRowPmLut(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int mcsTempSlot,
 	SCalibrationStatRow& row);
 
 BOOL CalibBuildStatRowPmMems(
@@ -64,6 +65,7 @@ BOOL CalibBuildStatRowPmMems(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int memsCalibSlot,
 	SCalibrationStatRow& row);
 
 /// PM 1x64: offsets from firmware mapping SW_x / CH_y -> block / stChnDAC[inBlk] (0-based inBlk = CH_y - 1).
@@ -79,6 +81,7 @@ BOOL CalibBuildStatRowPmMemsMapped(
 	SDacU16 dac,
 	int block0to3,
 	int inBlk0based,
+	int memsCalibSlot,
 	SCalibrationStatRow& row);
 
 BOOL CalibBuildStatRowPdLut(
@@ -93,6 +96,7 @@ BOOL CalibBuildStatRowPdLut(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int mcsTempSlot,
 	SCalibrationStatRow& row);
 
 BOOL CalibBuildStatRowPdMems(
@@ -105,6 +109,7 @@ BOOL CalibBuildStatRowPdMems(
 	int rawDacX,
 	int rawDacY,
 	SDacU16 dac,
+	int memsCalibSlot,
 	SCalibrationStatRow& row);
 
 /// UTF-8 BOM + CSV, one header block then rows.

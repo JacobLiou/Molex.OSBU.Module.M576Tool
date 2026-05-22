@@ -4,6 +4,8 @@
 #include "M576BurnSelectDlg.h"
 #include "M576RecoverSelectDlg.h"
 #include "LutMerge1310.h"
+#include "LutMerge1550.h"
+#include "CalibWavelengthPolicy.h"
 #include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
 #include "PeakFinder2D.h"
@@ -626,6 +628,8 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_tlsIndex(M576_DEFAULT_TLS_SOURCE - 1)
 	, m_strWavelength(_T("1310"))
 	, m_pmRangeIndex(M576_DEFAULT_PM_RANGE)
+	, m_sessionCalibPolicy(M576CalibBinWritePolicy::Slot1310Low)
+	, m_sessionCalibWavelengthNm(M576_DEFAULT_WAVELENGTH_NM)
 	, m_readBackupLastOk(FALSE)
 	, m_readSnLastOk(FALSE)
 	, m_burnFlashLastOk(FALSE)
@@ -2946,7 +2950,36 @@ static CStringA M576AsciiSuffixToA(LPCTSTR suf)
 	return a;
 }
 
-void CM576CalibratorDlg::ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR logPreamble)
+void CM576CalibratorDlg::StartSessionCalibPolicyFromWavelength(int wavelengthNm)
+{
+	m_sessionCalibWavelengthNm = wavelengthNm;
+	m_sessionCalibPolicy = PolicyFromWavelengthNm(wavelengthNm);
+	CString m;
+	if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+		m.Format(_T("Session cal policy: 1550 nm -> room slot (high copied on Write BIN), 30 C metadata."));
+	else
+		m.Format(_T("Session cal policy: %d nm -> low-temp slot (IDX_TEMP_LOW)."), wavelengthNm);
+	SafeAppendLog(m);
+}
+
+void CM576CalibratorDlg::WarnIfUiWavelengthDiffersFromSession()
+{
+	int uiNm = 0;
+	CString err;
+	if (!ParseWavelengthNm(m_strWavelength, uiNm, err))
+		return;
+	if (uiNm != m_sessionCalibWavelengthNm)
+	{
+		CString m;
+		m.Format(
+			_T("Warning: UI wavelength %d nm != session %d nm; Write BIN/CSV use session policy."),
+			uiNm,
+			m_sessionCalibWavelengthNm);
+		AppendLog(m);
+	}
+}
+
+void CM576CalibratorDlg::ExportSessionDacCsv(M576CalibBinWritePolicy policy, LPCTSTR csvLeafName, LPCTSTR logPreamble)
 {
 	if (csvLeafName == NULL || csvLeafName[0] == 0)
 		return;
@@ -2970,7 +3003,7 @@ void CM576CalibratorDlg::ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR lo
 	if (!f.Open(fullPath, CFile::modeCreate | CFile::modeWrite | CFile::typeBinary))
 	{
 		CString m;
-		m.Format(_T("%s: low-temp 1310 DAC CSV open failed: %s"), logPreamble, fullPath.GetString());
+		m.Format(_T("%s: session DAC CSV open failed: %s"), logPreamble, fullPath.GetString());
 		SafeAppendLog(m);
 		return;
 	}
@@ -2981,12 +3014,18 @@ void CM576CalibratorDlg::ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR lo
 		f.Write("\r\n", 2);
 	};
 
-	writeA(
-		"# Low-temp slot only: MCS wCalibPtrDAC[][IDX_TEMP_LOW][], 1x64 stCalibDAC[0]. "
-		"MCS dac_y=[0] dac_x=[1]; 1x64 dac_y=sDACx dac_x=sDACy.");
+	if (policy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+		writeA(
+			"# Room slot only (1550 cal): MCS wCalibPtrDAC[][IDX_TEMP_ROOM][], 1x64 stCalibDAC[1]. "
+			"MCS dac_y=[0] dac_x=[1]; 1x64 dac_y=sDACx dac_x=sDACy.");
+	else
+		writeA(
+			"# Low-temp slot only (1310 cal): MCS wCalibPtrDAC[][IDX_TEMP_LOW][], 1x64 stCalibDAC[0]. "
+			"MCS dac_y=[0] dac_x=[1]; 1x64 dac_y=sDACx dac_x=sDACy.");
 	writeA("bin_role,file_suffix,sw_lut_idx,temp_idx,ch_idx,is_mid,dac_y,dac_x");
 
-	const int tiMcs = (int)IDX_TEMP_LOW;
+	const int tiMcs = McsPrimaryTempSlot(policy);
+	const int tiX64 = MemsPrimaryCalibSlot(policy);
 	for (int mcs = 0; mcs < 2; ++mcs)
 	{
 		const CStringA sufA = M576AsciiSuffixToA(g_m576TransLutBinSuffix[mcs]);
@@ -3022,7 +3061,6 @@ void CM576CalibratorDlg::ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR lo
 			CStringA roleA;
 			roleA.Format("1x64_%d_sw%d", dev + 1, sw + 1);
 			const stM576OneX64MemsSwCoef& coef = m_mems1x64[dev][sw];
-			const int tiX64 = 0;
 			const stM576OneX64ChnDAC& cal = coef.stCalibDAC[tiX64];
 			for (unsigned ci = 0; ci < M576_1X64_MAX_CHANNEL_NUM; ++ci)
 			{
@@ -3058,7 +3096,7 @@ void CM576CalibratorDlg::ExportLowTemp1310DacCsv(LPCTSTR csvLeafName, LPCTSTR lo
 	f.Close();
 	{
 		CString m;
-		m.Format(_T("%s: low-temp 1310 DAC CSV -> %s"), logPreamble, fullPath.GetString());
+		m.Format(_T("%s: session DAC CSV -> %s"), logPreamble, fullPath.GetString());
 		SafeAppendLog(m);
 	}
 }
@@ -3069,7 +3107,10 @@ void CM576CalibratorDlg::ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet()
 	base.Trim();
 	if (base.IsEmpty())
 		return;
-	ExportLowTemp1310DacCsv(_T("backupAll1310DAC.csv"), _T("Run path"));
+	const LPCTSTR leaf = (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+		? _T("backupAll1550DAC.csv")
+		: _T("backupAll1310DAC.csv");
+	ExportSessionDacCsv(m_sessionCalibPolicy, leaf, _T("Run path"));
 }
 
 // --- PM 定标：RECAL0 + 分文件 CSV、RECAL1/3、寻峰写 LUT 槽、合并/进度 ---
@@ -3110,6 +3151,7 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		SafeAppendLog(err);
 		return;
 	}
+	StartSessionCalibPolicyFromWavelength(wavelengthNm);
 	const int tlsSource = m_tlsIndex + 1;
 	const int pmRange = m_pmRangeIndex;
 	{
@@ -3187,6 +3229,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 	int& occT4,
 	LPCTSTR pmCsvAbsPath)
 {
+	const int mcsTempSlot = McsPrimaryTempSlot(m_sessionCalibPolicy);
+	const int memsCalibSlot = MemsPrimaryCalibSlot(m_sessionCalibPolicy);
 	CString err;
 	const int total = (int)steps.GetSize();
 	CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> map1x64Rows;
@@ -3394,21 +3438,35 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				RawCrossPeakDacToU16Pair((double)rawXi, (double)rawYi, dacU.uX, dacU.uY);
 				if (fileSlot < 2)
 				{
-					ApplyRecalPeakToLut(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
+					ApplyRecalPeakToLut(
+						st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, mcsTempSlot, m_lutByTrans[fileSlot]);
 					SCalibrationStatRow srow;
 					if (CalibBuildStatRowPmLut(
-							st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXi, rawYi, dacU, srow))
+							st,
+							idxOcc3,
+							idxOcc4,
+							fileSlot,
+							i + 1,
+							br,
+							bc,
+							nLut,
+							rawXi,
+							rawYi,
+							dacU,
+							mcsTempSlot,
+							srow))
 						PushCalibStatRow(srow);
 				}
 				else
 				{
 					const SMems1x64PmMapRow& mr = map1x64Rows[i];
-					WriteMems1x64LowTempDacPair(
+					WriteMems1x64DacPair(
 						m_mems1x64[fileSlot - 2],
 						mr.sw1to4 - 1,
 						mr.chY1based - 1,
 						dacU.uX,
-						dacU.uY);
+						dacU.uY,
+						memsCalibSlot);
 					SCalibrationStatRow srow;
 					if (CalibBuildStatRowPmMemsMapped(
 							st,
@@ -3422,6 +3480,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 							dacU,
 							mr.sw1to4 - 1,
 							mr.chY1based - 1,
+							memsCalibSlot,
 							srow))
 						PushCalibStatRow(srow);
 				}
@@ -3464,6 +3523,14 @@ void CM576CalibratorDlg::RunPathPd()
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	TryPreloadLutFromPerTransBackup();
+	{
+		int wavelengthNm = M576_DEFAULT_WAVELENGTH_NM;
+		CString wlErr;
+		if (ParseWavelengthNm(m_strWavelength, wavelengthNm, wlErr))
+			StartSessionCalibPolicyFromWavelength(wavelengthNm);
+		else
+			StartSessionCalibPolicyFromWavelength(M576_DEFAULT_WAVELENGTH_NM);
+	}
 	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
@@ -3518,6 +3585,8 @@ void CM576CalibratorDlg::RunPathPd()
 
 void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4)
 {
+	const int mcsTempSlot = McsPrimaryTempSlot(m_sessionCalibPolicy);
+	const int memsCalibSlot = MemsPrimaryCalibSlot(m_sessionCalibPolicy);
 	CString err;
 	const int total = (int)steps.GetSize();
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
@@ -3706,18 +3775,32 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				RawCrossPeakDacToU16Pair((double)rawXiPd, (double)rawYiPd, dacU.uX, dacU.uY);
 				if (fileSlot < 2)
 				{
-					ApplyRecalPeakToLutPd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_lutByTrans[fileSlot]);
+					ApplyRecalPeakToLutPd(
+						st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, mcsTempSlot, m_lutByTrans[fileSlot]);
 					SCalibrationStatRow srow;
 					if (CalibBuildStatRowPdLut(
-							st, idxOcc3, idxOcc4, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
+							st,
+							idxOcc3,
+							idxOcc4,
+							fileSlot,
+							i + 1,
+							br,
+							bc,
+							nLut,
+							rawXiPd,
+							rawYiPd,
+							dacU,
+							mcsTempSlot,
+							srow))
 						PushCalibStatRow(srow);
 				}
 				else
 				{
-					ApplyRecalPeakToMems1x64Pd(st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, m_mems1x64[fileSlot - 2]);
+					ApplyRecalPeakToMems1x64Pd(
+						st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, memsCalibSlot, m_mems1x64[fileSlot - 2]);
 					SCalibrationStatRow srow;
 					if (CalibBuildStatRowPdMems(
-							st, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, srow))
+							st, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, memsCalibSlot, srow))
 						PushCalibStatRow(srow);
 				}
 			}
@@ -3752,13 +3835,170 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 		TryPreloadLutFromPerTransBackup();
 	}
 
-	ExportLowTemp1310DacCsv(_T("standardAll1310DAC.csv"), _T("Write BIN"));
-	CString err;
-	if (!GenerateStandardBinFiles(absBackupBin, absOutBase, err, FALSE))
+	WarnIfUiWavelengthDiffersFromSession();
+	const LPCTSTR standardDacLeaf =
+		(m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+		? _T("standardAll1550DAC.csv")
+		: _T("standardAll1310DAC.csv");
+	ExportSessionDacCsv(m_sessionCalibPolicy, standardDacLeaf, _T("Write BIN"));
+
+	for (int i = 0; i < 4; ++i)
 	{
-		AppendLog(err);
-		MessageBoxM576(err, MB_OK | MB_ICONERROR);
-		return;
+		if (i < 2)
+		{
+			stLutSettingZ4671 merged;
+			ZeroMemory(&merged, sizeof(merged));
+			BOOL haveBackup = FALSE;
+			CString mcsBundleSrcPath;
+			if (!m_strBackupBin.IsEmpty())
+			{
+				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
+				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
+				{
+					if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
+					{
+						haveBackup = TRUE;
+						mcsBundleSrcPath = perTransBk;
+					}
+				}
+				if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
+				{
+					if (CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
+					{
+						haveBackup = TRUE;
+						mcsBundleSrcPath = absBackupBin;
+						AppendLog(_T("Trans1: read legacy single backup file for merge."));
+					}
+				}
+			}
+			if (haveBackup)
+			{
+				if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+				{
+					MergeLut1550RoomHighSlots(merged, m_lutByTrans[i]);
+					CString m;
+					m.Format(_T("Trans %d: merged 1550 room+high LUT into per-trans backup."), i + 1);
+					AppendLog(m);
+				}
+				else
+				{
+					MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
+					CString m;
+					m.Format(_T("Trans %d: merged 1310 low-temp LUT into per-trans backup."), i + 1);
+					AppendLog(m);
+				}
+			}
+			else
+			{
+				memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
+				CString m;
+				m.Format(
+					_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."),
+					i + 1,
+					g_m576TransLutBinSuffix[i]);
+				AppendLog(m);
+			}
+
+			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
+			SLutBinWriteParams p;
+			p.strOutputPath = absOutOne;
+			p.pLut = &merged;
+			{
+				CString sn = m_snInfo.mcsSn[i].Trim();
+				if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
+					(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
+				p.strBundleSN = sn;
+			}
+			if (!CLutBinWriter::Write(p))
+			{
+				CString m;
+				m.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
+				AppendLog(m);
+				CString box;
+				box.Format(_T("Write BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
+				MessageBoxM576(box, MB_OK | MB_ICONERROR);
+				return;
+			}
+			memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
+			CString ok;
+			ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
+			AppendLog(ok);
+		}
+		else
+		{
+			stM576OneX64MemsSwCoef merged4[4];
+			ZeroMemory(merged4, sizeof(merged4));
+			BOOL haveBackup = FALSE;
+			if (!m_strBackupBin.IsEmpty())
+			{
+				for (int sw = 0; sw < 4; ++sw)
+				{
+					const CString perSwBk = M576TransBinPathForSwitch(absBackupBin, i + 1, sw);
+					if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
+					{
+						if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
+							haveBackup = TRUE;
+					}
+				}
+			}
+			if (haveBackup)
+			{
+				if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+				{
+					MergeMems1550RoomHighSlots(merged4, m_mems1x64[i - 2]);
+					CString m;
+					m.Format(
+						_T("Trans %d: merged 1550 room+high Mems (4x2K) into per-trans backup (1x64 *._sw*)."),
+						i + 1);
+					AppendLog(m);
+				}
+				else
+				{
+					MergeMems1310LowTempSlot(merged4, m_mems1x64[i - 2]);
+					CString m;
+					m.Format(
+						_T("Trans %d: merged 1310 low-temp Mems session (4x2K) into per-trans backup (1x64 *._sw*)."),
+						i + 1);
+					AppendLog(m);
+				}
+			}
+			else
+			{
+				memcpy(merged4, m_mems1x64[i - 2], sizeof(merged4));
+				CString m;
+				m.Format(
+					_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."),
+					i + 1);
+				AppendLog(m);
+			}
+			for (int sw = 0; sw < 4; ++sw)
+			{
+				M576OneX64ApplyStandardTempMeta(merged4[sw]);
+				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
+				if (sn.IsEmpty())
+					sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
+				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
+				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
+				{
+					CString m;
+					m.Format(
+						_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"), i + 1, sw + 1, absOutSw.GetString());
+					AppendLog(m);
+					CString box;
+					box.Format(
+						_T("Write 1x64 Mems BIN failed (trans %d sw %d):\n\n%s"), i + 1, sw + 1, absOutSw.GetString());
+					MessageBoxM576(box, MB_OK | MB_ICONERROR);
+					return;
+				}
+			}
+			memcpy(m_mems1x64[i - 2], merged4, sizeof(m_mems1x64[i - 2]));
+			{
+				const CString baseTag = M576TransBackupPathFromBase(absOutBase, i + 1);
+				CString ok;
+				ok.Format(_T("Trans %d: wrote 1x64 4x2K from base %s (*_sw1..4)"), i + 1, baseTag.GetString());
+				AppendLog(ok);
+			}
+		}
 	}
 	AppendLog(_T("All trans BIN files written."));
 	MessageBoxM576(

@@ -139,7 +139,9 @@
     <ClInclude Include="Board439fTransTunnel.h" />
     <ClInclude Include="CalibConstants.h" />
     <ClInclude Include="M576Peak1DConstants.h" />
+    <ClInclude Include="CalibWavelengthPolicy.h" />
     <ClInclude Include="LutMerge1310.h" />
+    <ClInclude Include="LutMerge1550.h" />
     <ClInclude Include="LutPeakApply.h" />
     <ClInclude Include="M576GlobalException.h" />
     <ClInclude Include="DiagnosisSession.h" />
@@ -163,7 +165,9 @@
   <ItemGroup>
     <ClCompile Include="Board439fTransTunnel.cpp" />
     <ClCompile Include="CalibWriteMeta.cpp" />
+    <ClCompile Include="CalibWavelengthPolicy.cpp" />
     <ClCompile Include="LutMerge1310.cpp" />
+    <ClCompile Include="LutMerge1550.cpp" />
     <ClCompile Include="LutPeakApply.cpp" />
     <ClCompile Include="M576GlobalException.cpp" />
     <ClCompile Include="DiagnosisSession.cpp" />

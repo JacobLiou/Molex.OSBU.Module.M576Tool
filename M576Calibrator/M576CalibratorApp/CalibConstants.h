@@ -6,6 +6,16 @@
 #ifndef IDX_TEMP_LOW
 #define IDX_TEMP_LOW 0
 #endif
+#ifndef IDX_TEMP_ROOM
+#define IDX_TEMP_ROOM 1
+#endif
+#ifndef IDX_TEMP_HIGH
+#define IDX_TEMP_HIGH 2
+#endif
+/// MCS `wTemperaturePoint` at 30.0 C (0.1 C units, legacy Z4671).
+#ifndef M576_MCS_WTEMP_POINT_30C
+#define M576_MCS_WTEMP_POINT_30C 300
+#endif
 
 /// TLS source channel 1~8 (2x8 switch). Command A: `RECAL 0 <tls> <nm> <pm_range>`.
 // TLS 光源路选通 1~8（2×8 开关）。对应命令 A：RECAL 0。
