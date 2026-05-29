@@ -20,6 +20,7 @@
 #include "DiagnosisSession.h"
 #include "DiagnosisCsv.h"
 #include "CalibWavelengthPolicy.h"
+#include "Peak1DSweepRecenter.h"
 
 namespace M576 { struct Peak1DFitTrace; }
 
@@ -154,6 +155,8 @@ private:
 		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
 		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
+	/// Before RECAL path: set TLS source + wavelength via ASCII `SWL <tls 1-8> <1310|1550>`.
+	BOOL ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err);
 	void RunPathPowerMeter();
 	void RunPathPd();
 	void RunPathPowerMeterFile(
@@ -165,6 +168,21 @@ private:
 		int& occT4,
 		LPCTSTR pmCsvAbsPath);
 	void RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
+	/// RECAL 3/5 one-axis sweep + 1D peak find; on monotone/edge failure, data-driven recenter retry (max 2 retries).
+	BOOL RunRecal1DSweepWithPeakRecenterRetry(
+		BOOL isPm,
+		int sweepMode,
+		int initialBaseDac,
+		DWORD readTimeoutMs,
+		LPCTSTR axisTag,
+		LPCTSTR recalStageLabel,
+		std::vector<double>& outPow,
+		double& outCol0,
+		int& outPeakIdx,
+		M576::Peak1DValidateCode& outCode,
+		M576::Peak1DFitTrace& outTrace,
+		double& outTPeak,
+		CString& err);
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Extract firmware RECAL sweep payloads from M576Calibrator comm logs into a plain numeric CSV.
+Extract firmware RECAL sweep payloads from M576Calibrator comm logs into CSV.
 
 Scope: lines between "Run Path Started" and "Path run finished (PM all slots)." or
 "Path run finished (PD all slots).".
@@ -9,7 +9,8 @@ Scope: lines between "Run Path Started" and "Path run finished (PM all slots)." 
 Source lines look like:
   [2026-05-07 09:43:09.182] [RECAL] #3 RECV RECAL 3 0 | 2122,-271065,... | 4890ms
 
-Output: one CSV row per sweep response; columns are integers only (no timestamps/headers by default).
+Output: one CSV row per sweep response; first column is the matching SEND wire command
+(e.g. RECAL 3 0 9999 64 4 80), then integer power samples.
 
 Examples:
   python tools/extract_recal_sweep_csv.py comm_2026-05-07.log
@@ -26,39 +27,15 @@ import sys
 from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
-RUN_START = "Run Path Started"
-RUN_END_MARKERS = (
-    "Path run finished (PM all slots).",
-    "Path run finished (PD all slots).",
-)
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from recal_log_cmds import build_send_index, parse_recv_cmd, parse_recv_seq, split_runs
 
 # Commands that carry comma-separated sweep samples in logs.
 _CMD_RE = re.compile(r"^RECAL\s+3\s+[01]\s*$|^RECAL\s+5\b", re.IGNORECASE)
 _INT_TOKEN_RE = re.compile(r"^-?\d+$")
-
-
-def _split_runs(lines: Iterable[str]) -> List[List[str]]:
-    runs: List[List[str]] = []
-    in_run = False
-    buf: List[str] = []
-    for line in lines:
-        if RUN_START in line:
-            if in_run and buf:
-                runs.append(buf)
-            in_run = True
-            buf = []
-            continue
-        if not in_run:
-            continue
-        if any(m in line for m in RUN_END_MARKERS):
-            runs.append(buf)
-            buf = []
-            in_run = False
-            continue
-        buf.append(line)
-    if in_run and buf:
-        runs.append(buf)
-    return runs
 
 
 def _parse_recv_sweep_line(line: str) -> Tuple[str, str] | None:
@@ -68,8 +45,6 @@ def _parse_recv_sweep_line(line: str) -> Tuple[str, str] | None:
     """
     if "[RECAL]" not in line or " RECV " not in line:
         return None
-    if "RECV" not in line:
-        return None
     parts = line.split(" | ")
     if len(parts) < 3:
         return None
@@ -77,11 +52,9 @@ def _parse_recv_sweep_line(line: str) -> Tuple[str, str] | None:
     if not tail_ms.endswith("ms"):
         return None
     payload = " | ".join(parts[1:-1]).strip()
-    head = parts[0]
-    idx = head.rfind(" RECV ")
-    if idx < 0:
+    cmd = parse_recv_cmd(line)
+    if not cmd:
         return None
-    cmd = head[idx + len(" RECV ") :].strip()
     return cmd, payload
 
 
@@ -102,10 +75,11 @@ def _payload_to_ints(payload: str) -> List[int] | None:
 
 def _collect_rows(
     run_lines: Sequence[str],
+    send_index: dict[int, str],
     *,
     skip_log: List[str] | None,
-) -> List[List[int]]:
-    rows: List[List[int]] = []
+) -> List[Tuple[str, List[int]]]:
+    rows: List[Tuple[str, List[int]]] = []
     for line in run_lines:
         parsed = _parse_recv_sweep_line(line)
         if not parsed:
@@ -118,12 +92,16 @@ def _collect_rows(
             if skip_log is not None:
                 skip_log.append(f"skip non-integer payload cmd={cmd!r} line={line[:200]!r}")
             continue
-        rows.append(ints)
+        seq = parse_recv_seq(line)
+        wire_cmd = send_index.get(seq, "NULL") if seq is not None else "NULL"
+        if wire_cmd == "NULL" and skip_log is not None:
+            skip_log.append(f"no SEND for seq={seq} recv_cmd={cmd!r}")
+        rows.append((wire_cmd, ints))
     return rows
 
 
 def _write_csv(
-    rows: Sequence[Sequence[int]],
+    rows: Sequence[Tuple[str, Sequence[int]]],
     out_path: Path,
     *,
     with_header: bool,
@@ -132,22 +110,23 @@ def _write_csv(
     if not rows:
         ncols = 0
     else:
-        ncols = max(len(r) for r in rows)
+        ncols = max(len(r[1]) for r in rows)
     encoding = "utf-8-sig" if utf8_bom else "utf-8"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding=encoding) as f:
         w = csv.writer(f, lineterminator="\n")
-        if with_header and ncols > 0:
-            w.writerow([f"c{i}" for i in range(ncols)])
-        for r in rows:
-            padded = list(r) + [""] * (ncols - len(r))
+        if with_header:
+            hdr = ["cmd"] + ([f"c{i}" for i in range(ncols)] if ncols > 0 else [])
+            w.writerow(hdr)
+        for wire_cmd, r in rows:
+            padded = [wire_cmd] + list(r) + [""] * (ncols - len(r))
             w.writerow(padded)
     return ncols
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Extract RECAL 3/5 sweep integers from comm log (Run Path window) to a numeric-only CSV.",
+        description="Extract RECAL 3/5 sweep integers + wire cmd from comm log (Run Path window).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -171,7 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument(
         "--with-header",
         action="store_true",
-        help="Write header row c0,c1,...",
+        help="Write header row cmd,c0,c1,...",
     )
     p.add_argument(
         "--utf8-bom",
@@ -197,16 +176,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     text = log_path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
-    runs = _split_runs(lines)
+    runs = split_runs(lines)
     if args.last_run_only and runs:
         runs = [runs[-1]]
     elif not runs:
         print("warning: no Run Path segments found; output will be empty.", file=sys.stderr)
 
     skip_list: List[str] = []
-    all_rows: List[List[int]] = []
+    all_rows: List[Tuple[str, List[int]]] = []
     for run in runs:
-        all_rows.extend(_collect_rows(run, skip_log=skip_list))
+        send_index = build_send_index(run)
+        all_rows.extend(_collect_rows(run, send_index, skip_log=skip_list))
 
     if args.skipped_log:
         if skip_list:
@@ -218,7 +198,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(s, file=sys.stderr)
 
     ncols = _write_csv(all_rows, out_path, with_header=args.with_header, utf8_bom=args.utf8_bom)
-    print(f"wrote {len(all_rows)} rows x {ncols} cols -> {out_path}")
+    print(f"wrote {len(all_rows)} rows x {ncols} sample cols -> {out_path}")
     return 0
 
 

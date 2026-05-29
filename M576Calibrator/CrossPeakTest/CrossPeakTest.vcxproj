@@ -95,6 +95,7 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="..\M576CalibratorApp\PeakFinder2D.cpp" />
+    <ClCompile Include="..\M576CalibratorApp\Peak1DSweepRecenter.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="test_sweeps.csv" />

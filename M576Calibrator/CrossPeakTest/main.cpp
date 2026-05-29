@@ -3,6 +3,7 @@
  * Peak index k on powers; DAC_peak = dac_base + k * Step.
  */
 #include "PeakFinder2D.h"
+#include "Peak1DSweepRecenter.h"
 #include "M576Peak1DConstants.h"
 #include <windows.h>
 #include <cstdio>
@@ -15,6 +16,11 @@
 #include <cstring>
 
 using M576::Peak1DValidateCode;
+using M576::SweepProfile;
+using M576::SweepTrend;
+using M576::AnalyzeRecal1DSweepProfile;
+using M576::IsRetryablePeakFailure;
+using M576::SuggestSweepRecenterDeltaDac;
 
 static bool ParseNumberLine(const std::string& line, std::vector<double>& out);
 
@@ -504,6 +510,88 @@ static int RunPeak1DSelfTests()
 	return fail;
 }
 
+static int RunSweepRecenterSelfTests()
+{
+	int fail = 0;
+	const int dacRange = 64;
+	const int n = 33;
+
+	{
+		std::vector<double> strictDec((size_t)n);
+		for (int i = 0; i < n; ++i)
+			strictDec[(size_t)i] = -130000.0 - i * 3000.0;
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(strictDec);
+		const double delta0 = SuggestSweepRecenterDeltaDac(p, n, dacRange, 0);
+		const double delta1 = SuggestSweepRecenterDeltaDac(p, n, dacRange, 1);
+		if (p.trend != SweepTrend::StrictDec || delta0 >= 0.0 || std::abs(delta0) > 0.35 * dacRange + 1e-6)
+		{
+			std::fprintf(stderr, "self-test: StrictDec should yield negative bounded delta (got %.4g, %.4g)\n", delta0, delta1);
+			++fail;
+		}
+		if (std::abs(delta1) + 1e-6 < std::abs(delta0))
+		{
+			std::fprintf(stderr, "self-test: StrictDec retry attempt should not shrink shift (got %.4g, %.4g)\n", delta0, delta1);
+			++fail;
+		}
+		if (!IsRetryablePeakFailure(Peak1DValidateCode::ParabolaNotDownward, p, n))
+		{
+			std::fprintf(stderr, "self-test: StrictDec ParabolaNotDownward should be retryable\n");
+			++fail;
+		}
+	}
+
+	{
+		std::vector<double> strictInc((size_t)n);
+		for (int i = 0; i < n; ++i)
+			strictInc[(size_t)i] = -211300.0 + i * 3000.0;
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(strictInc);
+		const double delta0 = SuggestSweepRecenterDeltaDac(p, n, dacRange, 0);
+		if (p.trend != SweepTrend::StrictInc || delta0 <= 0.0)
+		{
+			std::fprintf(stderr, "self-test: StrictInc should yield positive delta (got %.4g)\n", delta0);
+			++fail;
+		}
+	}
+
+	{
+		// comm.log L7622 flat row (col0=-31): span below MIN_SPAN -> no retry
+		const double commFlat[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(commFlat, commFlat + n);
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(flat);
+		if (p.trend != SweepTrend::Flat
+			|| IsRetryablePeakFailure(Peak1DValidateCode::NotEnoughValidSamples, p, n))
+		{
+			std::fprintf(stderr, "self-test: comm.log flat row must be Flat and not retryable\n");
+			++fail;
+		}
+	}
+
+	{
+		std::vector<double> edge((size_t)n);
+		for (int i = 0; i < n; ++i)
+			edge[(size_t)i] = -100000.0 - (double)(i * i);
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(edge);
+		const double delta = SuggestSweepRecenterDeltaDac(p, n, dacRange, 0);
+		if (p.argmaxIndex != 0 || delta >= 0.0)
+		{
+			std::fprintf(stderr, "self-test: edge argmax=0 should shift left (delta=%.4g)\n", delta);
+			++fail;
+		}
+		if (!IsRetryablePeakFailure(Peak1DValidateCode::EdgeNotAllowed, p, n))
+		{
+			std::fprintf(stderr, "self-test: edge argmax should be retryable\n");
+			++fail;
+		}
+	}
+
+	return fail;
+}
+
 int main(int argc, char* argv[])
 {
 	if (argc >= 3 && std::strcmp(argv[1], "--mock-sweeps") == 0)
@@ -514,6 +602,8 @@ int main(int argc, char* argv[])
 
 	if (RunPeak1DSelfTests() != 0)
 		return 9;
+	if (RunSweepRecenterSelfTests() != 0)
+		return 10;
 
 	SweepRow sweepY, sweepX;
 	double step = 1.0;

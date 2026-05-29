@@ -156,6 +156,7 @@
     <ClInclude Include="PathCsvDriver.h" />
     <ClInclude Include="Pm1x64Mapping.h" />
     <ClInclude Include="PeakFinder2D.h" />
+    <ClInclude Include="Peak1DSweepRecenter.h" />
     <ClInclude Include="RecalSession.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="stdafx.h" />
@@ -181,6 +182,9 @@
     <ClCompile Include="PathCsvDriver.cpp" />
     <ClCompile Include="Pm1x64Mapping.cpp" />
     <ClCompile Include="PeakFinder2D.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="Peak1DSweepRecenter.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="RecalSession.cpp" />

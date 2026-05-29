@@ -9,28 +9,18 @@ One CSV row per log line:
   Step i/total (slot s) RECAL 1 -> OK   (PM)
   Step i/total (slot s) RECAL 2 -> OK   (PD)
 
-Columns:
-  run_index: 1-based Run Path segment in this log.
-  step_i, step_total, slot, recal_cmd: from the Step line (recal_cmd is 1 or 2).
-  recal_switch: first number from nearest preceding SEND RECAL 1|2 line; NULL if not found.
-  base_dac_y, base_dac_x: RECAL 3 0/1 (or 5 0/5 1) sweep first cells; NULL if that sweep line absent.
-  max_cross_x: power at cross X-axis global max log line; NULL if missing/skipped.
-  max_cross_y: power at cross Y-axis global max log line; NULL if missing/skipped.
-  fit_x, fit_y: from linear DAC at cross-peak Y= ... X= ...; NULL if missing.
-  dac_y_at_max_cross, dac_x_at_max_cross: base + index * step from last SEND RECAL 3/5 in step block; NULL if missing.
+Wire command columns (prepended):
+  cmd_path: full RECAL 1/2 from SEND (e.g. RECAL 1 4 13 1 1 45); NULL if not found.
+  cmd_sweep_0: RECAL 3 0 / RECAL 5 0 SEND payload; NULL if not sent.
+  cmd_sweep_1: RECAL 3 1 / RECAL 5 1 SEND payload; NULL if skipped or not sent.
 
-Optional --format stats (10 columns for analysis):
-  base_dac_y, base_dac_x, max_cross_x_index, max_cross_y_index, max_cross_x, max_cross_y, fit_x, fit_y,
-  dac_y_at_max_cross, dac_x_at_max_cross
-  dac_y_at_max_cross = base_dac_y + max_cross_y_index * step_y (step from last SEND RECAL 3/5 mode 0 in step block).
-  dac_x_at_max_cross = base_dac_x + max_cross_x_index * step_x (from SEND RECAL 3/5 mode 1).
-  Use --dac-step N if logs omit SEND lines (fallback for both axes when missing).
+Optional --format stats (13 columns for analysis):
+  cmd_path, cmd_sweep_0, cmd_sweep_1, base_dac_y, base_dac_x, max_cross_x_index, ...
 
 Examples:
   python tools/extract_recal_peak_summary_csv.py comm_2026-05-07.log
   python tools/extract_recal_peak_summary_csv.py dataAnalysis/comm_2026-05-06.log -o dataAnalysis/comm_2026-05-06_peak_summary.csv --format stats
   python tools/extract_recal_peak_summary_csv.py dataAnalysis/comm_2026-05-11.log -o dataAnalysis/comm_2026-05-11_peak_summary.csv --format stats --utf8-bom
-  python tools/extract_recal_peak_summary_csv.py comm_2026-05-06.log -o out.csv --utf8-bom
 """
 
 from __future__ import annotations
@@ -42,16 +32,19 @@ import sys
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
-RUN_START = "Run Path Started"
-RUN_END_MARKERS = (
-    "Path run finished (PM all slots).",
-    "Path run finished (PD all slots).",
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from recal_log_cmds import (
+    lookup_cmd_path,
+    parse_block_sweep_cmds,
+    split_runs,
 )
 
 STEP_RE = re.compile(
     r"Step (\d+)/(\d+) \(slot (\d+)\) RECAL ([12]) -> OK",
 )
-# RECAL3 cross X axis global max: index then power (Chinese via escapes).
 _CROSS_MAX_RE = re.compile(
     r"RECAL([35])\s+"
     r"\u4ea4\u53c9\s+"
@@ -66,7 +59,6 @@ _CROSS_MAX_RE = re.compile(
 _FIT_RE = re.compile(
     r"linear DAC at cross-peak:\s*Y=([-\d.eE+]+).*?X=([-\d.eE+]+)",
 )
-# Sweep first cells: Y axis then X axis (PM RECAL 3 0 / 3 1; PD RECAL 5 0 X_start + RECAL 5 1 sweep col0).
 _RECAL30_SWEEP_COL0_RE = re.compile(
     r"RECAL 3 0 -> \d+ power samples, sweep col0=([-\d.eE+]+)",
 )
@@ -79,34 +71,9 @@ _RECAL51_SWEEP_COL0_RE = re.compile(
 )
 _SEND_RECAL1_RE = re.compile(r"SEND RECAL 1 \| RECAL 1 (\d+)")
 _SEND_RECAL2_RE = re.compile(r"SEND RECAL 2 \| RECAL 2 (\d+)")
-# TraceSend: RECAL 3/5 <mode> <base> <offset> <step> <delay> (see RecalSession::ExchangeRecal3ReadSweep).
 _SEND_RECAL35_SWEEP_RE = re.compile(
     r"SEND RECAL ([35]) ([01]) \| RECAL \1 \2\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)",
 )
-
-
-def _split_runs(lines: Iterable[str]) -> List[List[str]]:
-    runs: List[List[str]] = []
-    in_run = False
-    buf: List[str] = []
-    for line in lines:
-        if RUN_START in line:
-            if in_run and buf:
-                runs.append(buf)
-            in_run = True
-            buf = []
-            continue
-        if not in_run:
-            continue
-        if any(m in line for m in RUN_END_MARKERS):
-            runs.append(buf)
-            buf = []
-            in_run = False
-            continue
-        buf.append(line)
-    if in_run and buf:
-        runs.append(buf)
-    return runs
 
 
 def _lookup_recal_switch(run_lines: List[str], step_line_index: int, recal_cmd: str) -> str | None:
@@ -132,8 +99,10 @@ def _parse_block(
     str | None,
     str | None,
     str | None,
+    str | None,
+    str | None,
 ]:
-    """Returns base_dac_y, base_dac_x, idx_x, idx_y, max_x_power, max_y_power, fit_x, fit_y, step_y, step_x (last match wins)."""
+    """Returns cmd_s0, cmd_s1, base_y, base_x, idx_x, idx_y, max_x, max_y, fit_x, fit_y, step_y, step_x."""
     max_x: str | None = None
     max_y: str | None = None
     idx_x: str | None = None
@@ -144,6 +113,7 @@ def _parse_block(
     base_x: str | None = None
     step_y: str | None = None
     step_x: str | None = None
+    cmd_s0, cmd_s1, _skip_x = parse_block_sweep_cmds(block_lines)
     for line in block_lines:
         sm = _SEND_RECAL35_SWEEP_RE.search(line)
         if sm:
@@ -180,7 +150,7 @@ def _parse_block(
         if fm:
             fit_x = fm.group(1)
             fit_y = fm.group(2)
-    return base_y, base_x, idx_x, idx_y, max_x, max_y, fit_x, fit_y, step_y, step_x
+    return cmd_s0, cmd_s1, base_y, base_x, idx_x, idx_y, max_x, max_y, fit_x, fit_y, step_y, step_x
 
 
 def _null(v: str | None) -> str:
@@ -188,7 +158,6 @@ def _null(v: str | None) -> str:
 
 
 def _dac_at_max_cross(base_s: str | None, idx_s: str | None, step_s: str | None) -> str:
-    """base + index * step; NULL if any operand missing or non-numeric."""
     if base_s is None or idx_s is None or step_s is None:
         return "NULL"
     try:
@@ -220,8 +189,9 @@ def extract_rows(
         step_i, step_total, slot, recal_cmd = m.group(1), m.group(2), m.group(3), m.group(4)
         end = step_indices[k + 1] if k + 1 < len(step_indices) else len(all_run_lines)
         block = all_run_lines[idx + 1 : end]
+        cmd_path = lookup_cmd_path(all_run_lines, idx, recal_cmd)
         sw = _lookup_recal_switch(all_run_lines, idx, recal_cmd)
-        b_y, b_x, ix, iy, max_x, max_y, fx, fy, st_y, st_x = _parse_block(block)
+        cmd_s0, cmd_s1, b_y, b_x, ix, iy, max_x, max_y, fx, fy, st_y, st_x = _parse_block(block)
         if st_y is None and dac_step_fallback is not None:
             st_y = str(dac_step_fallback)
         if st_x is None and dac_step_fallback is not None:
@@ -236,6 +206,9 @@ def extract_rows(
                 "slot": slot,
                 "recal_cmd": recal_cmd,
                 "recal_switch": _null(sw),
+                "cmd_path": _null(cmd_path),
+                "cmd_sweep_0": _null(cmd_s0),
+                "cmd_sweep_1": _null(cmd_s1),
                 "base_dac_y": _null(b_y),
                 "base_dac_x": _null(b_x),
                 "max_cross_x_index": _null(ix),
@@ -270,7 +243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--format",
         choices=("full", "stats"),
         default="full",
-        help="full: all columns; stats: 10 columns (adds dac_*_at_max_cross vs fit)",
+        help="full: all columns; stats: 13 columns (cmd_* + peak stats)",
     )
     ap.add_argument(
         "--dac-step",
@@ -292,7 +265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     text = log_path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
-    runs = _split_runs(lines)
+    runs = split_runs(lines)
 
     fieldnames_full = [
         "run_index",
@@ -301,6 +274,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "slot",
         "recal_cmd",
         "recal_switch",
+        "cmd_path",
+        "cmd_sweep_0",
+        "cmd_sweep_1",
         "base_dac_y",
         "base_dac_x",
         "max_cross_x_index",
@@ -313,6 +289,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "dac_x_at_max_cross",
     ]
     fieldnames_stats = [
+        "cmd_path",
+        "cmd_sweep_0",
+        "cmd_sweep_1",
         "base_dac_y",
         "base_dac_x",
         "max_cross_x_index",
