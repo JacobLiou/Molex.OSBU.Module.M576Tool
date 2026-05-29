@@ -1,6 +1,9 @@
 ﻿/*
  * CrossPeakTest: RECAL 3 0 / 3 1 cross peak. col0 = DAC base, rest = powers.
  * Peak index k on powers; DAC_peak = dac_base + k * Step.
+ *
+ *   CrossPeakTest.exe --mock-sweeps <file.csv>
+ *   CrossPeakTest.exe --export-peak-csv <in.csv> [more.csv ...] [-o <dir>] [--utf8-bom]
  */
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
@@ -21,8 +24,20 @@ using M576::SweepTrend;
 using M576::AnalyzeRecal1DSweepProfile;
 using M576::IsRetryablePeakFailure;
 using M576::SuggestSweepRecenterDeltaDac;
+using M576::SweepTrendName;
 
 static bool ParseNumberLine(const std::string& line, std::vector<double>& out);
+
+struct RecalSweepCmdFields
+{
+	bool ok = false;
+	int recalKind = 0;
+	int sweepMode = -1;
+	int baseDac = 0;
+	int offsetDac = 0;
+	int stepDac = 0;
+	int delayMs = 0;
+};
 
 static const char* Peak1DCodeName(Peak1DValidateCode c)
 {
@@ -115,9 +130,8 @@ static int RunMockSweepLinesFile(const char* path)
 			++nFail;
 	}
 	std::printf("mock-sweeps: processed file, lines with FAIL=%d\n", nFail);
-	return 0;
+	return nFail > 0 ? 1 : 0;
 }
-
 
 struct SweepRow
 {
@@ -212,6 +226,340 @@ static bool ParseSweepRow(const std::vector<double>& nums, SweepRow& row, std::s
 	row.dac_base = nums[0];
 	row.powers.assign(nums.begin() + 1, nums.end());
 	return true;
+}
+
+static void TrimInPlace(std::string& s)
+{
+	while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n'))
+		s.pop_back();
+	size_t i = 0;
+	while (i < s.size() && (s[i] == ' ' || s[i] == '\t'))
+		++i;
+	if (i > 0)
+		s.erase(0, i);
+}
+
+static bool ReadTextFileUtf8(const char* path, std::string& text, std::string& err)
+{
+	std::vector<char> raw;
+	{
+		std::ifstream f(path, std::ios::binary);
+		if (!f)
+		{
+			err = "cannot open: ";
+			err += path;
+			return false;
+		}
+		raw.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	}
+	if (raw.size() >= 2 && (unsigned char)raw[0] == 0xFF && (unsigned char)raw[1] == 0xFE)
+		text = Utf16LeBlobToUtf8((const unsigned char*)raw.data() + 2, raw.size() - 2);
+	else if (LooksLikeUtf16LeNoBom(raw))
+		text = Utf16LeBlobToUtf8((const unsigned char*)raw.data(), raw.size());
+	else if (raw.size() >= 3 && (unsigned char)raw[0] == 0xEF && (unsigned char)raw[1] == 0xBB && (unsigned char)raw[2] == 0xBF)
+		text.assign(raw.begin() + 3, raw.end());
+	else
+		text.assign(raw.begin(), raw.end());
+	if (text.empty() && !raw.empty())
+	{
+		err = "UTF-16 read failed: ";
+		err += path;
+		return false;
+	}
+	return true;
+}
+
+static bool ParseRecalSweepCmd(const std::string& cmd, RecalSweepCmdFields& out)
+{
+	out = RecalSweepCmdFields();
+	int k = 0, mode = 0, base = 0, off = 0, step = 0, delay = 0;
+	if (std::sscanf(cmd.c_str(), "RECAL %d %d %d %d %d %d", &k, &mode, &base, &off, &step, &delay) != 6)
+		return false;
+	if ((k != 3 && k != 5) || (mode != 0 && mode != 1))
+		return false;
+	out.ok = true;
+	out.recalKind = k;
+	out.sweepMode = mode;
+	out.baseDac = base;
+	out.offsetDac = off;
+	out.stepDac = step;
+	out.delayMs = delay;
+	return true;
+}
+
+static bool SplitSweepCsvRow(const std::string& line, std::string& cmd, std::vector<double>& nums)
+{
+	cmd.clear();
+	nums.clear();
+	const size_t comma = line.find(',');
+	if (comma == std::string::npos)
+		return false;
+	cmd = line.substr(0, comma);
+	TrimInPlace(cmd);
+	return ParseNumberLine(line.substr(comma + 1), nums) && !cmd.empty();
+}
+
+static std::string EscapeCsvField(const std::string& s)
+{
+	bool needQuote = false;
+	for (char c : s)
+	{
+		if (c == ',' || c == '"' || c == '\r' || c == '\n')
+		{
+			needQuote = true;
+			break;
+		}
+	}
+	if (!needQuote)
+		return s;
+	std::string o = "\"";
+	for (char c : s)
+	{
+		if (c == '"')
+			o += "\"\"";
+		else
+			o += c;
+	}
+	o += '"';
+	return o;
+}
+
+static void AppendCsvField(std::ostringstream& row, const std::string& field, bool& first)
+{
+	if (!first)
+		row << ',';
+	first = false;
+	row << EscapeCsvField(field);
+}
+
+static std::string FormatFitPointsCsv(const M576::Peak1DFitTrace& tr)
+{
+	const size_t nf = tr.fitIndex.size();
+	if (nf == 0 || tr.fitY.size() != nf)
+		return {};
+	std::ostringstream oss;
+	for (size_t k = 0; k < nf; ++k)
+	{
+		if (k)
+			oss << ';';
+		oss << '[' << tr.fitIndex[k] << "]=" << tr.fitY[k];
+	}
+	return oss.str();
+}
+
+static std::string PathFileName(const std::string& path)
+{
+	const size_t s1 = path.find_last_of('\\');
+	const size_t s2 = path.find_last_of('/');
+	const size_t pos = (s1 == std::string::npos) ? s2 : (s2 == std::string::npos ? s1 : (std::max)(s1, s2));
+	if (pos == std::string::npos)
+		return path;
+	return path.substr(pos + 1);
+}
+
+static std::string PathDirName(const std::string& path)
+{
+	const size_t s1 = path.find_last_of('\\');
+	const size_t s2 = path.find_last_of('/');
+	const size_t pos = (s1 == std::string::npos) ? s2 : (s2 == std::string::npos ? s1 : (std::max)(s1, s2));
+	if (pos == std::string::npos)
+		return {};
+	return path.substr(0, pos + 1);
+}
+
+static std::string StemBeforeExtension(const std::string& filename)
+{
+	const size_t dot = filename.find_last_of('.');
+	if (dot == std::string::npos || dot == 0)
+		return filename;
+	return filename.substr(0, dot);
+}
+
+static std::string MakePeakAnalysisOutPath(const char* inPath, const char* outDir)
+{
+	const std::string in(inPath);
+	const std::string base = PathFileName(in);
+	const std::string stem = StemBeforeExtension(base);
+	const std::string outName = stem + "_peak_analysis.csv";
+	if (outDir && outDir[0])
+	{
+		std::string d(outDir);
+		if (d.back() != '\\' && d.back() != '/')
+			d += '\\';
+		return d + outName;
+	}
+	const std::string dir = PathDirName(in);
+	return dir.empty() ? outName : dir + outName;
+}
+
+/// Returns negative on IO error; else count of rows with fit_ok=0.
+static int RunExportPeakCsv(const char* inPath, const char* outPath, bool utf8Bom)
+{
+	std::string text, err;
+	if (!ReadTextFileUtf8(inPath, text, err))
+	{
+		std::fprintf(stderr, "export-peak-csv: %s\n", err.c_str());
+		return -1;
+	}
+
+	std::ofstream out(outPath, std::ios::binary);
+	if (!out)
+	{
+		std::fprintf(stderr, "export-peak-csv: cannot write: %s\n", outPath);
+		return -1;
+	}
+	if (utf8Bom)
+	{
+		const unsigned char bom[3] = { 0xEF, 0xBB, 0xBF };
+		out.write((const char*)bom, 3);
+	}
+
+	static const char* kHdr =
+		"line_no,cmd,sweep_mode,base_dac,offset_dac,step_dac,delay_ms,dac_base,n_powers,"
+		"fit_ok,validate_code,span,trend,global_max_idx,global_max_y,t_star,peak_idx,dac_peak,fit_n,fit_points\n";
+	out << kHdr;
+
+	int lineNo = 0;
+	int nFail = 0;
+	int nData = 0;
+	std::istringstream iss(text);
+	std::string line;
+	while (std::getline(iss, line))
+	{
+		++lineNo;
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+			line.pop_back();
+		if (line.empty())
+			continue;
+		if (lineNo == 1)
+		{
+			std::string lower = line;
+			for (char& c : lower)
+				if (c >= 'A' && c <= 'Z')
+					c = (char)(c - 'A' + 'a');
+			if (lower.find("cmd") != std::string::npos)
+				continue;
+		}
+
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums))
+		{
+			std::ostringstream row;
+			bool first = true;
+			AppendCsvField(row, std::to_string(lineNo), first);
+			AppendCsvField(row, line, first);
+			for (int k = 0; k < 17; ++k)
+				AppendCsvField(row, "", first);
+			AppendCsvField(row, "0", first);
+			AppendCsvField(row, "Empty", first);
+			for (int k = 0; k < 9; ++k)
+				AppendCsvField(row, "", first);
+			AppendCsvField(row, "0", first);
+			AppendCsvField(row, "", first);
+			out << row.str() << '\n';
+			++nFail;
+			continue;
+		}
+
+		RecalSweepCmdFields cf;
+		ParseRecalSweepCmd(cmd, cf);
+
+		double dacBase = 0;
+		std::vector<double> powers;
+		if (!nums.empty())
+		{
+			dacBase = nums[0];
+			if (nums.size() > 1)
+				powers.assign(nums.begin() + 1, nums.end());
+		}
+
+		M576::Peak1DFitTrace tr;
+		double tStar = 0;
+		Peak1DValidateCode code = Peak1DValidateCode::Ok;
+		const bool fitOk = !powers.empty()
+			&& M576::ParabolaVertexMax1D(powers, tStar, code, &tr);
+		const SweepProfile prof = AnalyzeRecal1DSweepProfile(powers);
+
+		int peakIdx = 0;
+		if (fitOk)
+			peakIdx = (int)std::lround(tStar);
+
+		const double stepDac = cf.ok ? (double)cf.stepDac : 0.0;
+		const double dacPeak = dacBase + tStar * stepDac;
+
+		std::ostringstream row;
+		bool first = true;
+		AppendCsvField(row, std::to_string(lineNo), first);
+		AppendCsvField(row, cmd, first);
+		AppendCsvField(row, cf.ok ? std::to_string(cf.sweepMode) : "", first);
+		AppendCsvField(row, cf.ok ? std::to_string(cf.baseDac) : "", first);
+		AppendCsvField(row, cf.ok ? std::to_string(cf.offsetDac) : "", first);
+		AppendCsvField(row, cf.ok ? std::to_string(cf.stepDac) : "", first);
+		AppendCsvField(row, cf.ok ? std::to_string(cf.delayMs) : "", first);
+		AppendCsvField(row, std::to_string(dacBase), first);
+		AppendCsvField(row, std::to_string(powers.size()), first);
+		AppendCsvField(row, fitOk ? "1" : "0", first);
+		AppendCsvField(row, Peak1DCodeName(code), first);
+		AppendCsvField(row, std::to_string(prof.span), first);
+		AppendCsvField(row, SweepTrendName(prof.trend), first);
+		AppendCsvField(row, tr.globalMaxIndex >= 0 ? std::to_string(tr.globalMaxIndex) : "", first);
+		AppendCsvField(row, tr.globalMaxIndex >= 0 ? std::to_string(tr.globalMaxY) : "", first);
+		AppendCsvField(row, fitOk ? std::to_string(tStar) : "", first);
+		AppendCsvField(row, fitOk ? std::to_string(peakIdx) : "", first);
+		AppendCsvField(row, fitOk ? std::to_string(dacPeak) : "", first);
+		AppendCsvField(row, std::to_string(tr.fitIndex.size()), first);
+		AppendCsvField(row, FormatFitPointsCsv(tr), first);
+		out << row.str() << '\n';
+
+		++nData;
+		if (!fitOk)
+			++nFail;
+	}
+
+	std::printf("export-peak-csv: %s -> %s  data_rows=%d  fit_fail=%d\n", inPath, outPath, nData, nFail);
+	return nFail;
+}
+
+static int RunExportPeakCsvMain(int argc, char* argv[])
+{
+	bool utf8Bom = false;
+	const char* outDir = nullptr;
+	std::vector<const char*> inputs;
+	for (int i = 2; i < argc; ++i)
+	{
+		if (std::strcmp(argv[i], "--utf8-bom") == 0)
+			utf8Bom = true;
+		else if (std::strcmp(argv[i], "-o") == 0)
+		{
+			if (i + 1 >= argc)
+			{
+				std::fprintf(stderr, "export-peak-csv: -o requires directory\n");
+				return 2;
+			}
+			outDir = argv[++i];
+		}
+		else
+			inputs.push_back(argv[i]);
+	}
+	if (inputs.empty())
+	{
+		std::fprintf(stderr,
+			"usage: CrossPeakTest.exe --export-peak-csv <in.csv> [more.csv] [-o <dir>] [--utf8-bom]\n");
+		return 2;
+	}
+
+	int rc = 0;
+	for (const char* in : inputs)
+	{
+		const std::string outPath = MakePeakAnalysisOutPath(in, outDir);
+		const int nFail = RunExportPeakCsv(in, outPath.c_str(), utf8Bom);
+		if (nFail < 0)
+			rc = 2;
+		else if (nFail > 0 && rc == 0)
+			rc = 1;
+	}
+	return rc;
 }
 
 static bool LoadSweepsFile(const char* path, SweepRow& sweepY, SweepRow& sweepX, double& outStep, bool& stepFromFile, std::string& err)
@@ -387,6 +735,18 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
+	{
+		std::vector<double> strictDec(33);
+		for (int i = 0; i < 33; ++i)
+			strictDec[(size_t)i] = -32785.0 - (double)i * 120.0;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(strictDec, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: StrictDec sweep must not return Ok with t*=0 at dac_base\n");
+			++fail;
+		}
+	}
 	// Masked fit: one firmware sentinel removed; true vertex at i=3, still ~3.0
 	{
 		std::vector<double> seven(7);
@@ -487,6 +847,24 @@ static int RunPeak1DSelfTests()
 			|| std::abs(tr.globalMaxY - 50.0) > 1e-6 || tr.fitIndex.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
 		{
 			std::fprintf(stderr, "self-test: Peak1DFitTrace global max and fit count\n");
+			++fail;
+		}
+	}
+	// test_sweeps.csv line 3: plateau jitter at apex; mono wedge had only 3 points before fixed-half fallback.
+	{
+		static const double kPlateauJitterPowers[] = {
+			-129449, -129398, -129364, -129343, -129322, -129274, -129263, -129233, -129243, -129228,
+			-129234, -129232, -129228, -129257, -129267, -129313, -129337, -129393, -129448, -129499,
+			-129582, -129636, -129718, -129816, -129908, -130041, -130156, -130290, -130444, -130586,
+			-130760, -130952, -131148,
+		};
+		std::vector<double> plateau(kPlateauJitterPowers, kPlateauJitterPowers + _countof(kPlateauJitterPowers));
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(plateau, t, c) || c != Peak1DValidateCode::Ok || t < 8.0 || t > 13.0)
+		{
+			std::fprintf(stderr, "self-test: plateau jitter sweep (test_sweeps line 3) t* in [8,13] (got %.4g code=%s)\n",
+				t, Peak1DCodeName(c));
 			++fail;
 		}
 	}
@@ -594,6 +972,9 @@ static int RunSweepRecenterSelfTests()
 
 int main(int argc, char* argv[])
 {
+	if (argc >= 3 && std::strcmp(argv[1], "--export-peak-csv") == 0)
+		return RunExportPeakCsvMain(argc, argv);
+
 	if (argc >= 3 && std::strcmp(argv[1], "--mock-sweeps") == 0)
 	{
 		(void)RunMockSweepLinesFile(argv[2]);
