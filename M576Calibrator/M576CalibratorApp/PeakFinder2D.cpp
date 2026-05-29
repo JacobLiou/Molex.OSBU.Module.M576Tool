@@ -233,6 +233,56 @@ namespace M576
 			return strictInc;
 		}
 
+		static bool IsStrictIncreasingSeq(const std::vector<double>& ys, double epsMono)
+		{
+			if (ys.size() < 2)
+				return false;
+			for (size_t k = 1; k < ys.size(); ++k)
+			{
+				if (ys[k] <= ys[k - 1] + epsMono)
+					return false;
+			}
+			return true;
+		}
+
+		static bool IsStrictDecreasingSeq(const std::vector<double>& ys, double epsMono)
+		{
+			if (ys.size() < 2)
+				return false;
+			for (size_t k = 1; k < ys.size(); ++k)
+			{
+				if (ys[k] >= ys[k - 1] - epsMono)
+					return false;
+			}
+			return true;
+		}
+
+		/// 全序列严格单调：峰在扫频窗外，三阶顶点贴边不可当作有效拟合。
+		static bool IsFullSweepMonotoneMissedPeak(const std::vector<double>& p)
+		{
+			std::vector<double> ys;
+			ys.reserve(p.size());
+			for (size_t i = 0; i < p.size(); ++i)
+			{
+				if (!IsRecal1DPowerInvalidValue(p[i]))
+					ys.push_back(p[i]);
+			}
+			if (ys.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+				return false;
+			double lo = ys[0], hi = ys[0];
+			for (size_t k = 1; k < ys.size(); ++k)
+			{
+				lo = (std::min)(lo, ys[k]);
+				hi = (std::max)(hi, ys[k]);
+			}
+			const double span = hi - lo;
+			if (span < (double)M576_PEAK1D_MIN_SPAN_DB)
+				return false;
+			const double epsMono = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB,
+				span * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
+			return IsStrictIncreasingSeq(ys, epsMono) || IsStrictDecreasingSeq(ys, epsMono);
+		}
+
 		static bool Peak1DSamplesFromPreprocessed(
 			const std::vector<double>& p,
 			double& spanAllValid,
@@ -279,6 +329,16 @@ namespace M576
 			}
 
 			spanAllValid = vmax - vmin;
+			{
+				const double maxAbs = (std::max)(std::abs(vmin), std::abs(vmax));
+				const bool relFlat = (maxAbs > 1e-6
+					&& spanAllValid / maxAbs < (double)M576_PEAK1D_FLAT_REL_SPAN_FRAC);
+				if (spanAllValid < (double)M576_PEAK1D_MIN_SPAN_DB || relFlat)
+				{
+					f = Peak1DValidateCode::ParabolaNotDownward;
+					return false;
+				}
+			}
 			const double eps = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB,
 				spanAllValid * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
 			const double outlierThrRel = spanAllValid * (double)M576_PEAK1D_OUTLIER_MIN_SPAN_FRAC;
@@ -385,6 +445,13 @@ namespace M576
 			collectWindow(i0 - halfW, i0 + halfW);
 			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES || halfW == 0)
 				collectWindow(leftBound, rightBound);
+			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+			{
+				int halfFixed = (int)std::lround((double)(n - 1) * (double)M576_PEAK1D_FIT_HALF_FRAC);
+				halfFixed = (std::max)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MIN);
+				halfFixed = (std::min)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MAX);
+				collectWindow(i0 - halfFixed, i0 + halfFixed);
+			}
 			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
 			{
 				f = Peak1DValidateCode::NotEnoughValidSamples;
@@ -594,11 +661,22 @@ namespace M576
 
 		const double spanRef = spanAll <= 0 ? 1.0 : spanAll;
 		const double derivReject = spanRef * (double)M576_PEAK1D_EPS_REL_OF_SPAN * kDerivRejectScale;
+		const double xPad = (std::max)(kTRangeEps * 100, (xmax - xmin) * 1e-9 + kTRangeEps);
 		const bool attachSeqEnd = std::abs(tStar - xmax) <= kTRangeEps || tStar >= xmax - kTRangeEps;
 		if ((double)n >= (double)M576_PEAK1D_CUBIC_MIN_SAMPLES && attachSeqEnd && xmax >= (double)(n - 1) - kTRangeEps)
 		{
-			const double xh = xmax - (std::max)(kTRangeEps * 100, (xmax - xmin) * 1e-9 + kTRangeEps);
+			const double xh = xmax - xPad;
 			if (xh > xmin + kTRangeEps && CubicDeriv(a, coefb, c, xh) > derivReject)
+			{
+				f = Peak1DValidateCode::ParabolaNotDownward;
+				return false;
+			}
+		}
+		const bool attachSeqStart = std::abs(tStar - xmin) <= kTRangeEps || tStar <= xmin + kTRangeEps;
+		if ((double)n >= (double)M576_PEAK1D_CUBIC_MIN_SAMPLES && attachSeqStart && xmin <= kTRangeEps)
+		{
+			const double xh = xmin + xPad;
+			if (xh < xmax - kTRangeEps && CubicDeriv(a, coefb, c, xh) < -derivReject)
 			{
 				f = Peak1DValidateCode::ParabolaNotDownward;
 				return false;
@@ -619,6 +697,11 @@ namespace M576
 			return false;
 		}
 #endif
+		if (IsFullSweepMonotoneMissedPeak(p))
+		{
+			f = Peak1DValidateCode::ParabolaNotDownward;
+			return false;
+		}
 		return true;
 	}
 

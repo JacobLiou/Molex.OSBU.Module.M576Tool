@@ -69,3 +69,13 @@
 #ifndef M576_PEAK1D_FLAT_REL_SPAN_FRAC
 #define M576_PEAK1D_FLAT_REL_SPAN_FRAC 0.002
 #endif
+/// 单调包络窗不足时，以 argmax 为中心固定半窗兜底：half = clamp((n-1)*FRAC, MIN, MAX)。
+#ifndef M576_PEAK1D_FIT_HALF_MIN
+#define M576_PEAK1D_FIT_HALF_MIN 4
+#endif
+#ifndef M576_PEAK1D_FIT_HALF_MAX
+#define M576_PEAK1D_FIT_HALF_MAX 16
+#endif
+#ifndef M576_PEAK1D_FIT_HALF_FRAC
+#define M576_PEAK1D_FIT_HALF_FRAC 0.25
+#endif
