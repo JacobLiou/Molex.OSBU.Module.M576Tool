@@ -10,7 +10,7 @@ void MergeMems1310LowTempSlot(stM576OneX64MemsSwCoef base[4], const stM576OneX64
 
 void MergeLut1310LowTempSlot(stLutSettingZ4671& base, const stLutSettingZ4671& src1310)
 {
-	for (int sw = 0; sw < 34; ++sw)
+	for (int sw = 0; sw < M576_MCS_LUT_SW_MERGE_COUNT; ++sw)
 	{
 		for (int ch = 0; ch < PORT_MAX_COUNT + MID_MAX_COUNT; ++ch)
 		{

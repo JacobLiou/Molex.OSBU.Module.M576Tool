@@ -20,10 +20,10 @@
 #           The first token is **not** sent on serial; only SW tokens are sent.
 #   - The host sends every SW command in order (CR appended automatically),
 #     reads one reply line per SW (typically "OK"/"FAIL").
-#   - After all SW in the group: for each of s1/s2/s3, run SW 3 1 + WL + pd/opm:
-#         (1) SFP_1550:  SW 3 1 1,  WL 1550, pd 1, opm 3 1
-#         (2) SFP_1310:  SW 3 1 4,  WL 1310, pd 1, opm 3 1
-#         (3) Laser_1310: SW 3 1 8, WL 1310, pd 1, opm 3 1
+#   - After all SW in the group: for each of s1/s2/s3, run SW 3 1 + SWL + pd/opm:
+#         (1) SFP_1550:  SW 3 1 1,  SWL 8 1550, pd 1, opm 3 1
+#         (2) SFP_1310:  SW 3 1 4,  SWL 8 1310, pd 1, opm 3 1
+#         (3) Laser_1310: SW 3 1 8, SWL 8 1310, pd 1, opm 3 1
 #   - UTF-8 BOM on the first line is tolerated.
 #
 # --- Legacy style (comment + SW-only line) ---

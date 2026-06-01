@@ -47,9 +47,9 @@
 #ifndef M576_PEAK1D_LOG_FIT_LAST
 #define M576_PEAK1D_LOG_FIT_LAST 8
 #endif
-/// RECAL 3/5 monotone sweep recenter: 1 initial + 2 retries.
+/// RECAL 3/5 monotone sweep recenter: 1 initial + (MAX-1) hardware re-sweeps.
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS
-#define M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS 3
+#define M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS 5
 #endif
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC
 #define M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC 0.35
@@ -65,6 +65,18 @@
 #endif
 #ifndef M576_PEAK1D_SWEEP_RECENTER_EDGE_BONUS_FRAC
 #define M576_PEAK1D_SWEEP_RECENTER_EDGE_BONUS_FRAC 0.05
+#endif
+/// Blend failed-fit t* vs heuristic index shift (VertexOutOfRange / edge).
+#ifndef M576_PEAK1D_SWEEP_RECENTER_TSTAR_WEIGHT
+#define M576_PEAK1D_SWEEP_RECENTER_TSTAR_WEIGHT 0.65
+#endif
+/// Per retry attempt: multiply |shift| by (1 + GROWTH * attemptIndex).
+#ifndef M576_PEAK1D_SWEEP_RECENTER_ATTEMPT_GROWTH
+#define M576_PEAK1D_SWEEP_RECENTER_ATTEMPT_GROWTH 0.12
+#endif
+/// Same edge argmax as prior attempt: extra |shift| multiplier.
+#ifndef M576_PEAK1D_SWEEP_RECENTER_STAGNATION_GAIN
+#define M576_PEAK1D_SWEEP_RECENTER_STAGNATION_GAIN 0.18
 #endif
 #ifndef M576_PEAK1D_FLAT_REL_SPAN_FRAC
 #define M576_PEAK1D_FLAT_REL_SPAN_FRAC 0.002

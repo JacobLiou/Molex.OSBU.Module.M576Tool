@@ -777,7 +777,11 @@ namespace M576
 			*outTParabola = 0.0;
 		double t = 0.0;
 		if (!ParabolaVertexMax1D(data, t, f, trace))
+		{
+			if (outTParabola && std::isfinite(t))
+				*outTParabola = t;
 			return false;
+		}
 		if (outTParabola)
 			*outTParabola = t;
 		outIdx = (int)std::lround(t);

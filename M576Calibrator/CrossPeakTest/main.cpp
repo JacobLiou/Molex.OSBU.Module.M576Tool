@@ -24,6 +24,7 @@ using M576::SweepTrend;
 using M576::AnalyzeRecal1DSweepProfile;
 using M576::IsRetryablePeakFailure;
 using M576::SuggestSweepRecenterDeltaDac;
+using M576::SweepRecenterFailureInfo;
 using M576::SweepTrendName;
 
 static bool ParseNumberLine(const std::string& line, std::vector<double>& out);
@@ -911,6 +912,12 @@ static int RunSweepRecenterSelfTests()
 			std::fprintf(stderr, "self-test: StrictDec retry attempt should not shrink shift (got %.4g, %.4g)\n", delta0, delta1);
 			++fail;
 		}
+		const double delta4 = SuggestSweepRecenterDeltaDac(p, n, dacRange, 4);
+		if (std::abs(delta4) + 1e-6 < std::abs(delta0))
+		{
+			std::fprintf(stderr, "self-test: StrictDec attempt 4 should exceed attempt 0 (got %.4g, %.4g)\n", delta0, delta4);
+			++fail;
+		}
 		if (!IsRetryablePeakFailure(Peak1DValidateCode::ParabolaNotDownward, p, n))
 		{
 			std::fprintf(stderr, "self-test: StrictDec ParabolaNotDownward should be retryable\n");
@@ -963,6 +970,43 @@ static int RunSweepRecenterSelfTests()
 		if (!IsRetryablePeakFailure(Peak1DValidateCode::EdgeNotAllowed, p, n))
 		{
 			std::fprintf(stderr, "self-test: edge argmax should be retryable\n");
+			++fail;
+		}
+	}
+
+	{
+		std::vector<double> strictDec((size_t)n);
+		for (int i = 0; i < n; ++i)
+			strictDec[(size_t)i] = -130000.0 - i * 3000.0;
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(strictDec);
+		SweepRecenterFailureInfo failInfo = {};
+		failInfo.code = Peak1DValidateCode::ParabolaNotDownward;
+		failInfo.hasPrevAttempt = true;
+		failInfo.prevArgmaxIndex = 0;
+		const double dPlain = SuggestSweepRecenterDeltaDac(p, n, dacRange, 1);
+		const double dStag = SuggestSweepRecenterDeltaDac(p, n, dacRange, 1, failInfo);
+		if (std::abs(dStag) + 1e-6 < std::abs(dPlain))
+		{
+			std::fprintf(stderr, "self-test: stagnation should amplify shift (%.4g vs %.4g)\n", dPlain, dStag);
+			++fail;
+		}
+	}
+
+	{
+		const int dacNarrow = 16;
+		std::vector<double> strictInc((size_t)n);
+		for (int i = 0; i < n; ++i)
+			strictInc[(size_t)i] = -211300.0 + i * 3000.0;
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(strictInc);
+		SweepRecenterFailureInfo failInfo = {};
+		failInfo.code = Peak1DValidateCode::VertexOutOfRange;
+		failInfo.tPeak = 16.0;
+		failInfo.hasTPeak = true;
+		const double dHeur = SuggestSweepRecenterDeltaDac(p, n, dacNarrow, 0);
+		const double dLearn = SuggestSweepRecenterDeltaDac(p, n, dacNarrow, 0, failInfo);
+		if (std::abs(dLearn - dHeur) < 0.25)
+		{
+			std::fprintf(stderr, "self-test: t* hint should change shift vs heuristic (heur=%.4g learn=%.4g)\n", dHeur, dLearn);
 			++fail;
 		}
 	}

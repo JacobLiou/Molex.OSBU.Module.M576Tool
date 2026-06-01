@@ -3,7 +3,7 @@
 #include "OpComm.h"
 #include "CommLog.h"
 
-// Lightweight ASCII line exchange for the Diagnosis flow (SW / WL / pd / opm).
+// Lightweight ASCII line exchange for the Diagnosis flow (SW / SWL / pd / opm).
 // Independent from CRecalSession; logs into a dedicated [DIAG] channel
 // with its own monotonic sequence so Python tooling can parse without
 // colliding with the [RECAL] log stream.

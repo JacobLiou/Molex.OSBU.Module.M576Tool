@@ -20,9 +20,9 @@ struct M576DiagnosisRow
 };
 
 /// Fixed post-path (three blocks after the CSV SW group); order matches hardware: switch source then wavelength:
-///   s1 (SFP_1550): `SW 3 1 1`, `WL 1550`, `pd 1`, `opm 3 1` — `wl1310Reply` unused.
-///   s2 (SFP_1310): `SW 3 1 4`, `WL 1310`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
-///   s3 (Laser_1310): `SW 3 1 8`, `WL 1310`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
+///   s1 (SFP_1550): `SW 3 1 1`, `SWL 8 1550`, `pd 1`, `opm 3 1` — `wl1310Reply` unused.
+///   s2 (SFP_1310): `SW 3 1 4`, `SWL 8 1310`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
+///   s3 (Laser_1310): `SW 3 1 8`, `SWL 8 1310`, `pd 1`, `opm 3 1` — `wl1550Reply` unused.
 /// `sw3Third` is the third token of `SW 3 1 <n>` (1, 4, or 8). Result CSV columns
 /// keep the same names; empty fields mean that wavelength line was not sent for that scenario.
 struct M576DiagnosisWlScenarioResult
@@ -44,7 +44,7 @@ struct M576DiagnosisWlScenarioResult
 /// with `|` so the row reproduces the input grouping verbatim. `swOkCount` /
 /// `swCount` give a quick FAIL summary without needing to re-parse the joined
 /// reply column. `totalMs` is the sum of every sub-exchange (all CSV SW +
-/// three measure blocks: SW 3 1 + WL + pd + opm each, per scenario as above).
+/// three measure blocks: SW 3 1 + SWL + pd + opm each, per scenario as above).
 struct M576DiagnosisResultRow
 {
 	int step;
@@ -96,6 +96,6 @@ BOOL M576AppendDiagnosisPythonRow(
 CString M576MakeDiagnosisResultCsvPath(LPCTSTR outBaseDir);
 
 /// Write the result CSV (RFC4180 quoting for fields with comma/quote/CR/LF).
-/// Per scenario s1..s3: columns wl1550, sw3, wl1310, pd, opm (unused WL fields empty;
-/// for s2/s3 the WL 1310 command is sent before SW 3 1 on the wire).
+/// Per scenario s1..s3: columns wl1550, sw3, wl1310, pd, opm (legacy names; wire uses SWL 8 nm;
+/// unused wavelength fields empty per scenario).
 BOOL M576WriteDiagnosisResultCsv(LPCTSTR path, const std::vector<M576DiagnosisResultRow>& rows, CString& err);

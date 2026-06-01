@@ -73,6 +73,121 @@ namespace M576
 				return 0.0;
 			return (dn * sumXY - sumX * sumY) / denom;
 		}
+
+		static double ClampRecenterDeltaDac(double deltaDac, int dacRange)
+		{
+			const double maxShift = (double)M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC * (double)dacRange;
+			if (deltaDac > maxShift)
+				return maxShift;
+			if (deltaDac < -maxShift)
+				return -maxShift;
+			return deltaDac;
+		}
+
+		static double IndexShiftToDeltaDac(double deltaIndex, int sampleCount, int dacRange)
+		{
+			if (sampleCount <= 1 || dacRange < 1)
+				return 0.0;
+			const double step = (2.0 * dacRange) / (double)(sampleCount - 1);
+			return deltaIndex * step;
+		}
+
+		/// Legacy heuristic: trend + edge argmax + attempt-index frac.
+		static double HeuristicDeltaIndex(
+			const SweepProfile& profile,
+			int sampleCount,
+			int attemptIndex)
+		{
+			if (sampleCount <= 1)
+				return 0.0;
+			if (attemptIndex < 0)
+				attemptIndex = 0;
+
+			double frac = (double)M576_PEAK1D_SWEEP_RECENTER_BASE_FRAC
+				+ (double)M576_PEAK1D_SWEEP_RECENTER_ATTEMPT_STEP_FRAC * (double)attemptIndex;
+
+			double deltaIndex = 0.0;
+			if (profile.trend == SweepTrend::StrictDec)
+			{
+				if (profile.argmaxIndex == 0)
+					frac += (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_BONUS_FRAC;
+				deltaIndex = -frac * (double)(sampleCount - 1);
+			}
+			else if (profile.trend == SweepTrend::StrictInc)
+			{
+				if (profile.argmaxIndex == (sampleCount - 1))
+					frac += (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_BONUS_FRAC;
+				deltaIndex = frac * (double)(sampleCount - 1);
+			}
+			else if (profile.argmaxIndex == 0)
+			{
+				deltaIndex = -(double)M576_PEAK1D_SWEEP_RECENTER_EDGE_ARGMAX_FRAC * (double)(sampleCount - 1);
+			}
+			else if (profile.argmaxIndex == (sampleCount - 1))
+			{
+				deltaIndex = (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_ARGMAX_FRAC * (double)(sampleCount - 1);
+			}
+			return deltaIndex;
+		}
+
+		static int PeakOutsideSign(const SweepProfile& profile, int sampleCount)
+		{
+			if (sampleCount <= 1)
+				return 0;
+			if (profile.trend == SweepTrend::StrictDec)
+				return -1;
+			if (profile.trend == SweepTrend::StrictInc)
+				return +1;
+			if (profile.argmaxIndex == 0)
+				return -1;
+			if (profile.argmaxIndex == (sampleCount - 1))
+				return +1;
+			return 0;
+		}
+
+		static bool IsMonotoneMissFailure(
+			Peak1DValidateCode code,
+			const SweepProfile& profile)
+		{
+			return code == Peak1DValidateCode::ParabolaNotDownward
+				&& (profile.trend == SweepTrend::StrictInc || profile.trend == SweepTrend::StrictDec);
+		}
+
+		static bool ArgmaxStuckOnSameEdge(
+			const SweepProfile& profile,
+			int sampleCount,
+			const SweepRecenterFailureInfo& failure)
+		{
+			if (!failure.hasPrevAttempt || sampleCount <= 1)
+				return false;
+			if (profile.argmaxIndex != failure.prevArgmaxIndex)
+				return false;
+			return profile.argmaxIndex == 0 || profile.argmaxIndex == (sampleCount - 1);
+		}
+
+		static double DeltaIndexFromTPeak(double tPeak, int sampleCount)
+		{
+			const double mid = (double)(sampleCount - 1) * 0.5;
+			return tPeak - mid;
+		}
+
+		static double ApplyAttemptGrowth(double deltaIndex, int attemptIndex)
+		{
+			if (deltaIndex == 0.0 || attemptIndex <= 0)
+				return deltaIndex;
+			const double growth = 1.0 + (double)M576_PEAK1D_SWEEP_RECENTER_ATTEMPT_GROWTH * (double)attemptIndex;
+			return deltaIndex * growth;
+		}
+
+		static double EnforcePeakDirection(double deltaIndex, int outsideSign)
+		{
+			if (outsideSign == 0 || deltaIndex == 0.0)
+				return deltaIndex;
+			const int sign = (deltaIndex > 0.0) ? 1 : ((deltaIndex < 0.0) ? -1 : 0);
+			if (sign == 0 || sign == outsideSign)
+				return deltaIndex;
+			return (double)outsideSign * std::abs(deltaIndex);
+		}
 	}
 
 	SweepProfile AnalyzeRecal1DSweepProfile(const std::vector<double>& powY)
@@ -170,48 +285,54 @@ namespace M576
 		int dacRange,
 		int attemptIndex)
 	{
+		SweepRecenterFailureInfo empty;
+		return SuggestSweepRecenterDeltaDac(profile, sampleCount, dacRange, attemptIndex, empty);
+	}
+
+	double SuggestSweepRecenterDeltaDac(
+		const SweepProfile& profile,
+		int sampleCount,
+		int dacRange,
+		int attemptIndex,
+		const SweepRecenterFailureInfo& failure)
+	{
 		if (sampleCount <= 1 || dacRange < 1)
 			return 0.0;
 		if (attemptIndex < 0)
 			attemptIndex = 0;
 
-		const double step = (2.0 * dacRange) / (double)(sampleCount - 1);
-		double frac = (double)M576_PEAK1D_SWEEP_RECENTER_BASE_FRAC
-			+ (double)M576_PEAK1D_SWEEP_RECENTER_ATTEMPT_STEP_FRAC * (double)attemptIndex;
+		const int outsideSign = PeakOutsideSign(profile, sampleCount);
+		const bool monoMiss = IsMonotoneMissFailure(failure.code, profile);
 
-		double deltaIndex = 0.0;
-		if (profile.trend == SweepTrend::StrictDec)
-		{
-			if (profile.argmaxIndex == 0)
-				frac += (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_BONUS_FRAC;
-			deltaIndex = -frac * (double)(sampleCount - 1);
-		}
-		else if (profile.trend == SweepTrend::StrictInc)
-		{
-			if (profile.argmaxIndex == (sampleCount - 1))
-				frac += (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_BONUS_FRAC;
-			deltaIndex = frac * (double)(sampleCount - 1);
-		}
-		else if (profile.argmaxIndex == 0)
-		{
-			deltaIndex = -(double)M576_PEAK1D_SWEEP_RECENTER_EDGE_ARGMAX_FRAC * (double)(sampleCount - 1);
-		}
-		else if (profile.argmaxIndex == (sampleCount - 1))
-		{
-			deltaIndex = (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_ARGMAX_FRAC * (double)(sampleCount - 1);
-		}
-		else
-		{
+		double deltaIndex = HeuristicDeltaIndex(profile, sampleCount, attemptIndex);
+		if (deltaIndex == 0.0 && outsideSign == 0)
 			return 0.0;
+
+		const bool useTStar = failure.hasTPeak
+			&& std::isfinite(failure.tPeak)
+			&& !monoMiss
+			&& (failure.code == Peak1DValidateCode::VertexOutOfRange
+				|| failure.code == Peak1DValidateCode::EdgeNotAllowed
+				|| failure.code == Peak1DValidateCode::NotEnoughValidSamples
+				|| profile.trend == SweepTrend::NonMono);
+
+		if (useTStar)
+		{
+			const double deltaT = DeltaIndexFromTPeak(failure.tPeak, sampleCount);
+			const double w = (double)M576_PEAK1D_SWEEP_RECENTER_TSTAR_WEIGHT;
+			deltaIndex = w * deltaT + (1.0 - w) * deltaIndex;
 		}
 
-		double deltaDac = deltaIndex * step;
-		const double maxShift = (double)M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC * (double)dacRange;
-		if (deltaDac > maxShift)
-			deltaDac = maxShift;
-		else if (deltaDac < -maxShift)
-			deltaDac = -maxShift;
-		return deltaDac;
+		deltaIndex = EnforcePeakDirection(deltaIndex, outsideSign);
+		deltaIndex = ApplyAttemptGrowth(deltaIndex, attemptIndex);
+
+		if (ArgmaxStuckOnSameEdge(profile, sampleCount, failure))
+		{
+			const double stag = 1.0 + (double)M576_PEAK1D_SWEEP_RECENTER_STAGNATION_GAIN;
+			deltaIndex *= stag;
+		}
+
+		return ClampRecenterDeltaDac(IndexShiftToDeltaDac(deltaIndex, sampleCount, dacRange), dacRange);
 	}
 
 	int SuggestSweepRecenterNewBase(
@@ -221,7 +342,19 @@ namespace M576
 		int dacRange,
 		int attemptIndex)
 	{
-		const double delta = SuggestSweepRecenterDeltaDac(profile, sampleCount, dacRange, attemptIndex);
+		SweepRecenterFailureInfo empty;
+		return SuggestSweepRecenterNewBase(centerDac, profile, sampleCount, dacRange, attemptIndex, empty);
+	}
+
+	int SuggestSweepRecenterNewBase(
+		double centerDac,
+		const SweepProfile& profile,
+		int sampleCount,
+		int dacRange,
+		int attemptIndex,
+		const SweepRecenterFailureInfo& failure)
+	{
+		const double delta = SuggestSweepRecenterDeltaDac(profile, sampleCount, dacRange, attemptIndex, failure);
 		const double next = centerDac + delta;
 		int iNext = (int)floor(next + 0.5);
 		if (iNext < 0)

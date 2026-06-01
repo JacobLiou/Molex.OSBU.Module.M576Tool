@@ -23,9 +23,9 @@ HEADER = r"""# Diagnosis input CSV. One *group* per data line.
 #     The host sends every SW command in order (CR appended automatically),
 #     reads one reply line per SW (typically "OK"/"FAIL").
 #   - After all SW in the group, the host runs three measure paths (s1/s2/s3), no precheck:
-#         (1) SFP_1550:  SW 3 1 1,  WL 1550, pd 1, opm 3 1
-#         (2) SFP_1310:  SW 3 1 4,  WL 1310, pd 1, opm 3 1
-#         (3) Laser_1310: SW 3 1 8, WL 1310, pd 1, opm 3 1
+#         (1) SFP_1550:  SW 3 1 1,  SWL 8 1550, pd 1, opm 3 1
+#         (2) SFP_1310:  SW 3 1 4,  SWL 8 1310, pd 1, opm 3 1
+#         (3) Laser_1310: SW 3 1 8, SWL 8 1310, pd 1, opm 3 1
 #   - Tokens are separated by '|'. Whitespace around tokens is trimmed.
 #   - Lines starting with '#' or ';' are comments. The trimmed text after
 #     the marker is attached as the *label* of the next data line (used for

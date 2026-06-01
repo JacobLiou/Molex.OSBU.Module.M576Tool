@@ -23,6 +23,16 @@ namespace M576
 		double slopePerIndex = 0.0;
 	};
 
+	/// Context from the failed fit attempt used to refine the next hardware sweep center.
+	struct SweepRecenterFailureInfo
+	{
+		Peak1DValidateCode code = Peak1DValidateCode::Empty;
+		double tPeak = 0.0;
+		bool hasTPeak = false;
+		int prevArgmaxIndex = -1;
+		bool hasPrevAttempt = false;
+	};
+
 	const char* SweepTrendName(SweepTrend t);
 
 	SweepProfile AnalyzeRecal1DSweepProfile(const std::vector<double>& powY);
@@ -36,6 +46,13 @@ namespace M576
 		int dacRange,
 		int attemptIndex);
 
+	double SuggestSweepRecenterDeltaDac(
+		const SweepProfile& profile,
+		int sampleCount,
+		int dacRange,
+		int attemptIndex,
+		const SweepRecenterFailureInfo& failure);
+
 	// centerDac + delta, rounded; caller passes col0 + dacRange for moving-axis center.
 	int SuggestSweepRecenterNewBase(
 		double centerDac,
@@ -43,4 +60,12 @@ namespace M576
 		int sampleCount,
 		int dacRange,
 		int attemptIndex);
+
+	int SuggestSweepRecenterNewBase(
+		double centerDac,
+		const SweepProfile& profile,
+		int sampleCount,
+		int dacRange,
+		int attemptIndex,
+		const SweepRecenterFailureInfo& failure);
 }

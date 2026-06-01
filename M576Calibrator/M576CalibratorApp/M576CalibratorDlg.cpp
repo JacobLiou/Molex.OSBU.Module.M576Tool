@@ -504,6 +504,16 @@ static BOOL ParseWavelengthNm(const CString& raw, int& outNm, CString& err)
 	return TRUE;
 }
 
+static void FormatSwlWire(CStringA& wire, int tlsSource, int wavelengthNm)
+{
+	wire.Format("SWL %d %d", tlsSource, wavelengthNm);
+}
+
+static void FormatSwlLabel(CString& label, LPCTSTR tag, int tlsSource, int wavelengthNm)
+{
+	label.Format(_T("SWL%d %d %s"), tlsSource, wavelengthNm, tag);
+}
+
 static void StripUtfBomForFirstLine(CString& line, int lineNo)
 {
 	if (lineNo != 1 || line.IsEmpty())
@@ -606,6 +616,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	}
 
 	int baseDac = initialBaseDac;
+	int prevArgmax = -1;
 	CStringA lineY;
 	for (int attempt = 0; attempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS; ++attempt)
 	{
@@ -641,18 +652,26 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			return FALSE;
 
 		const double centerDac = RecalSweepCenterFromCol0(outCol0, m_dacRange);
-		const double deltaDac = M576::SuggestSweepRecenterDeltaDac(profile, n, m_dacRange, attempt);
-		const int newBase = M576::SuggestSweepRecenterNewBase(centerDac, profile, n, m_dacRange, attempt);
+		M576::SweepRecenterFailureInfo failInfo = {};
+		failInfo.code = outCode;
+		failInfo.tPeak = outTPeak;
+		failInfo.hasTPeak = std::isfinite(outTPeak);
+		failInfo.prevArgmaxIndex = prevArgmax;
+		failInfo.hasPrevAttempt = (attempt > 0);
+		const double deltaDac = M576::SuggestSweepRecenterDeltaDac(profile, n, m_dacRange, attempt, failInfo);
+		const int newBase = M576::SuggestSweepRecenterNewBase(centerDac, profile, n, m_dacRange, attempt, failInfo);
 		{
 			CString msg;
 			msg.Format(
-				_T("  peak retry: %s %s attempt %d/%d trend=%hs argmax=%d span=%.4g deltaDac=%.4g newBase=%d (was center=%.4g base=%d)"),
+				_T("  peak retry: %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g deltaDac=%.4g newBase=%d (center=%.4g base=%d)"),
 				recalStageLabel,
 				axisTag,
 				attempt + 1,
-				(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1,
+				(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+				M576Peak1DWhy(outCode),
 				M576::SweepTrendName(profile.trend),
 				profile.argmaxIndex,
+				outTPeak,
 				profile.span,
 				deltaDac,
 				newBase,
@@ -660,6 +679,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 				baseDac);
 			SafeAppendLog(msg);
 		}
+		prevArgmax = profile.argmaxIndex;
 		baseDac = newBase;
 	}
 	return FALSE;
@@ -2076,7 +2096,7 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 #endif
 
 				// Three paths: after each source switch, set wavelength then read PD/OPM.
-				// s1: SW 3 1 1, WL 1550, pd 1, opm 3 1 — s2/s3: SW 3 1 4|8, WL 1310, pd 1, opm 3 1.
+				// s1: SW 3 1 1, SWL 8 1550, pd 1, opm 3 1 — s2/s3: SW 3 1 4|8, SWL 8 1310, pd 1, opm 3 1.
 				for (int scen = 0; scen < 3; ++scen)
 				{
 					if (m_diagStop)
@@ -2115,8 +2135,12 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 
 					if (scen == 0)
 					{
+						const int wlNm = 1550;
 						CString label1550;
-						label1550.Format(_T("WL1550 after SW3 1 %d s%d"), third, scen + 1);
+						CStringA wire1550;
+						FormatSwlLabel(label1550, _T("after SW3"), M576_DIAG_SWL_TLS_SOURCE, wlNm);
+						label1550.AppendFormat(_T(" 1 %d s%d"), third, scen + 1);
+						FormatSwlWire(wire1550, M576_DIAG_SWL_TLS_SOURCE, wlNm);
 						MaybeDelay();
 						if (m_diagStop)
 						{
@@ -2125,13 +2149,17 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 							stoppedMid = TRUE;
 							break;
 						}
-						(void)session->ExchangeAsciiLine(label1550.GetString(), CStringA("WL 1550"), r.wlScen[scen].wl1550Reply, 3000, ms, err);
+						(void)session->ExchangeAsciiLine(label1550.GetString(), wire1550, r.wlScen[scen].wl1550Reply, 3000, ms, err);
 						totalElapsed += ms;
 					}
 					else
 					{
+						const int wlNm = 1310;
 						CString label1310;
-						label1310.Format(_T("WL1310 after SW3 1 %d s%d"), third, scen + 1);
+						CStringA wire1310;
+						FormatSwlLabel(label1310, _T("after SW3"), M576_DIAG_SWL_TLS_SOURCE, wlNm);
+						label1310.AppendFormat(_T(" 1 %d s%d"), third, scen + 1);
+						FormatSwlWire(wire1310, M576_DIAG_SWL_TLS_SOURCE, wlNm);
 						MaybeDelay();
 						if (m_diagStop)
 						{
@@ -2140,7 +2168,7 @@ void CM576CalibratorDlg::DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows
 							stoppedMid = TRUE;
 							break;
 						}
-						(void)session->ExchangeAsciiLine(label1310.GetString(), CStringA("WL 1310"), r.wlScen[scen].wl1310Reply, 3000, ms, err);
+						(void)session->ExchangeAsciiLine(label1310.GetString(), wire1310, r.wlScen[scen].wl1310Reply, 3000, ms, err);
 						totalElapsed += ms;
 					}
 
@@ -2707,7 +2735,7 @@ BOOL CM576CalibratorDlg::GenerateStandardBinFiles(
 			{
 				if (preserveMcsMetaFromBackup)
 				{
-					for (int sw = 0; sw < 34; ++sw)
+					for (int sw = 0; sw < M576_MCS_LUT_SW_MERGE_COUNT; ++sw)
 					{
 						for (int ch = 0; ch < PORT_MAX_COUNT + MID_MAX_COUNT; ++ch)
 						{
@@ -3230,9 +3258,9 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 		return FALSE;
 	}
 	CStringA wire;
-	wire.Format("SWL %d %d", tlsSource, wavelengthNm);
+	FormatSwlWire(wire, tlsSource, wavelengthNm);
 	CString label;
-	label.Format(_T("SWL %d %d (Run Path)"), tlsSource, wavelengthNm);
+	FormatSwlLabel(label, _T("(Run Path)"), tlsSource, wavelengthNm);
 	CStringA reply;
 	DWORD ms = 0;
 	if (!m_pDiag->ExchangeAsciiLine(label, wire, reply, 3000, ms, err))
@@ -3282,11 +3310,11 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		return;
 	}
 	StartSessionCalibPolicyFromWavelength(wavelengthNm);
-	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
-	{
-		SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
-		return;
-	}
+	//if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
+	//{
+	//	SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
+	//	return;
+	//}
 	const int tlsSource = m_tlsIndex + 1;
 	const int pmRange = m_pmRangeIndex;
 	{
@@ -3509,6 +3537,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		BOOL pmSkipStep = FALSE;
 		BOOL pmBreakPath = FALSE;
 		int mode1Base = yBaseDacForSweep1;
+		int xPrevArgmax = -1;
 		for (int xAttempt = 0; xAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS; ++xAttempt)
 		{
 			if (!m_pRecal->ExchangeRecal3ReadSweep(1, mode1Base, m_dacRange, m_dacStep, m_delayMs, lineX, readTimeout1d, err))
@@ -3569,22 +3598,35 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			if (!xCanRetry || xLastAttempt)
 				break;
 			const double xCenter = RecalSweepCenterFromCol0(sweep1LineCol0, m_dacRange);
-			const double deltaDac = M576::SuggestSweepRecenterDeltaDac(xProfile, nX, m_dacRange, xAttempt);
-			mode1Base = M576::SuggestSweepRecenterNewBase(xCenter, xProfile, nX, m_dacRange, xAttempt);
+			double tXPeak = 0.0;
+			int xIdxTmp = 0;
+			M576::Peak1DValidateCode xFitCode = xCross;
+			(void)M576::FindUnimodalPeak1DIndex(powX, xIdxTmp, xFitCode, &tXPeak, nullptr);
+			M576::SweepRecenterFailureInfo xFailInfo = {};
+			xFailInfo.code = xCross;
+			xFailInfo.tPeak = tXPeak;
+			xFailInfo.hasTPeak = std::isfinite(tXPeak);
+			xFailInfo.prevArgmaxIndex = xPrevArgmax;
+			xFailInfo.hasPrevAttempt = (xAttempt > 0);
+			const double deltaDac = M576::SuggestSweepRecenterDeltaDac(xProfile, nX, m_dacRange, xAttempt, xFailInfo);
+			mode1Base = M576::SuggestSweepRecenterNewBase(xCenter, xProfile, nX, m_dacRange, xAttempt, xFailInfo);
 			{
 				CString msg;
 				msg.Format(
-					_T("  peak retry: RECAL 3 1 X attempt %d/%d trend=%hs argmax=%d span=%.4g deltaDac=%.4g newBase=%d (was center=%.4g)"),
+					_T("  peak retry: RECAL 3 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g deltaDac=%.4g newBase=%d (center=%.4g)"),
 					xAttempt + 1,
-					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1,
+					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+					M576Peak1DWhy(xCross),
 					M576::SweepTrendName(xProfile.trend),
 					xProfile.argmaxIndex,
+					tXPeak,
 					xProfile.span,
 					deltaDac,
 					mode1Base,
 					xCenter);
 				SafeAppendLog(msg);
 			}
+			xPrevArgmax = xProfile.argmaxIndex;
 		}
 
 		if (pmBreakPath)
@@ -3713,11 +3755,11 @@ void CM576CalibratorDlg::RunPathPd()
 		else
 			StartSessionCalibPolicyFromWavelength(M576_DEFAULT_WAVELENGTH_NM);
 	}
-	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
-	{
-		SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
-		return;
-	}
+	//if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
+	//{
+	//	SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
+	//	return;
+	//}
 	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
@@ -3898,6 +3940,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		BOOL pdSkipStep = FALSE;
 		BOOL pdBreakPath = FALSE;
 		int mode1BasePd = yBaseDacForSweep1Pd;
+		int xPrevArgmaxPd = -1;
 		for (int xAttempt = 0; xAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS; ++xAttempt)
 		{
 			if (!m_pRecal->ExchangeRecal5ReadSweep(1, mode1BasePd, m_dacRange, m_dacStep, m_delayMs, lineX, readTimeout1d, err))
@@ -3958,22 +4001,35 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			if (!xCanRetryPd || xLastAttemptPd)
 				break;
 			const double xCenterPd = RecalSweepCenterFromCol0(sweep1LineCol0Pd, m_dacRange);
-			const double deltaDacPd = M576::SuggestSweepRecenterDeltaDac(xProfilePd, nXpd, m_dacRange, xAttempt);
-			mode1BasePd = M576::SuggestSweepRecenterNewBase(xCenterPd, xProfilePd, nXpd, m_dacRange, xAttempt);
+			double tXPeakPd = 0.0;
+			int xIdxTmpPd = 0;
+			M576::Peak1DValidateCode xFitCodePd = xCrossPd;
+			(void)M576::FindUnimodalPeak1DIndex(powX, xIdxTmpPd, xFitCodePd, &tXPeakPd, nullptr);
+			M576::SweepRecenterFailureInfo xFailInfoPd = {};
+			xFailInfoPd.code = xCrossPd;
+			xFailInfoPd.tPeak = tXPeakPd;
+			xFailInfoPd.hasTPeak = std::isfinite(tXPeakPd);
+			xFailInfoPd.prevArgmaxIndex = xPrevArgmaxPd;
+			xFailInfoPd.hasPrevAttempt = (xAttempt > 0);
+			const double deltaDacPd = M576::SuggestSweepRecenterDeltaDac(xProfilePd, nXpd, m_dacRange, xAttempt, xFailInfoPd);
+			mode1BasePd = M576::SuggestSweepRecenterNewBase(xCenterPd, xProfilePd, nXpd, m_dacRange, xAttempt, xFailInfoPd);
 			{
 				CString msg;
 				msg.Format(
-					_T("  peak retry: RECAL 5 1 X attempt %d/%d trend=%hs argmax=%d span=%.4g deltaDac=%.4g newBase=%d (was center=%.4g)"),
+					_T("  peak retry: RECAL 5 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g deltaDac=%.4g newBase=%d (center=%.4g)"),
 					xAttempt + 1,
-					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1,
+					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+					M576Peak1DWhy(xCrossPd),
 					M576::SweepTrendName(xProfilePd.trend),
 					xProfilePd.argmaxIndex,
+					tXPeakPd,
 					xProfilePd.span,
 					deltaDacPd,
 					mode1BasePd,
 					xCenterPd);
 				SafeAppendLog(msg);
 			}
+			xPrevArgmaxPd = xProfilePd.argmaxIndex;
 		}
 
 		if (pdBreakPath)

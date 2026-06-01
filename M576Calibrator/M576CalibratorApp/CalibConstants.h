@@ -28,6 +28,10 @@
 #ifndef M576_DEFAULT_TLS_SOURCE
 #define M576_DEFAULT_TLS_SOURCE 8
 #endif
+/// Run Diagnosis post-SW blocks: ASCII `SWL <tls> <nm>` (fixed TLS channel).
+#ifndef M576_DIAG_SWL_TLS_SOURCE
+#define M576_DIAG_SWL_TLS_SOURCE 8
+#endif
 /// RECAL 0: wavelength (nm, int), PRD 850~1650.
 // RECAL 0 波长（nm 整数，PRD 约 850~1650）。
 #ifndef M576_MIN_WAVELENGTH_NM
@@ -116,6 +120,10 @@
 // 2# MCS 行在 LUT 中的下标偏移（与 1# 对齐或分 bank 时由集成态确认；默认 0 表示与 1# 同下标，后写覆盖需验证）。
 #ifndef M576_MCS2_SW_INDEX_OFFSET
 #define M576_MCS2_SW_INDEX_OFFSET 0
+#endif
+/// 1310 LOW merge / CSV session apply: only sw 0..31 (32 MCS switches). Legacy SN33/SN34 slots [32][33] stay from backup.
+#ifndef M576_MCS_LUT_SW_MERGE_COUNT
+#define M576_MCS_LUT_SW_MERGE_COUNT 32
 #endif
 
 #if defined(__cplusplus)

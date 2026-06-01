@@ -6,7 +6,7 @@
 #include "CalibConstants.h"
 
 /// Start from `base` (typically loaded from existing BIN) and overwrite only IDX_TEMP_LOW DAC pairs
-/// with values taken from `src1310` (same dimensions).
+/// with values taken from `src1310` for MCS switch indices 0..31. Legacy mirror slots sw 32/33 (SN33/SN34) are left unchanged in `base`.
 // 在 base 上，用 src1310 中仅 IDX_TEMP_LOW 的 DAC 对覆盖同维项（同结构体布局）。
 void MergeLut1310LowTempSlot(stLutSettingZ4671& base, const stLutSettingZ4671& src1310);
 
