@@ -1,0 +1,53 @@
+---
+description: M576 1310 定标上位机全局约束（架构、IO、测试、DoD）
+alwaysApply: true
+---
+
+# M576 全局工程约束
+
+本项目：Windows MFC 上位机 + 单串口 439F，经 `trans`/`$$` 透传控制 2×MCS + 2×1×64，1310nm 自动定标、寻峰、Z4671 兼容 BIN 读回/合并/烧录。
+
+## 必读文档
+
+- 产品与 ATE 原则：`CLAUDE.md`
+- **不变量**：`M576Calibrator/Docs/INVARIANTS.md`
+- **LUT 下标对照**：`M576Calibrator/Docs/LUT_INDEXING.md`
+- 模块与类索引：`M576Calibrator/Docs/DEVELOPMENT_AND_CODE_GUIDE.md`
+- 物理拓扑：`物理拓扑图.png`
+
+## 分层（禁止跨层）
+
+| 层 | 位置 | 职责 |
+|----|------|------|
+| Z4671Core | `M576Calibrator/Z4671Core/` | 串口、`Z4671Command`、LUT/MEMS bin 布局、CRC；**无 MFC 对话框** |
+| App 编排 | `M576CalibratorApp/` | UI、RECAL 文本、路径 CSV、寻峰、Merge、透传烧读 |
+| 离线验证 | `CrossPeakTest/` | 寻峰/重试/comm CSV 回放，**无硬件** |
+
+- App 复用 Z4671 读写烧录逻辑，勿在 Dlg 里重写 bin 布局或 CRC。
+- 改寻峰/RECAL 门限时同步 `CrossPeakTest` 与 `M576Peak1DConstants.h`。
+
+## IO 与稳定性
+
+- 禁止在 UI 线程长时间阻塞串口/Flash；工作线程 + 超时。
+- 通信须有超时、可区分错误码；禁止仅靠 `LogInfo` 判断步骤成败。
+- 协议常量放 `CalibConstants.h` / `M576Peak1DConstants.h`，勿在 Dlg 散落魔数。
+
+## 业务主流程（勿打乱顺序语义）
+
+1. **Read Bin** — 透传读四路 backup  
+2. **Calibrate** — Run Path / RECAL 定标  
+3. **Write Bin** — 合并进 backup 再落盘  
+4. **Burn Flash** — 透传烧录  
+
+## 提交前检查（算法/Merge/RECAL 相关改动）
+
+```text
+msbuild M576Calibrator\CrossPeakTest\CrossPeakTest.vcxproj /p:Configuration=Release /p:Platform=Win32
+M576Calibrator\CrossPeakTest\Release\CrossPeakTest.exe
+```
+
+## AI 改代码前自问
+
+1. 输入/输出/失败处理是否明确？  
+2. 是否可单测或 CrossPeakTest 覆盖？  
+3. 是否动到未校准的 LUT 槽位或 SN33/34？（见 `m576-lut-bin` 规则）

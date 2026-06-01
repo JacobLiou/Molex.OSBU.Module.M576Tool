@@ -1,0 +1,38 @@
+---
+description: MCS/MEMS LUT 合并、Write BIN、1310 低温槽与 SN 下标不变量
+globs: M576Calibrator/**/LutMerge*.cpp,M576Calibrator/**/LutMerge*.h,M576Calibrator/**/M576CalibratorDlg.cpp,M576Calibrator/**/CalibWriteMeta.*,M576Calibrator/**/CalibConstants.h,M576Calibrator/Z4671Core/LutBinWriter.*
+alwaysApply: false
+---
+
+# LUT / BIN 写入规则
+
+**改码前必读**（权威条文与表格）：
+
+- `M576Calibrator/Docs/INVARIANTS.md` — **INV-01..06, INV-20..22**
+- `M576Calibrator/Docs/LUT_INDEXING.md` — SN/sw/ch、块号映射、trans 槽
+
+## 必须遵守（摘要）
+
+- 1310 只写 `IDX_TEMP_LOW`；Merge 仅 **sw 0..31**（**INV-02**：勿动 SN33/34 = sw 32/33）。
+- 路径只校 **ch 1..18** → LUT **ch 0..17**；**CH19–32** 未校须留 backup（**INV-03**）；优先 **稀疏 merge**（**INV-06**）。
+- `M576_MCS_LUT_SW_MERGE_COUNT` 必须为 32；禁止 `for (sw < 34)`。
+- DAC 负值合法；钳位用 `M576_RECAL_DAC_MIN/MAX`，禁止 `<0 → 0`（**INV-04**）。
+- Read 整包 LUT，不单独清 sw 32/33（**INV-20**）。
+
+## 实现锚点
+
+- `MergeLut1310LowTempSlot` — `LutMerge1310.cpp`
+- MakeBin preserve — `M576CalibratorDlg.cpp`（`preserveMcsMetaFromBackup`）
+- 块号 → sw — `M576McsBlock1To32ToLutSwIdx0` in `CalibConstants.h`
+
+## 改完验证
+
+- Z4671 导出 CSV 对比 **SN33/34、CH19–32**
+- Merge 变更 → `CrossPeakTest` 或后续 bin golden
+
+```cpp
+// BAD
+for (int sw = 0; sw < 34; ++sw)
+for (int ch = 0; ch < 32; ++ch)
+  base[sw][IDX_TEMP_LOW][ch] = src[...]; // 未校通道被 session 零覆盖
+```

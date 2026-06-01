@@ -1,0 +1,29 @@
+---
+description: 本仓库 Markdown 文档风格与交叉引用
+globs: **/*.md
+alwaysApply: false
+---
+
+# M576 文档规则
+
+## 文档分工
+
+| 文件 | 读者 | 内容 |
+|------|------|------|
+| `CLAUDE.md` | AI / 架构 | 拓扑、ATE 原则、禁止项 |
+| `M576Calibrator/Docs/DEVELOPMENT_AND_CODE_GUIDE.md` | 开发 | 模块、类、数据流 |
+| `M576Calibrator/Docs/USER_MANUAL_CN.md` | 产线操作 | 按钮与流程 |
+| `M576Calibrator/M576Calibrator使用说明.md` | 中文用户 | 使用说明 |
+| `需求Spec PRD.md` | 产品 | 需求 |
+
+## 写作要求
+
+- 技术说明用**中文**；标识符、宏、路径、命令保持英文原文。  
+- SN/sw/ch 混用时必须给**对照表**（SN33 → sw 32，路径 ch1 → LUT ch0）。  
+- 不变量用 `INV-xx` 编号（若已有 `Docs/INVARIANTS.md` 则与其一致）。  
+- 改 Merge/RECAL/Read 行为时，同步更新 `DEVELOPMENT_AND_CODE_GUIDE.md` 相关小节。
+
+## 勿重复
+
+- 长架构图以 `DEVELOPMENT_AND_CODE_GUIDE.md` 为准；`CLAUDE.md` 保持简短原则。  
+- 操作步骤以用户手册为准，开发指南不写逐步点按钮教程。

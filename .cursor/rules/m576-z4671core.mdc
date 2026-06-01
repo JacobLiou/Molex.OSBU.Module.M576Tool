@@ -1,0 +1,33 @@
+---
+description: Z4671Core 静态库 — 串口、命令帧、bin 布局与 CRC
+globs: M576Calibrator/Z4671Core/**
+alwaysApply: false
+---
+
+# Z4671Core 规则
+
+## 职责
+
+- `COpComm`：原始字节收发，不拼 RECAL 文本。  
+- `Z4671Command`：二进制 CMD 帧（透传后 Flash、扫描、开关 DAC 等）。  
+- `CLutBinWriter` / `CMems1x64LutBinWriter`：合包写盘，偏移与 `SLutBinWriteParams` 一致。  
+- `Z4767StructDefine.h`：**勿改** `stLutSettingZ4671` 成员布局（与 Z4671/产线 bin 兼容）。
+
+## 依赖
+
+- **不得** `#include` MFC 对话框或 `M576CalibratorApp` 头文件。  
+- 日志用 `CommLog.h` 的 `M576CommLogTarget`，由 App 注入回调。
+
+## 修改注意
+
+- CRC：`COpCRC32` 多项式与设备一致；改后须用已知 golden bin 验 CRC 字段。  
+- 字节序：`ByteSwap.h`，勿在 App 重复实现。  
+- 重试模板：`CommRetry.h` 的 `M576WithRetry`，超时/次数与 `CalibConstants.h` 对齐。
+
+## App 侧勿重复实现
+
+- LUT 合包尺寸、`LutPayloadOffset`、`ReadLutFromFile` 等应调用 `CLutBinWriter`，勿在 Dlg 手写文件布局。
+
+## 测试
+
+- Core 逻辑优先用 **无 MFC** 的小工程或 `CrossPeakTest` 链入的 .cpp 验证；大改动需 bin  roundtrip（读文件 → 解析 → 写回 → CRC 不变性检查）。

@@ -1,0 +1,35 @@
+---
+description: 439F 透传、MCS/1x64 Flash 烧读与串口会话
+globs: M576Calibrator/**/McsFwTransport.*,M576Calibrator/**/Switch1x64FwTransport.*,M576Calibrator/**/Board439fTransTunnel.*,M576Calibrator/**/DiagnosisSession.*
+alwaysApply: false
+---
+
+# 透传与烧读规则
+
+## 串口会话顺序
+
+1. 打开 `COpComm`（单口复用）。  
+2. 进隧道：`Board439fTransTunnel` — `trans <n>` → 二进制 `Z4671Command` → 结束 `$$`。  
+3. ASCII RECAL 与透传**互斥**同一时刻占用口；切换前 drain/超时策略与现有 `RecalSession` 一致。
+
+## MCS vs 1×64
+
+| 对象 | 典型类 | 数据 |
+|------|--------|------|
+| MCS LUT 合包 | `McsFwTransport` | `stLutSettingZ4671`，0xC4 等读路径 |
+| 1×64 MEMS | `Switch1x64FwTransport` | `stM576OneX64MemsSwCoef` 2208B，XMODEM/分片见实现注释 |
+
+## 常量与固件对齐
+
+- `M576_FLASH_LUT_READ_BASE`：以固件确认为准（文档记录当前值）；改前与固件同事对齐。  
+- 所有 Flash/文件读写的 **超时、重试次数** 须有上限，失败返回 `BOOL`/`错误码` 到 UI 线程，勿无限等。
+
+## 禁止
+
+- 在 UI 线程直接 `GetLogFileData` 大段读 Flash。  
+- 无 `trans` 直接发 MCS 二进制帧。  
+- 硬编码新 CMD 码而不查 `Z4671Command` 已有宏/方法。
+
+## 文档
+
+- 1×64 写地址：`M576Calibrator/Docs/1X64-Calibration-Write-Addressing.md`

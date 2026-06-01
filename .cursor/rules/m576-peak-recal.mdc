@@ -1,0 +1,44 @@
+---
+description: RECAL 扫频、1D/2D 寻峰、重试与无效功率占位
+globs: M576Calibrator/**/Peak*.cpp,M576Calibrator/**/Peak*.h,M576Calibrator/**/Recal*.cpp,M576Calibrator/**/Recal*.h,M576Calibrator/**/M576Peak1DConstants.h,M576Calibrator/CrossPeakTest/**
+alwaysApply: false
+---
+
+# RECAL / 寻峰规则
+
+**改码前必读**：
+
+- `M576Calibrator/Docs/INVARIANTS.md` — **INV-10..15**
+- 下标/通道范围见 `M576Calibrator/Docs/LUT_INDEXING.md`（寻峰不写 LUT 时也勿混淆 ch）
+
+## 模块
+
+- ASCII：`CRecalSession`（App）
+- 门限：`M576Peak1DConstants.h`
+- 重试：`Peak1DSweepRecenter.cpp` — `IsRetryablePeakFailure`, `SuggestSweepRecenterNewBase`
+
+## 必须遵守（摘要）
+
+| 情况 | 重试 | INV |
+|------|------|-----|
+| `trend == Flat` | **否** | INV-10 |
+| `StrictInc` / `StrictDec` | 是 | INV-11 |
+| `ParabolaNotDownward` + 贴边 NonMono | 是 | INV-11 |
+| 无效点 -999999 / -999900 | 剔除 | INV-14 |
+| `newBase` | int16 钳位，负值保留 | INV-13 |
+| 失败日志 | 含 validate_code、trend、col0、attempts | INV-15 |
+
+- 至少一次 recenter 再放弃该轴（**INV-12**）；通信 `no line` 走通信重试，非寻峰 recenter。
+- 首次扫 base 可用 `M576_RECAL_FW_READ_BASE_DAC` (9999)。
+
+## 测试
+
+改重试/拟合 → 更新 `CrossPeakTest/main.cpp`，Release\|Win32 跑通。
+
+```cpp
+// BAD — INV-10
+if (code == ParabolaNotDownward) retry = true; // 未检查 profile.trend
+
+// BAD — INV-13
+if (iNext < 0) iNext = 0;
+```
