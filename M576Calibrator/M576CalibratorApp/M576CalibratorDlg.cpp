@@ -599,12 +599,14 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	M576::Peak1DValidateCode& outCode,
 	M576::Peak1DFitTrace& outTrace,
 	double& outTPeak,
+	int& outAttemptCount,
 	CString& err)
 {
 	err.Empty();
 	outCode = M576::Peak1DValidateCode::Empty;
 	outPeakIdx = 0;
 	outTPeak = 0.0;
+	outAttemptCount = 0;
 	outCol0 = 0.0;
 	outPow.clear();
 	outTrace = M576::Peak1DFitTrace();
@@ -620,6 +622,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	CStringA lineY;
 	for (int attempt = 0; attempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS; ++attempt)
 	{
+		outAttemptCount = attempt + 1;
 		const BOOL got = isPm
 			? m_pRecal->ExchangeRecal3ReadSweep(
 				sweepMode, baseDac, m_dacRange, m_dacStep, m_delayMs, lineY, readTimeoutMs, err)
@@ -659,11 +662,16 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 		failInfo.prevArgmaxIndex = prevArgmax;
 		failInfo.hasPrevAttempt = (attempt > 0);
 		const double deltaDac = M576::SuggestSweepRecenterDeltaDac(profile, n, m_dacRange, attempt, failInfo);
+		const double nextUnclamped = centerDac + deltaDac;
+		const int roundedBase = (int)floor(nextUnclamped + 0.5);
 		const int newBase = M576::SuggestSweepRecenterNewBase(centerDac, profile, n, m_dacRange, attempt, failInfo);
 		{
+			CString clampNote;
+			if (roundedBase != newBase)
+				clampNote.Format(_T(" clampedFrom=%d"), roundedBase);
 			CString msg;
 			msg.Format(
-				_T("  peak retry: %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g deltaDac=%.4g newBase=%d (center=%.4g base=%d)"),
+				_T("  peak retry: %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g col0=%.4g deltaDac=%.4g next=%.4g newBase=%d (center=%.4g base=%d)%s"),
 				recalStageLabel,
 				axisTag,
 				attempt + 1,
@@ -673,10 +681,13 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 				profile.argmaxIndex,
 				outTPeak,
 				profile.span,
+				outCol0,
 				deltaDac,
+				nextUnclamped,
 				newBase,
 				centerDac,
-				baseDac);
+				baseDac,
+				clampNote.GetString());
 			SafeAppendLog(msg);
 		}
 		prevArgmax = profile.argmaxIndex;
@@ -3474,6 +3485,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		int brForYBase = 0;
 		M576::Peak1DValidateCode yPreCode = M576::Peak1DValidateCode::Ok;
 		double tYPre = 0.0;
+		int yPreAttemptsPm = 0;
 		M576::Peak1DFitTrace yPreTracePm;
 		if (!RunRecal1DSweepWithPeakRecenterRetry(
 				TRUE,
@@ -3488,6 +3500,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				yPreCode,
 				yPreTracePm,
 				tYPre,
+				yPreAttemptsPm,
 				err))
 		{
 			if (err.IsEmpty())
@@ -3500,7 +3513,15 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			else if (!err.IsEmpty())
 				SafeAppendLog(err);
 			if (!powY.empty() && yPreCode != M576::Peak1DValidateCode::Ok)
+			{
+				CString retryInfo;
+				retryInfo.Format(
+					_T("  peak retry summary: attempts=%d, retries=%d."),
+					yPreAttemptsPm,
+					(yPreAttemptsPm > 0) ? (yPreAttemptsPm - 1) : 0);
+				SafeAppendLog(retryInfo);
 				SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::YPre, yPreCode));
+			}
 			else if (powY.empty())
 				SafeAppendLog(_T("  RECAL 3 1: no Y samples; skip X sweep (RECAL 3 1)."));
 			++globalProgress;
@@ -3878,6 +3899,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		int brForYBasePd = 0;
 		M576::Peak1DValidateCode yPreCodePd = M576::Peak1DValidateCode::Ok;
 		double tYPrePd = 0.0;
+		int yPreAttemptsPd = 0;
 		M576::Peak1DFitTrace yPreTracePd;
 		if (!RunRecal1DSweepWithPeakRecenterRetry(
 				FALSE,
@@ -3892,6 +3914,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				yPreCodePd,
 				yPreTracePd,
 				tYPrePd,
+				yPreAttemptsPd,
 				err))
 		{
 			if (err.IsEmpty())
@@ -3904,7 +3927,15 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			else if (!err.IsEmpty())
 				SafeAppendLog(err);
 			if (!powY.empty() && yPreCodePd != M576::Peak1DValidateCode::Ok)
+			{
+				CString retryInfo;
+				retryInfo.Format(
+					_T("  peak retry summary: attempts=%d, retries=%d."),
+					yPreAttemptsPd,
+					(yPreAttemptsPd > 0) ? (yPreAttemptsPd - 1) : 0);
+				SafeAppendLog(retryInfo);
 				SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::YPre, yPreCodePd));
+			}
 			else if (powY.empty())
 				SafeAppendLog(_T("  RECAL 5 1: no Y samples; skip X sweep (RECAL 5 1)."));
 			++globalProgress;

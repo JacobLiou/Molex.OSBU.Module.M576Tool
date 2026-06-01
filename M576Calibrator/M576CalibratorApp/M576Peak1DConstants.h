@@ -24,6 +24,13 @@
 #ifndef M576_RECAL_POW_INVALID_2
 #define M576_RECAL_POW_INVALID_2 (-999900.0)
 #endif
+/// Host-set RECAL 3/5 Base DAC (when not 9999): signed int16, same as LUT DAC pair range.
+#ifndef M576_RECAL_DAC_MIN
+#define M576_RECAL_DAC_MIN (-32768)
+#endif
+#ifndef M576_RECAL_DAC_MAX
+#define M576_RECAL_DAC_MAX 32767
+#endif
 /// 三阶拟合至少需要参与回归的样本数（含预处理后的格点）。
 #ifndef M576_PEAK1D_CUBIC_MIN_SAMPLES
 #define M576_PEAK1D_CUBIC_MIN_SAMPLES 4

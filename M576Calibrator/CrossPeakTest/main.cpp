@@ -1011,6 +1011,32 @@ static int RunSweepRecenterSelfTests()
 		}
 	}
 
+	{
+		// User log 2026-06-01: col0=-198, offset=64 -> center=-134; newBase must stay negative (~-156), not 0.
+		const double col0 = -198.0;
+		const double centerDac = col0 + (double)dacRange;
+		SweepProfile p = {};
+		p.trend = SweepTrend::NonMono;
+		p.argmaxIndex = 1;
+		p.span = 803.0;
+		p.validCount = n;
+		const int newBase = SuggestSweepRecenterNewBase(centerDac, p, n, dacRange, 0);
+		if (newBase >= 0)
+		{
+			std::fprintf(stderr,
+				"self-test: signed RECAL base from col0=-198 must be negative (got %d, expected ~-156)\n",
+				newBase);
+			++fail;
+		}
+		if (std::abs(newBase + 156) > 3)
+		{
+			std::fprintf(stderr,
+				"self-test: signed RECAL base from col0=-198 expected ~-156 (got %d)\n",
+				newBase);
+			++fail;
+		}
+	}
+
 	return fail;
 }
 

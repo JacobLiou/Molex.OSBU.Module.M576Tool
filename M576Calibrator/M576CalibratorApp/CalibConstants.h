@@ -93,6 +93,7 @@
 #ifndef M576_RECAL_FW_READ_BASE_DAC
 #define M576_RECAL_FW_READ_BASE_DAC 9999
 #endif
+// M576_RECAL_DAC_MIN/MAX: see M576Peak1DConstants.h (included above).
 
 /// `RECAL 3` / `RECAL 5` sweep line read: `min(n*delay + margin, max)` — one global cap for PM/PD (not per opcode).
 // 读 RECAL 3/5 扫频行总超时上界（PM/PD 共用，非按指令分别配）。

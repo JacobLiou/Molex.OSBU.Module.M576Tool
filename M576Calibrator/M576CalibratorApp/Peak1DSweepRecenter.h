@@ -53,7 +53,7 @@ namespace M576
 		int attemptIndex,
 		const SweepRecenterFailureInfo& failure);
 
-	// centerDac + delta, rounded; caller passes col0 + dacRange for moving-axis center.
+	// centerDac + delta, rounded to int16 RECAL base (signed; not clamped to 0).
 	int SuggestSweepRecenterNewBase(
 		double centerDac,
 		const SweepProfile& profile,

@@ -378,10 +378,10 @@ namespace M576
 		const double delta = SuggestSweepRecenterDeltaDac(profile, sampleCount, dacRange, attemptIndex, failure);
 		const double next = centerDac + delta;
 		int iNext = (int)floor(next + 0.5);
-		if (iNext < 0)
-			iNext = 0;
-		if (iNext > 65535)
-			iNext = 65535;
+		if (iNext < M576_RECAL_DAC_MIN)
+			iNext = M576_RECAL_DAC_MIN;
+		if (iNext > M576_RECAL_DAC_MAX)
+			iNext = M576_RECAL_DAC_MAX;
 		return iNext;
 	}
 }
