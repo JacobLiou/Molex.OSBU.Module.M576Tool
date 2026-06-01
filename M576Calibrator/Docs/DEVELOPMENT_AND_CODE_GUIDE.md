@@ -4,6 +4,13 @@
 
 **读者**：固件/上位机对接、产线软件维护、二次功能扩展。
 
+**对表与不变量**（改 Merge / RECAL / Read 前必读）：
+
+| 文档 | 用途 |
+|------|------|
+| [`INVARIANTS.md`](INVARIANTS.md) | 不可违反的 INV-xx 条文（SN33/34、CH19–32、重试、Read） |
+| [`LUT_INDEXING.md`](LUT_INDEXING.md) | SN / sw / ch / MCS 块号对照表 |
+
 ---
 
 ## 1. 文档范围与解方案
