@@ -127,6 +127,16 @@ namespace M576
 			{
 				deltaIndex = (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_ARGMAX_FRAC * (double)(sampleCount - 1);
 			}
+			else if (profile.argmaxIndex <= 1)
+			{
+				// Near-left-edge quasi-monotone: likely true peak outside left bound.
+				deltaIndex = -(double)M576_PEAK1D_SWEEP_RECENTER_EDGE_ARGMAX_FRAC * (double)(sampleCount - 1);
+			}
+			else if (profile.argmaxIndex >= (sampleCount - 2))
+			{
+				// Near-right-edge quasi-monotone: likely true peak outside right bound.
+				deltaIndex = (double)M576_PEAK1D_SWEEP_RECENTER_EDGE_ARGMAX_FRAC * (double)(sampleCount - 1);
+			}
 			return deltaIndex;
 		}
 
@@ -141,6 +151,10 @@ namespace M576
 			if (profile.argmaxIndex == 0)
 				return -1;
 			if (profile.argmaxIndex == (sampleCount - 1))
+				return +1;
+			if (profile.argmaxIndex <= 1)
+				return -1;
+			if (profile.argmaxIndex >= (sampleCount - 2))
 				return +1;
 			return 0;
 		}
@@ -263,7 +277,14 @@ namespace M576
 		switch (code)
 		{
 		case Peak1DValidateCode::ParabolaNotDownward:
-			return profile.trend == SweepTrend::StrictInc || profile.trend == SweepTrend::StrictDec;
+			// Keep strict monotone retry, and allow near-edge quasi-monotone retries.
+			if (profile.trend == SweepTrend::StrictInc || profile.trend == SweepTrend::StrictDec)
+				return true;
+			if (profile.trend == SweepTrend::NonMono && sampleCount > 1)
+			{
+				return profile.argmaxIndex <= 1 || profile.argmaxIndex >= (sampleCount - 2);
+			}
+			return false;
 		case Peak1DValidateCode::NotEnoughValidSamples:
 			return profile.trend == SweepTrend::StrictInc || profile.trend == SweepTrend::StrictDec;
 		case Peak1DValidateCode::VertexOutOfRange:
