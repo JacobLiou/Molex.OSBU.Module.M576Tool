@@ -39,6 +39,7 @@
 | **INV-13** | 重试 `newBase` 由 `SuggestSweepRecenterNewBase` 钳位到 int16 范围，**不得**将负值抹为 0。 |
 | **INV-14** | 固件无效功率占位仅认 `M576_RECAL_POW_INVALID_1` (-999999.0) 与 `M576_RECAL_POW_INVALID_2` (-999900.0)，拟合前剔除。 |
 | **INV-15** | 定标步骤失败须带可机读 `Peak1DValidateCode`（及 trend/col0/attempts 等）；禁止仅靠无码日志判成败。 |
+| **INV-16** | **PM / RECAL 3 only**：有效样本全局极大值 `dBm = raw/10000` 须在界面 `pm_range` 0..3 对应区间内；`pm_range==4`（auto）跳过。失败码 `PmRangeMismatch`，**不重试** recenter，丢弃该 path 步。PD（RECAL 5）不做挡位校验。 |
 
 ---
 

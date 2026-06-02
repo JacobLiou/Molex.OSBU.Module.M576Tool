@@ -171,6 +171,7 @@ private:
 	/// RECAL 3/5 one-axis sweep + 1D peak find; on monotone/edge failure, data-driven recenter retry (max 2 retries).
 	BOOL RunRecal1DSweepWithPeakRecenterRetry(
 		BOOL isPm,
+		int pmRangeIndex,
 		int sweepMode,
 		int initialBaseDac,
 		DWORD readTimeoutMs,

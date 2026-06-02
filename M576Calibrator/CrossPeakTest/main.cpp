@@ -7,6 +7,7 @@
  */
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
+#include "PmRangeValidation.h"
 #include "M576Peak1DConstants.h"
 #include <windows.h>
 #include <cstdio>
@@ -55,6 +56,7 @@ static const char* Peak1DCodeName(Peak1DValidateCode c)
 	case Peak1DValidateCode::ParabolaNotDownward: return "ParabolaNotDownward";
 	case Peak1DValidateCode::ParabolaFitSingular: return "ParabolaFitSingular";
 	case Peak1DValidateCode::VertexOutOfRange: return "VertexOutOfRange";
+	case Peak1DValidateCode::PmRangeMismatch: return "PmRangeMismatch";
 	default: return "?";
 	}
 }
@@ -889,6 +891,111 @@ static int RunPeak1DSelfTests()
 	return fail;
 }
 
+static int RunPmRangeSelfTests()
+{
+	int fail = 0;
+	{
+		double lo = 0, hi = 0;
+		if (!M576::GetPmRangeDbmBounds(0, lo, hi) || lo != -14.0 || hi != 6.0)
+		{
+			std::fprintf(stderr, "pm-range: bounds 0\n");
+			++fail;
+		}
+		if (M576::GetPmRangeDbmBounds(4, lo, hi))
+		{
+			std::fprintf(stderr, "pm-range: range 4 should not have bounds\n");
+			++fail;
+		}
+	}
+	{
+		const double raw = -126102.0;
+		const double dbm = M576::RecalRawToDbm(raw);
+		if (std::abs(dbm - (-12.6102)) > 1e-6)
+		{
+			std::fprintf(stderr, "pm-range: RecalRawToDbm\n");
+			++fail;
+		}
+		std::vector<double> p = { -200000.0, raw, -999999.0 };
+		double pr = 0, pd = 0, lo = 0, hi = 0;
+		int idx = -1;
+		if (!M576::ValidatePeakPowerInPmRange(0, p, -1, pr, pd, lo, hi, idx) || idx != 1)
+		{
+			std::fprintf(stderr, "pm-range: range0 should accept -126102 at idx 1\n");
+			++fail;
+		}
+		if (M576::ValidatePeakPowerInPmRange(1, p, -1, pr, pd, lo, hi, idx))
+		{
+			std::fprintf(stderr, "pm-range: range1 should reject -12.61 dBm peak\n");
+			++fail;
+		}
+		if (!M576::ValidatePeakPowerInPmRange(4, p, -1, pr, pd, lo, hi, idx))
+		{
+			std::fprintf(stderr, "pm-range: auto should skip\n");
+			++fail;
+		}
+	}
+	{
+		const double rawEdge = -140000.0; // -14.0 dBm
+		std::vector<double> p = { rawEdge };
+		double pr = 0, pd = 0, lo = 0, hi = 0;
+		int idx = -1;
+		if (!M576::ValidatePeakPowerInPmRange(0, p, 0, pr, pd, lo, hi, idx))
+		{
+			std::fprintf(stderr, "pm-range: -14 dBm should be in range 0\n");
+			++fail;
+		}
+		if (M576::ValidatePeakPowerInPmRange(1, p, 0, pr, pd, lo, hi, idx))
+		{
+			std::fprintf(stderr, "pm-range: -14 dBm should not be in range 1\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> p((size_t)33);
+		for (int i = 0; i < 33; ++i)
+			p[(size_t)i] = -130000.0 - i * 3000.0;
+		const SweepProfile prof = AnalyzeRecal1DSweepProfile(p);
+		if (IsRetryablePeakFailure(Peak1DValidateCode::PmRangeMismatch, prof, 33))
+		{
+			std::fprintf(stderr, "pm-range: PmRangeMismatch must not retry\n");
+			++fail;
+		}
+	}
+	{
+		std::string commPath = PathToExeDirFile("comm_2026-05-25_recal_sweeps.csv");
+		if (commPath.empty())
+			commPath = "comm_2026-05-25_recal_sweeps.csv";
+		std::ifstream f(commPath);
+		if (f)
+		{
+			std::string line;
+			while (std::getline(f, line))
+			{
+				if (line.find("RECAL 3 0") == std::string::npos)
+					continue;
+				std::vector<double> nums;
+				if (!ParseNumberLine(line, nums) || nums.size() < 3)
+					break;
+				std::vector<double> powers(nums.begin() + 1, nums.end());
+				double pr = 0, pd = 0, lo = 0, hi = 0;
+				int idx = -1;
+				if (!M576::ValidatePeakPowerInPmRange(0, powers, -1, pr, pd, lo, hi, idx))
+				{
+					std::fprintf(stderr, "pm-range: comm line1 peak should pass range 0 (dbm=%.4f idx=%d)\n", pd, idx);
+					++fail;
+				}
+				if (M576::ValidatePeakPowerInPmRange(1, powers, -1, pr, pd, lo, hi, idx))
+				{
+					std::fprintf(stderr, "pm-range: comm line1 peak should fail range 1 (dbm=%.4f)\n", pd);
+					++fail;
+				}
+				break;
+			}
+		}
+	}
+	return fail;
+}
+
 static int RunSweepRecenterSelfTests()
 {
 	int fail = 0;
@@ -1053,6 +1160,8 @@ int main(int argc, char* argv[])
 
 	if (RunPeak1DSelfTests() != 0)
 		return 9;
+	if (RunPmRangeSelfTests() != 0)
+		return 11;
 	if (RunSweepRecenterSelfTests() != 0)
 		return 10;
 

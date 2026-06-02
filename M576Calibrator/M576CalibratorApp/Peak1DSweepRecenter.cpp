@@ -273,6 +273,8 @@ namespace M576
 	{
 		if (sampleCount <= 0 || profile.trend == SweepTrend::Flat)
 			return false;
+		if (code == Peak1DValidateCode::PmRangeMismatch)
+			return false;
 
 		switch (code)
 		{

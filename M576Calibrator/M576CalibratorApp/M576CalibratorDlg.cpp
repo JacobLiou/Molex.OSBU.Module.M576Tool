@@ -10,6 +10,7 @@
 #include "CalibConstants.h"
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
+#include "PmRangeValidation.h"
 #include "LutPeakApply.h"
 #include "Pm1x64Mapping.h"
 #include "M576GlobalException.h"
@@ -127,9 +128,58 @@ static const TCHAR* M576Peak1DWhy(M576::Peak1DValidateCode c)
 		return _T("cubic fit singular / ill-conditioned");
 	case Peak1DValidateCode::VertexOutOfRange:
 		return _T("peak position outside sweep [0..n-1]");
+	case Peak1DValidateCode::PmRangeMismatch:
+		return _T("peak power dBm outside selected PM range");
 	default:
 		return _T("unknown");
 	}
+}
+
+static CString M576FormatRecalPowersForLog(const std::vector<double>& powers)
+{
+	CString s;
+	for (size_t i = 0; i < powers.size(); ++i)
+	{
+		if (i > 0)
+			s += _T(",");
+		CString one;
+		one.Format(_T("%.0f"), powers[i]);
+		s += one;
+	}
+	return s;
+}
+
+static void M576AppendPmRangeRejectLog(
+	CM576CalibratorDlg* dlg,
+	int pmRangeIndex,
+	LPCTSTR stageLabel,
+	LPCTSTR axisTag,
+	double col0,
+	const std::vector<double>& powers,
+	int peakIdx,
+	double peakRaw,
+	double peakDbm,
+	double loDbm,
+	double hiDbm)
+{
+	if (!dlg)
+		return;
+	CString head;
+	head.Format(
+		_T("[PM range] REJECT %s %s: pm_range=%d need %hs dBm, peak_raw=%.0f peak_dBm=%.4f idx=%d col0=%.4g"),
+		stageLabel,
+		axisTag,
+		pmRangeIndex,
+		M576::PmRangeDbmIntervalDesc(pmRangeIndex),
+		peakRaw,
+		peakDbm,
+		peakIdx,
+		col0);
+	dlg->SafeAppendLog(head);
+	CString plist;
+	plist.Format(_T("  P1..Pn: %s"), M576FormatRecalPowersForLog(powers).GetString());
+	dlg->SafeAppendLog(plist);
+	dlg->SafeAppendLog(_T("  => discard this path step (no LUT update)."));
 }
 
 enum class M576Peak1DLogStage
@@ -588,6 +638,7 @@ static bool M576SessionLutMemsAllZero(
 
 BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	BOOL isPm,
+	int pmRangeIndex,
 	int sweepMode,
 	int initialBaseDac,
 	DWORD readTimeoutMs,
@@ -646,7 +697,33 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 		}
 
 		if (M576::FindUnimodalPeak1DIndex(outPow, outPeakIdx, outCode, &outTPeak, &outTrace))
+		{
+			if (isPm && pmRangeIndex != M576_MAX_PM_RANGE)
+			{
+				const int peakHint = (outTrace.globalMaxIndex >= 0) ? outTrace.globalMaxIndex : outPeakIdx;
+				double peakRaw = 0.0, peakDbm = 0.0, loDbm = 0.0, hiDbm = 0.0;
+				int peakIdxUsed = -1;
+				if (!M576::ValidatePeakPowerInPmRange(
+						pmRangeIndex, outPow, peakHint, peakRaw, peakDbm, loDbm, hiDbm, peakIdxUsed))
+				{
+					outCode = M576::Peak1DValidateCode::PmRangeMismatch;
+					M576AppendPmRangeRejectLog(
+						this,
+						pmRangeIndex,
+						recalStageLabel,
+						axisTag,
+						outCol0,
+						outPow,
+						peakIdxUsed,
+						peakRaw,
+						peakDbm,
+						loDbm,
+						hiDbm);
+					return FALSE;
+				}
+			}
 			return TRUE;
+		}
 
 		const M576::SweepProfile profile = M576::AnalyzeRecal1DSweepProfile(outPow);
 		const BOOL canRetry = M576::IsRetryablePeakFailure(outCode, profile, n);
@@ -3489,6 +3566,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		M576::Peak1DFitTrace yPreTracePm;
 		if (!RunRecal1DSweepWithPeakRecenterRetry(
 				TRUE,
+				m_pmRangeIndex,
 				0,
 				M576_RECAL_FW_READ_BASE_DAC,
 				readTimeout1d,
@@ -3657,6 +3735,34 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
+		}
+
+		if (crossOk && m_pmRangeIndex != M576_MAX_PM_RANGE)
+		{
+			auto checkCrossAxisPmRange = [&](const std::vector<double>& pow, const M576::Peak1DFitTrace& tr,
+				M576::Peak1DValidateCode& axisCode, LPCTSTR stageLabel, LPCTSTR axisTag, double col0) -> BOOL
+			{
+				const int peakHint = (tr.globalMaxIndex >= 0) ? tr.globalMaxIndex : 0;
+				double peakRaw = 0.0, peakDbm = 0.0, loDbm = 0.0, hiDbm = 0.0;
+				int peakIdxUsed = -1;
+				if (M576::ValidatePeakPowerInPmRange(
+						m_pmRangeIndex, pow, peakHint, peakRaw, peakDbm, loDbm, hiDbm, peakIdxUsed))
+					return TRUE;
+				axisCode = M576::Peak1DValidateCode::PmRangeMismatch;
+				M576AppendPmRangeRejectLog(
+					this, m_pmRangeIndex, stageLabel, axisTag, col0, pow, peakIdxUsed, peakRaw, peakDbm, loDbm, hiDbm);
+				return FALSE;
+			};
+			if (!checkCrossAxisPmRange(powY, trCrossYPm, yCross, _T("RECAL 3 0"), _T("Y"), xFixedDac))
+			{
+				SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::YCross, yCross));
+				crossOk = FALSE;
+			}
+			else if (!checkCrossAxisPmRange(powX, trCrossXPm, xCross, _T("RECAL 3 1"), _T("X"), sweep1LineCol0))
+			{
+				SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::XCross, xCross));
+				crossOk = FALSE;
+			}
 		}
 
 		if (crossOk)
@@ -3903,6 +4009,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		M576::Peak1DFitTrace yPreTracePd;
 		if (!RunRecal1DSweepWithPeakRecenterRetry(
 				FALSE,
+				M576_MAX_PM_RANGE,
 				0,
 				M576_RECAL_FW_READ_BASE_DAC,
 				readTimeout1d,

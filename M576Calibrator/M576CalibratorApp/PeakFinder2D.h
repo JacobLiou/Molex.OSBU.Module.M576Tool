@@ -31,6 +31,7 @@ namespace M576
 		ParabolaNotDownward,    ///< 无峰形单调或边界上升/下降占优等（历史名）
 		ParabolaFitSingular,    ///< 正规方程接近奇异（历史名）
 		VertexOutOfRange,       ///< 峰位 t* 不在 [0, n-1]（含边）
+		PmRangeMismatch,        ///< 全局有效极大值 dBm 不在界面 PM 挡位内（RECAL 3）
 	};
 
 	// --- 历史名保留：预处理 + P(i)≈a i^3+b i^2+c i+d（下标 i 为原扫频格点）；固件占位不参与。区间内求 P 最大得 t* ---

@@ -1,6 +1,6 @@
 ---
 description: RECAL 扫频、1D/2D 寻峰、重试与无效功率占位
-globs: M576Calibrator/**/Peak*.cpp,M576Calibrator/**/Peak*.h,M576Calibrator/**/Recal*.cpp,M576Calibrator/**/Recal*.h,M576Calibrator/**/M576Peak1DConstants.h,M576Calibrator/CrossPeakTest/**
+globs: M576Calibrator/**/Peak*.cpp,M576Calibrator/**/Peak*.h,M576Calibrator/**/Recal*.cpp,M576Calibrator/**/Recal*.h,M576Calibrator/**/M576Peak1DConstants.h,M576Calibrator/**/PmRangeValidation.*,M576Calibrator/CrossPeakTest/**
 alwaysApply: false
 ---
 
@@ -8,7 +8,7 @@ alwaysApply: false
 
 **改码前必读**：
 
-- `M576Calibrator/Docs/INVARIANTS.md` — **INV-10..15**
+- `M576Calibrator/Docs/INVARIANTS.md` — **INV-10..16**（含 PM 挡位极值 `PmRangeValidation`）
 - 下标/通道范围见 `M576Calibrator/Docs/LUT_INDEXING.md`（寻峰不写 LUT 时也勿混淆 ch）
 
 ## 模块
@@ -16,6 +16,7 @@ alwaysApply: false
 - ASCII：`CRecalSession`（App）
 - 门限：`M576Peak1DConstants.h`
 - 重试：`Peak1DSweepRecenter.cpp` — `IsRetryablePeakFailure`, `SuggestSweepRecenterNewBase`
+- PM 挡位：`PmRangeValidation.cpp` — `ValidatePeakPowerInPmRange`（仅 RECAL 3）
 
 ## 必须遵守（摘要）
 
@@ -27,13 +28,14 @@ alwaysApply: false
 | 无效点 -999999 / -999900 | 剔除 | INV-14 |
 | `newBase` | int16 钳位，负值保留 | INV-13 |
 | 失败日志 | 含 validate_code、trend、col0、attempts | INV-15 |
+| PM 极值挡位 | RECAL 3 Y/X，`PmRangeMismatch` 不重试 | INV-16 |
 
 - 至少一次 recenter 再放弃该轴（**INV-12**）；通信 `no line` 走通信重试，非寻峰 recenter。
 - 首次扫 base 可用 `M576_RECAL_FW_READ_BASE_DAC` (9999)。
 
 ## 测试
 
-改重试/拟合 → 更新 `CrossPeakTest/main.cpp`，Release\|Win32 跑通。
+改重试/拟合/PM 挡位 → 更新 `CrossPeakTest/main.cpp`，Release\|Win32 跑通。
 
 ```cpp
 // BAD — INV-10
