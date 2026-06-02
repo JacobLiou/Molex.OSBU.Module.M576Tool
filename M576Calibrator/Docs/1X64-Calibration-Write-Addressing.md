@@ -71,6 +71,7 @@ m_mems1x64[transIndex][block].stCalibDAC[0].stChnDAC[inBlk].sDACy
 
 - `transIndex`：`fileSlot - 2`。PM 下 target 1、2 → trans 槽位索引 2；target 5、6 → 槽位 3（见 `TransLutRoute.cpp`）。
 - **X/Y**：寻峰 **Y → `sDACx`**，**X → `sDACy`**。
+- **`wValid`**：每片 switch、低温槽 `stCalibDAC[0]` 一个 `WORD`；`WriteMems1x64DacPair` 在 `calibSlot==0` 写 DAC 后置 **1**（与 126S/另一上位机一致）。单文件 body 内偏移 **1024**，文件绝对偏移 **1184 (0x4A0)**，小端 `01 00`。
 
 ---
 

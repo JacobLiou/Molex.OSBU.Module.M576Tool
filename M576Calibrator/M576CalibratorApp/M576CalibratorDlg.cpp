@@ -135,53 +135,6 @@ static const TCHAR* M576Peak1DWhy(M576::Peak1DValidateCode c)
 	}
 }
 
-static CString M576FormatRecalPowersForLog(const std::vector<double>& powers)
-{
-	CString s;
-	for (size_t i = 0; i < powers.size(); ++i)
-	{
-		if (i > 0)
-			s += _T(",");
-		CString one;
-		one.Format(_T("%.0f"), powers[i]);
-		s += one;
-	}
-	return s;
-}
-
-static void M576AppendPmRangeRejectLog(
-	CM576CalibratorDlg* dlg,
-	int pmRangeIndex,
-	LPCTSTR stageLabel,
-	LPCTSTR axisTag,
-	double col0,
-	const std::vector<double>& powers,
-	int peakIdx,
-	double peakRaw,
-	double peakDbm,
-	double loDbm,
-	double hiDbm)
-{
-	if (!dlg)
-		return;
-	CString head;
-	head.Format(
-		_T("[PM range] REJECT %s %s: pm_range=%d need %hs dBm, peak_raw=%.0f peak_dBm=%.4f idx=%d col0=%.4g"),
-		stageLabel,
-		axisTag,
-		pmRangeIndex,
-		M576::PmRangeDbmIntervalDesc(pmRangeIndex),
-		peakRaw,
-		peakDbm,
-		peakIdx,
-		col0);
-	dlg->SafeAppendLog(head);
-	CString plist;
-	plist.Format(_T("  P1..Pn: %s"), M576FormatRecalPowersForLog(powers).GetString());
-	dlg->SafeAppendLog(plist);
-	dlg->SafeAppendLog(_T("  => discard this path step (no LUT update)."));
-}
-
 enum class M576Peak1DLogStage
 {
 	YPre,
@@ -635,6 +588,53 @@ static bool M576SessionLutMemsAllZero(
 }
 
 } // namespace
+
+static CString M576FormatRecalPowersForLog(const std::vector<double>& powers)
+{
+	CString s;
+	for (size_t i = 0; i < powers.size(); ++i)
+	{
+		if (i > 0)
+			s += _T(",");
+		CString one;
+		one.Format(_T("%.0f"), powers[i]);
+		s += one;
+	}
+	return s;
+}
+
+void M576AppendPmRangeRejectLog(
+	CM576CalibratorDlg* dlg,
+	int pmRangeIndex,
+	LPCTSTR stageLabel,
+	LPCTSTR axisTag,
+	double col0,
+	const std::vector<double>& powers,
+	int peakIdx,
+	double peakRaw,
+	double peakDbm,
+	double loDbm,
+	double hiDbm)
+{
+	if (!dlg)
+		return;
+	CString head;
+	head.Format(
+		_T("[PM range] REJECT %s %s: pm_range=%d need %hs dBm, peak_raw=%.0f peak_dBm=%.4f idx=%d col0=%.4g"),
+		stageLabel,
+		axisTag,
+		pmRangeIndex,
+		M576::PmRangeDbmIntervalDesc(pmRangeIndex),
+		peakRaw,
+		peakDbm,
+		peakIdx,
+		col0);
+	dlg->SafeAppendLog(head);
+	CString plist;
+	plist.Format(_T("  P1..Pn: %s"), M576FormatRecalPowersForLog(powers).GetString());
+	dlg->SafeAppendLog(plist);
+	dlg->SafeAppendLog(_T("  => discard this path step (no LUT update)."));
+}
 
 BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	BOOL isPm,
@@ -1297,18 +1297,22 @@ LRESULT CM576CalibratorDlg::OnPathFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	const BOOL stopped = m_bStop;
 	m_bStop = FALSE;
-	if (stopped)
+	if (m_pathShowFinishInfoBox)
 	{
-		MessageBoxM576(
-			_T("Run Path ended after Stop was requested.\n\nSome steps may have been skipped; see the log."),
-			MB_OK | MB_ICONWARNING);
+		if (stopped)
+		{
+			MessageBoxM576(
+				_T("Run Path ended after Stop was requested.\n\nSome steps may have been skipped; see the log."),
+				MB_OK | MB_ICONWARNING);
+		}
+		else
+		{
+			MessageBoxM576(
+				_T("Run Path completed.\n\nSee the log for details. Use \"Export calib stats CSV\" to save step records if needed."),
+				MB_OK | MB_ICONINFORMATION);
+		}
 	}
-	else
-	{
-		MessageBoxM576(
-			_T("Run Path completed.\n\nSee the log for details. Use \"Export calib stats CSV\" to save step records if needed."),
-			MB_OK | MB_ICONINFORMATION);
-	}
+	m_pathShowFinishInfoBox = TRUE;
 	return 0;
 }
 
@@ -2962,6 +2966,7 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	m_bStop = FALSE;
 	if (m_pathThread.joinable())
 		m_pathThread.join();
+	m_pathShowFinishInfoBox = TRUE;
 	m_pathRunning = true;
 	m_suppressPathProgress = false;
 	AppendLog(_T("Run Path Started"));
@@ -3149,6 +3154,75 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 			}
 		}
 	}
+}
+
+BOOL CM576CalibratorDlg::PreloadRunPathBackupOrFail(CString& errMsg)
+{
+	errMsg.Empty();
+	CString base = m_strBackupBin;
+	base.Trim();
+	if (base.IsEmpty())
+	{
+		errMsg = _T("Run Path: Backup BIN base path is empty.");
+		return FALSE;
+	}
+	const CString absBk = ResolveFilePath(base);
+
+	for (int li = 0; li < 2; ++li)
+	{
+		const CString p = M576TransBinPathForRead(absBk, li + 1);
+		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+		{
+			errMsg.Format(_T("Run Path preload failed: MCS backup missing:\n%s"), p.GetString());
+			return FALSE;
+		}
+		if (!CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
+		{
+			errMsg.Format(_T("Run Path preload failed: cannot read MCS backup:\n%s"), p.GetString());
+			return FALSE;
+		}
+		CString m;
+		m.Format(_T("Run path: preloaded MCS trans %d from %s"), li + 1, p.GetString());
+		SafeAppendLog(m);
+	}
+
+	for (int li = 2; li < 4; ++li)
+	{
+		const int dev = li - 2;
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			const CString ps = M576TransBinPathForSwitch(absBk, li + 1, sw);
+			if (GetFileAttributes(ps) == INVALID_FILE_ATTRIBUTES)
+			{
+				errMsg.Format(_T("Run Path preload failed: 1x64 backup missing:\n%s"), ps.GetString());
+				return FALSE;
+			}
+			if (!CMems1x64LutBinWriter::ReadMemsFromFile(ps, &m_mems1x64[dev][sw]))
+			{
+				errMsg.Format(_T("Run Path preload failed: cannot read 1x64 backup:\n%s"), ps.GetString());
+				return FALSE;
+			}
+		}
+		const CString p = M576TransBinPathForRead(absBk, li + 1);
+		CString m;
+		m.Format(
+			_T("Run path: preloaded 1x64 trans %d (4x per-switch Mems) from %s_sw*"),
+			li + 1,
+			p.GetString());
+		SafeAppendLog(m);
+	}
+	return TRUE;
+}
+
+void CM576CalibratorDlg::AbortRunPathPreloadFailed(const CString& errMsg)
+{
+	SafeAppendLog(errMsg);
+	CString box;
+	box.Format(
+		_T("备份 BIN 预载失败，已停止 Run Path。\n\n%s\n\n请先 Read Flash 或检查 Backup BIN 路径。"),
+		errMsg.GetString());
+	MessageBoxM576(box, MB_OK | MB_ICONERROR);
+	m_pathShowFinishInfoBox = FALSE;
 }
 
 static CStringA M576AsciiSuffixToA(LPCTSTR suf)
@@ -3388,7 +3462,14 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
-	TryPreloadLutFromPerTransBackup();
+	{
+		CString preloadErr;
+		if (!PreloadRunPathBackupOrFail(preloadErr))
+		{
+			AbortRunPathPreloadFailed(preloadErr);
+			return;
+		}
+	}
 	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 
 	int wavelengthNm = 0;
@@ -3419,6 +3500,71 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			CString msg;
 			msg.Format(_T("RECAL 0 (TLS=%d nm=%d PM=%d) -> %s"),
 				tlsSource, wavelengthNm, pmRange, CString(line0));
+			SafeAppendLog(msg);
+		}
+	}
+	{
+		CStringA opmLine;
+		if (!m_pRecal->ExchangeOpm4ReadPmRange(opmLine, 3000, err))
+		{
+			CString log = err.IsEmpty()
+				? _T("[PM range] OPM 4 1: no valid readback after retries — Run Path stopped.")
+				: err;
+			if (err.IsEmpty())
+				err = log;
+			SafeAppendLog(log);
+			CString box;
+			box.Format(
+				_T("无法读取功率计挡位，已停止定标。\n\n%s\n\n请检查串口与固件后重新 Run Path。"),
+				log.GetString());
+			MessageBoxM576(box, MB_OK | MB_ICONERROR);
+			return;
+		}
+		const int readRange = CRecalSession::ParseOpmPmRangeReply(opmLine);
+		if (readRange < M576_MIN_PM_RANGE || readRange > M576_MAX_PM_RANGE)
+		{
+			CString log;
+			log.Format(
+				_T("[PM range] OPM 4 1: invalid reply \"%hs\" — Run Path stopped."),
+				opmLine.GetString());
+			SafeAppendLog(log);
+			CString box;
+			box.Format(
+				_T("功率计挡位应答无效，已停止定标。\n\nopm 4 1 应答: %hs\n\n请检查固件后重新 Run Path。"),
+				opmLine.GetString());
+			MessageBoxM576(box, MB_OK | MB_ICONERROR);
+			return;
+		}
+		if (pmRange != M576_MAX_PM_RANGE)
+		{
+			if (readRange != pmRange)
+			{
+				CString log;
+				log.Format(
+					_T("[PM range] OPM 4 1 mismatch: RECAL0 set %d, readback %d — Run Path stopped."),
+					pmRange,
+					readRange);
+				SafeAppendLog(log);
+				CString box;
+				box.Format(
+					_T("功率计挡位不一致，已停止定标。\n\n界面/RECAL 0 挡位: %d\nopm 4 1 读回: %d\n\n请检查 PM 挡位后重新 Run Path。"),
+					pmRange,
+					readRange);
+				MessageBoxM576(box, MB_OK | MB_ICONERROR);
+				return;
+			}
+			{
+				CString msg;
+				msg.Format(_T("OPM 4 1: pm_range readback %d matches RECAL 0."), readRange);
+				SafeAppendLog(msg);
+			}
+		}
+		else
+		{
+			CString msg;
+			msg.Format(_T("OPM 4 1: RECAL0 auto(%d), device readback=%d (informational)."),
+				M576_MAX_PM_RANGE,
+				readRange);
 			SafeAppendLog(msg);
 		}
 	}
@@ -3873,7 +4019,14 @@ void CM576CalibratorDlg::RunPathPd()
 	for (int li = 0; li < 4; ++li)
 		ZeroMemory(&m_lutByTrans[li], sizeof(m_lutByTrans[li]));
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
-	TryPreloadLutFromPerTransBackup();
+	{
+		CString preloadErr;
+		if (!PreloadRunPathBackupOrFail(preloadErr))
+		{
+			AbortRunPathPreloadFailed(preloadErr);
+			return;
+		}
+	}
 	int wavelengthNm = M576_DEFAULT_WAVELENGTH_NM;
 	{
 		CString wlErr;

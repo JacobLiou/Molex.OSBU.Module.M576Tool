@@ -121,7 +121,8 @@ void WriteMems1x64DacPair(
 	stM576OneX64ChnDAC& d = pSw4[block0to3].stCalibDAC[calibSlot];
 	d.stChnDAC[inBlk0based].sDACx = U16ToShortDac(dacY);
 	d.stChnDAC[inBlk0based].sDACy = U16ToShortDac(dacX);
-	(void)d.wValid;
+	if (calibSlot == 0)
+		d.wValid = 1;
 	(void)d.sTemperature;
 }
 

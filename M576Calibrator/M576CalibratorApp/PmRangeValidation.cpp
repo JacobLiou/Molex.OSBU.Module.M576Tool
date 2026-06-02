@@ -1,9 +1,36 @@
 #include "PmRangeValidation.h"
 #include "PeakFinder2D.h"
 #include <cmath>
+#include <cstring>
 
 namespace M576
 {
+	int ParseOpmPmRangeReplyAscii(const char* lineAscii)
+	{
+		if (!lineAscii)
+			return -1;
+		while (*lineAscii == ' ' || *lineAscii == '\t' || *lineAscii == '\r' || *lineAscii == '\n')
+			++lineAscii;
+		if (!*lineAscii)
+			return -1;
+		const size_t len = std::strlen(lineAscii);
+		size_t end = len;
+		while (end > 0)
+		{
+			const char c = lineAscii[end - 1];
+			if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+				--end;
+			else
+				break;
+		}
+		if (end != 1)
+			return -1;
+		const char c = lineAscii[0];
+		if (c >= '0' && c <= '4')
+			return c - '0';
+		return -1;
+	}
+
 	bool GetPmRangeDbmBounds(int pmRangeIndex, double& outLoDbm, double& outHiDbm)
 	{
 		switch (pmRangeIndex)

@@ -35,4 +35,7 @@ namespace M576
 		double& outLoDbm,
 		double& outHiDbm,
 		int& outPeakIdx);
+
+	/// `opm 4 1` 应答（ASCII，可含首尾空白）：0..4 或 -1。
+	int ParseOpmPmRangeReplyAscii(const char* lineAscii);
 }

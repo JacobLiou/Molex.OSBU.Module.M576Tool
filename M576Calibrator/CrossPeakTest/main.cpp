@@ -962,6 +962,17 @@ static int RunPmRangeSelfTests()
 		}
 	}
 	{
+		if (M576::ParseOpmPmRangeReplyAscii("1") != 1
+			|| M576::ParseOpmPmRangeReplyAscii("4") != 4
+			|| M576::ParseOpmPmRangeReplyAscii(" 2 ") != 2
+			|| M576::ParseOpmPmRangeReplyAscii("OK") != -1
+			|| M576::ParseOpmPmRangeReplyAscii("") != -1)
+		{
+			std::fprintf(stderr, "pm-range: ParseOpmPmRangeReplyAscii\n");
+			++fail;
+		}
+	}
+	{
 		std::string commPath = PathToExeDirFile("comm_2026-05-25_recal_sweeps.csv");
 		if (commPath.empty())
 			commPath = "comm_2026-05-25_recal_sweeps.csv";

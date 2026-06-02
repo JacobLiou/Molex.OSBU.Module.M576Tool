@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "RecalSession.h"
 #include "CalibConstants.h"
+#include "PmRangeValidation.h"
 #include "CommRetry.h"
 #include <stdlib.h>
 #include <mmsystem.h>
@@ -452,6 +453,43 @@ BOOL CRecalSession::ExchangeRecal0ReadLine(
 	}
 	if (err.IsEmpty())
 		err = _T("RECAL 0: no OK line after retries.");
+	return FALSE;
+}
+
+int CRecalSession::ParseOpmPmRangeReply(const CStringA& line)
+{
+	return M576::ParseOpmPmRangeReplyAscii(line.GetString());
+}
+
+BOOL CRecalSession::ExchangeOpm4ReadPmRange(CStringA& outLine, DWORD timeoutMs, CString& err)
+{
+	const char* const kCmd = "opm 4 1\r";
+	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
+	for (int a = 1; a <= kMax; ++a)
+	{
+		const BOOL isFinal = (a >= kMax);
+		CStringA cmd(kCmd);
+		TraceSend(_T("OPM 4 1"), cmd);
+		if (!WriteNoPurgeReliable(cmd, _T("OPM 4 1"), err))
+		{
+			TraceReceive(CStringA(), 0, FALSE, 0, TRUE);
+			return FALSE;
+		}
+		const DWORD t0 = GetTickCount();
+		const BOOL gotLine = ReadLineBlocking(outLine, timeoutMs);
+		const DWORD elapsed = GetTickCount() - t0;
+		if (gotLine)
+			outLine.Trim();
+		const int rangeIdx = gotLine ? ParseOpmPmRangeReply(outLine) : -1;
+		const BOOL good = (rangeIdx >= M576_MIN_PM_RANGE && rangeIdx <= M576_MAX_PM_RANGE);
+		TraceReceive(outLine, elapsed, good, timeoutMs, isFinal);
+		if (good)
+			return TRUE;
+		if (!isFinal)
+			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
+	}
+	if (err.IsEmpty())
+		err = _T("OPM 4 1: no valid pm_range digit (0..4) after retries.");
 	return FALSE;
 }
 

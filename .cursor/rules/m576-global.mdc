@@ -51,3 +51,4 @@ M576Calibrator\CrossPeakTest\Release\CrossPeakTest.exe
 1. 输入/输出/失败处理是否明确？  
 2. 是否可单测或 CrossPeakTest 覆盖？  
 3. 是否动到未校准的 LUT 槽位或 SN33/34？（见 `m576-lut-bin` 规则）
+4. PM Run Path 是否在 RECAL 0 后用 `opm 4 1` 核对挡位？（**INV-17**）

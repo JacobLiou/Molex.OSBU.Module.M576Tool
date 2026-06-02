@@ -40,6 +40,7 @@
 | **INV-14** | 固件无效功率占位仅认 `M576_RECAL_POW_INVALID_1` (-999999.0) 与 `M576_RECAL_POW_INVALID_2` (-999900.0)，拟合前剔除。 |
 | **INV-15** | 定标步骤失败须带可机读 `Peak1DValidateCode`（及 trend/col0/attempts 等）；禁止仅靠无码日志判成败。 |
 | **INV-16** | **PM / RECAL 3 only**：有效样本全局极大值 `dBm = raw/10000` 须在界面 `pm_range` 0..3 对应区间内；`pm_range==4`（auto）跳过。失败码 `PmRangeMismatch`，**不重试** recenter，丢弃该 path 步。PD（RECAL 5）不做挡位校验。 |
+| **INV-17** | **PM Run Path only**：`RECAL 0` 成功后须发 `opm 4 1`，读回挡位（单行数字 0..4）须与界面/RECAL 0 的 `pm_range` 一致（`pm_range==4` auto 仅记录读回、不比对）。不一致或通信/解析失败：**日志 + 弹窗 + 立即停止**整次 Run Path，不进入路径 CSV。 |
 
 ---
 

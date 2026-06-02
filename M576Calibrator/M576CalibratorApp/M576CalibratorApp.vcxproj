@@ -185,7 +185,9 @@
     <ClCompile Include="PeakFinder2D.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="PmRangeValidation.cpp" />
+    <ClCompile Include="PmRangeValidation.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="Peak1DSweepRecenter.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

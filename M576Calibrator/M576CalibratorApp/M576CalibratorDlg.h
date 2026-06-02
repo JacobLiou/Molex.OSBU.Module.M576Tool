@@ -3,6 +3,7 @@
 #include <atomic>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include "resource.h"
 #include "OpComm.h"
@@ -42,6 +43,18 @@ protected:
 
 private:
 	friend void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, const M576::Peak1DFitTrace& tr);
+	friend void M576AppendPmRangeRejectLog(
+		CM576CalibratorDlg* dlg,
+		int pmRangeIndex,
+		LPCTSTR stageLabel,
+		LPCTSTR axisTag,
+		double col0,
+		const std::vector<double>& powers,
+		int peakIdx,
+		double peakRaw,
+		double peakDbm,
+		double loDbm,
+		double hiDbm);
 	// --- UI 与路径字符串 ---
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;
@@ -77,6 +90,8 @@ private:
 	std::thread m_burnFlashThread;
 	std::thread m_diagThread;
 	std::atomic<bool> m_pathRunning{ false };
+	/// FALSE when Run Path exits early (e.g. preload fail); suppresses generic "completed" dialog in OnPathFinished.
+	BOOL m_pathShowFinishInfoBox{ TRUE };
 	std::atomic<bool> m_readBackupRunning{ false };
 	std::atomic<bool> m_readSnRunning{ false };
 	std::atomic<bool> m_burnFlashRunning{ false };
@@ -188,6 +203,9 @@ private:
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();
+	/// Run Path: require 2 MCS + 8 1x64 per-switch bins; load into session buffers or return FALSE with errMsg.
+	BOOL PreloadRunPathBackupOrFail(CString& errMsg);
+	void AbortRunPathPreloadFailed(const CString& errMsg);
 	/// Session primary temp slot DAC: UTF-8 CSV in output BIN directory.
 	void ExportSessionDacCsv(M576CalibBinWritePolicy policy, LPCTSTR csvLeafName, LPCTSTR logPreamble);
 	void StartSessionCalibPolicyFromWavelength(int wavelengthNm);
