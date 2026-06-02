@@ -461,16 +461,23 @@ int CRecalSession::ParseOpmPmRangeReply(const CStringA& line)
 	return M576::ParseOpmPmRangeReplyAscii(line.GetString());
 }
 
-BOOL CRecalSession::ExchangeOpm4ReadPmRange(CStringA& outLine, DWORD timeoutMs, CString& err)
+BOOL CRecalSession::ExchangeOpmReadPmRange(int opmMeterId, CStringA& outLine, DWORD timeoutMs, CString& err)
 {
-	const char* const kCmd = "opm 4 1\r";
+	if (opmMeterId != 4 && opmMeterId != 5)
+	{
+		err.Format(_T("ExchangeOpmReadPmRange: unsupported opm id %d (use 4 or 5)."), opmMeterId);
+		return FALSE;
+	}
+	CStringA cmdA;
+	cmdA.Format("opm %d 1\r", opmMeterId);
+	CString traceName;
+	traceName.Format(_T("OPM %d 1"), opmMeterId);
 	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
 	for (int a = 1; a <= kMax; ++a)
 	{
 		const BOOL isFinal = (a >= kMax);
-		CStringA cmd(kCmd);
-		TraceSend(_T("OPM 4 1"), cmd);
-		if (!WriteNoPurgeReliable(cmd, _T("OPM 4 1"), err))
+		TraceSend(traceName, cmdA);
+		if (!WriteNoPurgeReliable(cmdA, traceName, err))
 		{
 			TraceReceive(CStringA(), 0, FALSE, 0, TRUE);
 			return FALSE;
@@ -489,8 +496,13 @@ BOOL CRecalSession::ExchangeOpm4ReadPmRange(CStringA& outLine, DWORD timeoutMs, 
 			Sleep((DWORD)M576_COMM_RETRY_DELAY_MS);
 	}
 	if (err.IsEmpty())
-		err = _T("OPM 4 1: no valid pm_range digit (0..4) after retries.");
+		err.Format(_T("OPM %d 1: no valid pm_range digit (0..4) after retries."), opmMeterId);
 	return FALSE;
+}
+
+BOOL CRecalSession::ExchangeOpm4ReadPmRange(CStringA& outLine, DWORD timeoutMs, CString& err)
+{
+	return ExchangeOpmReadPmRange(4, outLine, timeoutMs, err);
 }
 
 BOOL CRecalSession::ExchangeRecal1ReadLine(const SPathStep& step, CStringA& outLine, DWORD timeoutMs, CString& err)

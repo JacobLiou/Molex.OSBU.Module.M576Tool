@@ -3504,50 +3504,84 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 	}
 	{
-		CStringA opmLine;
-		if (!m_pRecal->ExchangeOpm4ReadPmRange(opmLine, 3000, err))
+		const int kOpmIds[2] = { 4, 5 };
+		CStringA opmLines[2];
+		int readRanges[2] = { -1, -1 };
+		for (int oi = 0; oi < 2; ++oi)
 		{
-			CString log = err.IsEmpty()
-				? _T("[PM range] OPM 4 1: no valid readback after retries — Run Path stopped.")
-				: err;
-			if (err.IsEmpty())
-				err = log;
-			SafeAppendLog(log);
-			CString box;
-			box.Format(
-				_T("无法读取功率计挡位，已停止定标。\n\n%s\n\n请检查串口与固件后重新 Run Path。"),
-				log.GetString());
-			MessageBoxM576(box, MB_OK | MB_ICONERROR);
-			return;
+			const int opmId = kOpmIds[oi];
+			if (!m_pRecal->ExchangeOpmReadPmRange(opmId, opmLines[oi], 3000, err))
+			{
+				CString log = err.IsEmpty()
+					? CString()
+					: err;
+				if (log.IsEmpty())
+				{
+					log.Format(
+						_T("[PM range] OPM %d 1: no valid readback after retries — Run Path stopped."),
+						opmId);
+				}
+				SafeAppendLog(log);
+				CString box;
+				box.Format(
+					_T("无法读取功率计挡位，已停止定标。\n\n%s\n\n请检查串口与固件后重新 Run Path。"),
+					log.GetString());
+				MessageBoxM576(box, MB_OK | MB_ICONERROR);
+				return;
+			}
+			readRanges[oi] = CRecalSession::ParseOpmPmRangeReply(opmLines[oi]);
+			if (readRanges[oi] < M576_MIN_PM_RANGE || readRanges[oi] > M576_MAX_PM_RANGE)
+			{
+				CString log;
+				log.Format(
+					_T("[PM range] OPM %d 1: invalid reply \"%hs\" — Run Path stopped."),
+					opmId,
+					opmLines[oi].GetString());
+				SafeAppendLog(log);
+				CString box;
+				box.Format(
+					_T("功率计挡位应答无效，已停止定标。\n\nopm %d 1 应答: %hs\n\n请检查固件后重新 Run Path。"),
+					opmId,
+					opmLines[oi].GetString());
+				MessageBoxM576(box, MB_OK | MB_ICONERROR);
+				return;
+			}
+			{
+				CString msg;
+				msg.Format(_T("OPM %d 1: pm_range readback %d."), opmId, readRanges[oi]);
+				SafeAppendLog(msg);
+			}
 		}
-		const int readRange = CRecalSession::ParseOpmPmRangeReply(opmLine);
-		if (readRange < M576_MIN_PM_RANGE || readRange > M576_MAX_PM_RANGE)
+		if (readRanges[0] != readRanges[1])
 		{
 			CString log;
 			log.Format(
-				_T("[PM range] OPM 4 1: invalid reply \"%hs\" — Run Path stopped."),
-				opmLine.GetString());
+				_T("[PM range] OPM 4 1 (%d) vs OPM 5 1 (%d) mismatch — Run Path stopped."),
+				readRanges[0],
+				readRanges[1]);
 			SafeAppendLog(log);
 			CString box;
 			box.Format(
-				_T("功率计挡位应答无效，已停止定标。\n\nopm 4 1 应答: %hs\n\n请检查固件后重新 Run Path。"),
-				opmLine.GetString());
+				_T("两路功率计挡位读回不一致，已停止定标。\n\nopm 4 1: %d\nopm 5 1: %d\n\n请检查 PM 挡位后重新 Run Path。"),
+				readRanges[0],
+				readRanges[1]);
 			MessageBoxM576(box, MB_OK | MB_ICONERROR);
 			return;
 		}
+		const int readRange = readRanges[0];
 		if (pmRange != M576_MAX_PM_RANGE)
 		{
 			if (readRange != pmRange)
 			{
 				CString log;
 				log.Format(
-					_T("[PM range] OPM 4 1 mismatch: RECAL0 set %d, readback %d — Run Path stopped."),
+					_T("[PM range] OPM 4/5 1 mismatch: RECAL0 set %d, readback %d — Run Path stopped."),
 					pmRange,
 					readRange);
 				SafeAppendLog(log);
 				CString box;
 				box.Format(
-					_T("功率计挡位不一致，已停止定标。\n\n界面/RECAL 0 挡位: %d\nopm 4 1 读回: %d\n\n请检查 PM 挡位后重新 Run Path。"),
+					_T("功率计挡位不一致，已停止定标。\n\n界面/RECAL 0 挡位: %d\nopm 4/5 1 读回: %d\n\n请检查 PM 挡位后重新 Run Path。"),
 					pmRange,
 					readRange);
 				MessageBoxM576(box, MB_OK | MB_ICONERROR);
@@ -3555,14 +3589,14 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			}
 			{
 				CString msg;
-				msg.Format(_T("OPM 4 1: pm_range readback %d matches RECAL 0."), readRange);
+				msg.Format(_T("OPM 4/5 1: pm_range readback %d matches RECAL 0."), readRange);
 				SafeAppendLog(msg);
 			}
 		}
 		else
 		{
 			CString msg;
-			msg.Format(_T("OPM 4 1: RECAL0 auto(%d), device readback=%d (informational)."),
+			msg.Format(_T("OPM 4/5 1: RECAL0 auto(%d), device readback=%d (informational)."),
 				M576_MAX_PM_RANGE,
 				readRange);
 			SafeAppendLog(msg);
