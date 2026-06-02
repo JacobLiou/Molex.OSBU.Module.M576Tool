@@ -2829,7 +2829,7 @@ BOOL CM576CalibratorDlg::GenerateStandardBinFiles(
 				{
 					for (int sw = 0; sw < M576_MCS_LUT_SW_MERGE_COUNT; ++sw)
 					{
-						for (int ch = 0; ch < PORT_MAX_COUNT + MID_MAX_COUNT; ++ch)
+						for (unsigned ch = 0; ch < M576_MCS_LUT_MERGE_CHN_COUNT; ++ch)
 						{
 							merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0];
 							merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1];

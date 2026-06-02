@@ -12,10 +12,11 @@
 |----|--------|
 | **INV-01** | 1310 定标结果只写入 `wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0/1]`（`IDX_TEMP_LOW == 0`）。不得在未走 1550 流程时改写 ROOM/HIGH。 |
 | **INV-02** | 1310 Merge / MakeBin 仅覆盖 **sw 0..31**（`M576_MCS_LUT_SW_MERGE_COUNT == 32`）。**不得**用 session 覆盖 **sw 32、33**（对外 SN33/SN34，1×64 镜像槽）。 |
-| **INV-03** | 路径 CSV 中 MCS 通道为 **c2/c3 或 PD ch2：1..18**；对应 LUT **ch 0..17**。未参与本次 Run Path 的 **ch 18..31**（对外 CH19–CH32）须保留 backup，禁止被 session 全表 merge 清零。 |
+| **INV-03** | 路径 CSV 中 MCS 通道为 **c2/c3 或 PD ch2：1..18**；对应 LUT **ch 0..17**。未参与本次 Run Path 的 **ch 18..31**（对外 CH19–CH32）须保留 backup；`MergeLut1310LowTempSlot` **已实现**仅合并 ch 0..17。 |
 | **INV-04** | DAC 为有符号 int16，合法范围 `M576_RECAL_DAC_MIN`..`M576_RECAL_DAC_MAX`（-32768..32767）。**禁止**用 `if (dac < 0) dac = 0` 代替钳位。 |
 | **INV-05** | `MergeLut1310LowTempSlot` 当前会同步 `wTemperaturePoint[sw][IDX_TEMP_LOW]` 与 `pchCalibDate`；若 session 未填元数据，Write BIN 前须明确是否应从 backup 保留（见实现与 PRD）。 |
 | **INV-06** | **目标态（稀疏 merge）**：仅更新 session 中已校准的 `(sw, ch)`（建议以 `PushCalibStatRow` / 校准统计为准）；禁止对全 `ch < 32` 无差别拷贝 session。 |
+| **INV-06b** | **1×64 1310**：`MergeMems1310LowTempSlot` 仅合并 `stCalibDAC[0].stChnDAC[0..16]`（PM 映射 CH_y 1..17）；**`stChnDAC[17]`（第 18 路）及更高索引、`stMidDAC[]` 永远保留 backup**，不得被会话 0 覆盖。 |
 
 ---
 

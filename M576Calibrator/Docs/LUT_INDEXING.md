@@ -98,9 +98,9 @@ WORD wCalibPtrDAC[34][TEMP_CALIB_NUM][PORT_MAX_COUNT + MID_MAX_COUNT][2];
 | 0, 1 | 1# / 2# MCS | `m_lutByTrans[0/1]` → 各自 `stLutSettingZ4671` |
 | 2, 3 | 1# / 2# 1×64 | `m_memsByTrans[2/3]` → `stM576OneX64MemsSwCoef`（非 `wCalibPtrDAC`） |
 
-1310 MCS Merge 在 **Write BIN / MakeBin** 时按 trans 分别：`MergeLut1310LowTempSlot(merged, m_lutByTrans[i])`。
+1310 MCS Merge 在 **Write BIN / MakeBin** 时按 trans 分别：`MergeLut1310LowTempSlot(merged, m_lutByTrans[i])`（仅 **ch 0..17** 低温 DAC；ch 18..31 保留 backup）。
 
-1×64 低温：`MergeMems1310LowTempSlot` 只拷 `stCalibDAC[0]`，与 MCS 的 SN33/34 槽无关。
+1×64 低温：`MergeMems1310LowTempSlot` 仅合并 `stCalibDAC[0].stChnDAC[0..16]`（CH_y 1..17）；第 18 路及以后保留 backup。与 MCS 的 SN33/34 槽无关。
 
 ---
 

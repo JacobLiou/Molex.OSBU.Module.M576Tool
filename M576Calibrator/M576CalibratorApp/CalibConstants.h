@@ -126,6 +126,10 @@
 #ifndef M576_MCS_LUT_SW_MERGE_COUNT
 #define M576_MCS_LUT_SW_MERGE_COUNT 32
 #endif
+/// Path CSV MCS ch 1..18 -> LUT ch 0..17; Write BIN merge only these low-temp DAC pairs (CH19+ from backup).
+#ifndef M576_MCS_LUT_MERGE_CHN_COUNT
+#define M576_MCS_LUT_MERGE_CHN_COUNT 18u
+#endif
 
 #if defined(__cplusplus)
 /// MCS 块号 1..32 → `wCalibPtrDAC` 第一维下标 0..31（固件约定；**非** row = block-1）。越界时返回 0。
@@ -198,6 +202,10 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 /// Flash body only (no BUNDLEHEADER): one switch slot = 2048 B = 0x800 B.
 #ifndef M576_1X64_MEMS_BODY_SIZE
 #define M576_1X64_MEMS_BODY_SIZE 2048u
+#endif
+/// PM mapping CH_y 1..17: Write BIN merge copies only stChnDAC[0..16]; index 17 (18th ch) stays from backup.
+#ifndef M576_1X64_PM_MERGE_CHN_COUNT
+#define M576_1X64_PM_MERGE_CHN_COUNT 17u
 #endif
 #include "M576OneX64TempMeta.h" // 1x64 sTemperature 0.01C; 要求 app 含 `$(SolutionDir)Z4671Core`
 /// 14538: four switch coefficient regions per 1x64; contiguous MEM read 4×2048 = 8192 B from `ADDR_SWITCH1_COEF`..`ADDR_SWITCH4_COEF`.

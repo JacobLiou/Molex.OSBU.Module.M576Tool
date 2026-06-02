@@ -5,10 +5,9 @@
 #include "M576OneX64Coef.h"
 #include "CalibConstants.h"
 
-/// Start from `base` (typically loaded from existing BIN) and overwrite only IDX_TEMP_LOW DAC pairs
-/// with values taken from `src1310` for MCS switch indices 0..31. Legacy mirror slots sw 32/33 (SN33/SN34) are left unchanged in `base`.
-// 在 base 上，用 src1310 中仅 IDX_TEMP_LOW 的 DAC 对覆盖同维项（同结构体布局）。
+/// `base` + session `src1310`: IDX_TEMP_LOW DAC for sw 0..31, ch 0..17 only (path CH1..18); ch 18..31 and sw 32/33 unchanged in `base`.
+// 在 base 上合并 session 低温 DAC：仅 ch 0..17；CH19+ 低温槽保留 backup。
 void MergeLut1310LowTempSlot(stLutSettingZ4671& base, const stLutSettingZ4671& src1310);
 
-// 1x64：每块 2K 上仅用 src 的低温档 stChnDAC[IDX_LOW] 覆盖 base
+// 1x64：低温档仅合并 PM 映射的 stChnDAC[0..16]（CH_y 1..17）；第 18 路 [17] 及以后、stMidDAC 保留 base。
 void MergeMems1310LowTempSlot(stM576OneX64MemsSwCoef base[4], const stM576OneX64MemsSwCoef src[4]);
