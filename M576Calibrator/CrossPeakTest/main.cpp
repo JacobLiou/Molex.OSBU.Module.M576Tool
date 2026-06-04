@@ -4,6 +4,9 @@
  *
  *   CrossPeakTest.exe --mock-sweeps <file.csv>
  *   CrossPeakTest.exe --export-peak-csv <in.csv> [more.csv ...] [-o <dir>] [--utf8-bom]
+ *
+ * Legacy 5-param sweep CSV (e.g. comm_2026-05-25_recal_sweeps.csv): pre dual-base firmware;
+ * ParseRecalSweepCmd maps single base to baseX/baseY best-effort. See *.LEGACY.txt beside file.
  */
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
@@ -24,6 +27,10 @@ using M576::SweepProfile;
 using M576::SweepTrend;
 using M576::AnalyzeRecal1DSweepProfile;
 using M576::IsRetryablePeakFailure;
+using M576::IsFlatSweepFailure;
+using M576::SuggestFlatRetryDacRange;
+using M576::PlanRecalYCrossResweep;
+using M576::AdjustProfileForMonoRecenter;
 using M576::SuggestSweepRecenterDeltaDac;
 using M576::SweepRecenterFailureInfo;
 using M576::SweepTrendName;
@@ -33,13 +40,24 @@ static bool ParseNumberLine(const std::string& line, std::vector<double>& out);
 struct RecalSweepCmdFields
 {
 	bool ok = false;
+	bool legacy5Param = false;
 	int recalKind = 0;
 	int sweepMode = -1;
-	int baseDac = 0;
+	int baseX = 0;
+	int baseY = 0;
 	int offsetDac = 0;
 	int stepDac = 0;
 	int delayMs = 0;
 };
+
+static std::string FormatRecalSweepCmd(
+	int recalKind, int sweepMode, int baseX, int baseY, int offsetDac, int stepDac, int delayMs)
+{
+	char buf[128];
+	std::snprintf(buf, sizeof(buf), "RECAL %d %d %d %d %d %d %d",
+		recalKind, sweepMode, baseX, baseY, offsetDac, stepDac, delayMs);
+	return buf;
+}
 
 static const char* Peak1DCodeName(Peak1DValidateCode c)
 {
@@ -275,19 +293,46 @@ static bool ReadTextFileUtf8(const char* path, std::string& text, std::string& e
 static bool ParseRecalSweepCmd(const std::string& cmd, RecalSweepCmdFields& out)
 {
 	out = RecalSweepCmdFields();
-	int k = 0, mode = 0, base = 0, off = 0, step = 0, delay = 0;
-	if (std::sscanf(cmd.c_str(), "RECAL %d %d %d %d %d %d", &k, &mode, &base, &off, &step, &delay) != 6)
-		return false;
-	if ((k != 3 && k != 5) || (mode != 0 && mode != 1))
-		return false;
-	out.ok = true;
-	out.recalKind = k;
-	out.sweepMode = mode;
-	out.baseDac = base;
-	out.offsetDac = off;
-	out.stepDac = step;
-	out.delayMs = delay;
-	return true;
+	int k = 0, mode = 0, v3 = 0, v4 = 0, v5 = 0, v6 = 0, v7 = 0;
+	if (std::sscanf(cmd.c_str(), "RECAL %d %d %d %d %d %d %d", &k, &mode, &v3, &v4, &v5, &v6, &v7) == 7)
+	{
+		if ((k != 3 && k != 5) || (mode != 0 && mode != 1))
+			return false;
+		out.ok = true;
+		out.recalKind = k;
+		out.sweepMode = mode;
+		out.baseX = v3;
+		out.baseY = v4;
+		out.offsetDac = v5;
+		out.stepDac = v6;
+		out.delayMs = v7;
+		return true;
+	}
+	// Legacy 5-param (single base): comm_2026-05-25_recal_sweeps.csv and older FW logs.
+	if (std::sscanf(cmd.c_str(), "RECAL %d %d %d %d %d %d", &k, &mode, &v3, &v4, &v5, &v6) == 6)
+	{
+		if ((k != 3 && k != 5) || (mode != 0 && mode != 1))
+			return false;
+		out.ok = true;
+		out.legacy5Param = true;
+		out.recalKind = k;
+		out.sweepMode = mode;
+		out.offsetDac = v4;
+		out.stepDac = v5;
+		out.delayMs = v6;
+		if (mode == 0)
+		{
+			out.baseX = 9999;
+			out.baseY = v3;
+		}
+		else
+		{
+			out.baseY = v3;
+			out.baseX = 9999;
+		}
+		return true;
+	}
+	return false;
 }
 
 static bool SplitSweepCsvRow(const std::string& line, std::string& cmd, std::vector<double>& nums)
@@ -418,7 +463,7 @@ static int RunExportPeakCsv(const char* inPath, const char* outPath, bool utf8Bo
 	}
 
 	static const char* kHdr =
-		"line_no,cmd,sweep_mode,base_dac,offset_dac,step_dac,delay_ms,dac_base,n_powers,"
+		"line_no,cmd,sweep_mode,base_x,base_y,legacy_5param,offset_dac,step_dac,delay_ms,dac_base,n_powers,"
 		"fit_ok,validate_code,span,trend,global_max_idx,global_max_y,t_star,peak_idx,dac_peak,fit_n,fit_points\n";
 	out << kHdr;
 
@@ -452,7 +497,7 @@ static int RunExportPeakCsv(const char* inPath, const char* outPath, bool utf8Bo
 			bool first = true;
 			AppendCsvField(row, std::to_string(lineNo), first);
 			AppendCsvField(row, line, first);
-			for (int k = 0; k < 17; ++k)
+			for (int k = 0; k < 19; ++k)
 				AppendCsvField(row, "", first);
 			AppendCsvField(row, "0", first);
 			AppendCsvField(row, "Empty", first);
@@ -496,7 +541,9 @@ static int RunExportPeakCsv(const char* inPath, const char* outPath, bool utf8Bo
 		AppendCsvField(row, std::to_string(lineNo), first);
 		AppendCsvField(row, cmd, first);
 		AppendCsvField(row, cf.ok ? std::to_string(cf.sweepMode) : "", first);
-		AppendCsvField(row, cf.ok ? std::to_string(cf.baseDac) : "", first);
+		AppendCsvField(row, cf.ok ? std::to_string(cf.baseX) : "", first);
+		AppendCsvField(row, cf.ok ? std::to_string(cf.baseY) : "", first);
+		AppendCsvField(row, cf.ok && cf.legacy5Param ? "1" : "0", first);
 		AppendCsvField(row, cf.ok ? std::to_string(cf.offsetDac) : "", first);
 		AppendCsvField(row, cf.ok ? std::to_string(cf.stepDac) : "", first);
 		AppendCsvField(row, cf.ok ? std::to_string(cf.delayMs) : "", first);
@@ -1057,7 +1104,7 @@ static int RunSweepRecenterSelfTests()
 	}
 
 	{
-		// comm.log L7622 flat row (col0=-31): span below MIN_SPAN -> no retry
+		// comm.log L7622 flat row (col0=-31): Flat profile; mono recenter N/A, flat expand applies.
 		const double commFlat[] = {
 			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
 			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
@@ -1066,10 +1113,343 @@ static int RunSweepRecenterSelfTests()
 		};
 		std::vector<double> flat(commFlat, commFlat + n);
 		const SweepProfile p = AnalyzeRecal1DSweepProfile(flat);
-		if (p.trend != SweepTrend::Flat
-			|| IsRetryablePeakFailure(Peak1DValidateCode::NotEnoughValidSamples, p, n))
+		if (p.trend != SweepTrend::Flat)
 		{
-			std::fprintf(stderr, "self-test: comm.log flat row must be Flat and not retryable\n");
+			std::fprintf(stderr, "self-test: comm.log flat row must be Flat\n");
+			++fail;
+		}
+		if (!IsFlatSweepFailure(Peak1DValidateCode::ParabolaNotDownward, p))
+		{
+			std::fprintf(stderr, "self-test: comm.log flat row must be IsFlatSweepFailure\n");
+			++fail;
+		}
+		if (IsRetryablePeakFailure(Peak1DValidateCode::ParabolaNotDownward, p, n))
+		{
+			std::fprintf(stderr, "self-test: Flat must not use mono IsRetryablePeakFailure\n");
+			++fail;
+		}
+		if (SuggestFlatRetryDacRange(64, 200) != 128 || SuggestFlatRetryDacRange(128, 200) != 200
+			|| SuggestFlatRetryDacRange(200, 200) != 0)
+		{
+			std::fprintf(stderr, "self-test: SuggestFlatRetryDacRange 64->128->200\n");
+			++fail;
+		}
+	}
+
+	{
+		// Y pre passed but cross fit rejected: PlanRecalYCrossResweep expands offset first.
+		int baseY = -127;
+		int offset = 64;
+		int prevArg = -1;
+		bool usedExpand = false;
+		static const double kBellY[] = {
+			-246880, -246853, -246833, -246818, -246797, -246775, -246777, -246756, -246752, -246737,
+			-246736, -246734, -246724, -246730, -246733, -246721, -246720, -246719, -246720, -246723,
+			-246725, -246730, -246725, -246740, -246738, -246736, -246744, -246740, -246752, -246756,
+			-246756, -246749, -246747,
+		};
+		const size_t nBell = sizeof(kBellY) / sizeof(kBellY[0]);
+		std::vector<double> bellY(kBellY, kBellY + nBell);
+		const double centerDac = -132.0 + (double)offset;
+		if (!PlanRecalYCrossResweep(
+				Peak1DValidateCode::ParabolaNotDownward,
+				bellY,
+				centerDac,
+				0,
+				baseY,
+				offset,
+				prevArg,
+				15.0,
+				true,
+				usedExpand)
+			|| !usedExpand || offset != 128 || baseY != -127)
+		{
+			std::fprintf(stderr,
+				"self-test: PlanRecalYCrossResweep cross-fail should expand offset (expand=%d offset=%d baseY=%d)\n",
+				usedExpand ? 1 : 0, offset, baseY);
+			++fail;
+		}
+	}
+
+	{
+		// Flat cross fail at max offset: no further plan.
+		int baseYFlat = -127;
+		int offsetFlat = 200;
+		int prevArgFlat = -1;
+		bool usedExpandFlat = false;
+		static const double kFlatCross[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		const size_t nFlatCross = sizeof(kFlatCross) / sizeof(kFlatCross[0]);
+		std::vector<double> flatCross(kFlatCross, kFlatCross + nFlatCross);
+		if (PlanRecalYCrossResweep(
+				Peak1DValidateCode::ParabolaNotDownward,
+				flatCross,
+				-31.0 + 200.0,
+				2,
+				baseYFlat,
+				offsetFlat,
+				prevArgFlat,
+				0.0,
+				false,
+				usedExpandFlat))
+		{
+			std::fprintf(stderr, "self-test: PlanRecalYCrossResweep flat at max offset should return false\n");
+			++fail;
+		}
+	}
+
+	{
+		// User RECAL 3 0 flat Y sweep (2026-06-03, col0=-132 stripped).
+		static const double kUserFlatY[] = {
+			-246880, -246853, -246833, -246818, -246797, -246775, -246777, -246756, -246752, -246737,
+			-246736, -246734, -246724, -246730, -246733, -246721, -246720, -246719, -246720, -246723,
+			-246725, -246730, -246725, -246740, -246738, -246736, -246744, -246740, -246752, -246756,
+			-246756, -246749, -246747,
+		};
+		const size_t nUser = sizeof(kUserFlatY) / sizeof(kUserFlatY[0]);
+		std::vector<double> userFlat(kUserFlatY, kUserFlatY + nUser);
+		const SweepProfile pu = AnalyzeRecal1DSweepProfile(userFlat);
+		Peak1DValidateCode cUser = Peak1DValidateCode::Ok;
+		double tUser = 0.0;
+		(void)M576::ParabolaVertexMax1D(userFlat, tUser, cUser);
+		if (pu.trend != SweepTrend::Flat || !IsFlatSweepFailure(cUser, pu))
+		{
+			std::fprintf(stderr, "self-test: user flat RECAL3 Y sweep must be Flat + IsFlatSweepFailure\n");
+			++fail;
+		}
+	}
+
+	{
+		// comm 2026-06-03 14:05:35: offset=64 Flat -> expand; offset=128 plateau+StrictDec tail -> mono recenter @128.
+		static const double kFlat64[] = {
+			-259436, -259407, -259388, -259385, -259367, -259333, -259322, -259306, -259297, -259297,
+			-259286, -259286, -259287, -259284, -259271, -259278, -259269, -259263, -259284, -259276,
+			-259279, -259286, -259292, -259312, -259314, -259327, -259337, -259348, -259362, -259412,
+			-259441, -259461, -259495,
+		};
+		static const double kExpand128[] = {
+			-259075, -259081, -259074, -259081, -259066, -259078, -259077, -259081, -259084, -259073,
+			-259066, -259078, -259078, -259087, -259085, -259071, -259082, -259080, -259088, -259108,
+			-259091, -259094, -259093, -259103, -259085, -259095, -259087, -259110, -259112, -259112,
+			-259115, -259114, -259124, -259138, -259136, -259133, -259144, -259161, -259170, -259184,
+			-259200, -259228, -259234, -259257, -259279, -259297, -259323, -259349, -259368, -259410,
+			-259442, -259481, -259519, -259563, -259606, -259650, -259719, -259773, -259830, -259882,
+			-259947, -260020, -260106, -260176, -260270,
+		};
+		const size_t nFlat64 = sizeof(kFlat64) / sizeof(kFlat64[0]);
+		const size_t nExp128 = sizeof(kExpand128) / sizeof(kExpand128[0]);
+		std::vector<double> flat64(kFlat64, kFlat64 + nFlat64);
+		std::vector<double> expand128(kExpand128, kExpand128 + nExp128);
+		const SweepProfile pFlat = AnalyzeRecal1DSweepProfile(flat64);
+		Peak1DValidateCode cFlat = Peak1DValidateCode::Ok;
+		double tFlat = 0.0;
+		(void)M576::ParabolaVertexMax1D(flat64, tFlat, cFlat);
+		if (pFlat.trend != SweepTrend::Flat || !IsFlatSweepFailure(cFlat, pFlat))
+		{
+			std::fprintf(stderr, "self-test: comm 2026-06-03 offset=64 must be Flat failure\n");
+			++fail;
+		}
+		if (SuggestFlatRetryDacRange(64, 200) != 128)
+		{
+			std::fprintf(stderr, "self-test: flat64 should expand 64->128\n");
+			++fail;
+		}
+
+		const SweepProfile pExp = AnalyzeRecal1DSweepProfile(expand128);
+		Peak1DValidateCode cExp = Peak1DValidateCode::Ok;
+		double tExp = 0.0;
+		int idxExp = 0;
+		(void)M576::FindUnimodalPeak1DIndex(expand128, idxExp, cExp, &tExp, nullptr);
+		if (IsRetryablePeakFailure(cExp, pExp, (int)nExp128))
+		{
+			std::fprintf(stderr, "self-test: expand128 without flat flag must not base-retry (trend=%s argmax=%d)\n",
+				SweepTrendName(pExp.trend), pExp.argmaxIndex);
+			++fail;
+		}
+		if (!IsRetryablePeakFailure(cExp, pExp, (int)nExp128, true, &expand128))
+		{
+			std::fprintf(stderr, "self-test: expand128 after flat expand must allow mono recenter\n");
+			++fail;
+		}
+		const SweepProfile adj = AdjustProfileForMonoRecenter(pExp, expand128, true);
+		if (adj.trend != SweepTrend::StrictDec)
+		{
+			std::fprintf(stderr, "self-test: expand128 post-flat should map to StrictDec (got %s)\n",
+				SweepTrendName(adj.trend));
+			++fail;
+		}
+		const double delta128 = SuggestSweepRecenterDeltaDac(adj, (int)nExp128, 128, 0);
+		if (delta128 >= 0.0)
+		{
+			std::fprintf(stderr, "self-test: expand128 StrictDec recenter should shift left (delta=%.4g)\n", delta128);
+			++fail;
+		}
+	}
+
+	{
+		// comm 2026-06-03 Step 206: plateau + -999999 + StrictDec tail, VertexOutOfRange t*<0 (col0=154).
+		static const double kStep206[] = {
+			-240714, -240713, -240716, -240715, -240719, -240724, -240738, -240747, -240765, -240777,
+			-240809, -240832, -240862, -240901, -240940, -240998, -999999, -241122, -241180, -241252,
+			-241340, -241423, -241519, -241621, -241727, -241850, -241980, -242117, -242259, -242415,
+			-242574, -242754, -242943,
+		};
+		const size_t n206 = sizeof(kStep206) / sizeof(kStep206[0]);
+		std::vector<double> step206(kStep206, kStep206 + n206);
+		const SweepProfile p206 = AnalyzeRecal1DSweepProfile(step206);
+		Peak1DValidateCode c206Fit = Peak1DValidateCode::Ok;
+		double t206Fit = 0.0;
+		int idx206 = 0;
+		(void)M576::FindUnimodalPeak1DIndex(step206, idx206, c206Fit, &t206Fit, nullptr);
+		// Runtime log: VertexOutOfRange + t*<0; static fit may differ — use log failure shape for gated path.
+		const Peak1DValidateCode c206 = Peak1DValidateCode::VertexOutOfRange;
+		const double t206 = -2.5;
+		if (p206.argmaxIndex > 1 && p206.argmaxIndex <= (int)n206 / 3
+			&& IsRetryablePeakFailure(c206, p206, (int)n206))
+		{
+			std::fprintf(stderr,
+				"self-test: Step206 interior argmax must not retry without failure (argmax=%d)\n",
+				p206.argmaxIndex);
+			++fail;
+		}
+		SweepRecenterFailureInfo fail206 = {};
+		fail206.code = c206;
+		fail206.tPeak = t206;
+		fail206.hasTPeak = true;
+		if (!IsRetryablePeakFailure(c206, p206, (int)n206, false, &step206, &fail206))
+		{
+			std::fprintf(stderr, "self-test: Step206 plateau+left-outside must be retryable (fit=%d argmax=%d)\n",
+				(int)c206Fit, p206.argmaxIndex);
+			++fail;
+		}
+		const SweepProfile adj206 = AdjustProfileForMonoRecenter(p206, step206, false, &fail206);
+		if (adj206.trend != SweepTrend::StrictDec || adj206.argmaxIndex != 0)
+		{
+			std::fprintf(stderr, "self-test: Step206 should map to StrictDec@0 (trend=%s argmax=%d)\n",
+				SweepTrendName(adj206.trend), adj206.argmaxIndex);
+			++fail;
+		}
+		const double delta206 = SuggestSweepRecenterDeltaDac(adj206, (int)n206, 64, 0, fail206);
+		if (delta206 >= 0.0)
+		{
+			std::fprintf(stderr, "self-test: Step206 recenter should shift left (delta=%.4g)\n", delta206);
+			++fail;
+		}
+	}
+
+	{
+		// comm 2026-06-03 Step 478: left-edge argmax + long StrictDec tail, VertexOutOfRange t*>n-1 (col0=110).
+		static const double kStep478[] = {
+			-258071, -258054, -258070, -258063, -258095, -258102, -258122, -258134, -258158, -258179,
+			-258214, -258251, -258278, -258332, -258371, -258421, -258492, -258549, -258610, -258685,
+			-258763, -258850, -258939, -259042, -259158, -259288, -259399, -259533, -259674, -259822,
+			-259986, -260154, -260324,
+		};
+		const size_t n478 = sizeof(kStep478) / sizeof(kStep478[0]);
+		std::vector<double> step478(kStep478, kStep478 + n478);
+		const SweepProfile p478 = AnalyzeRecal1DSweepProfile(step478);
+		Peak1DValidateCode c478Fit = Peak1DValidateCode::Ok;
+		double t478Fit = 0.0;
+		int idx478 = 0;
+		(void)M576::FindUnimodalPeak1DIndex(step478, idx478, c478Fit, &t478Fit, nullptr);
+		if (c478Fit != Peak1DValidateCode::VertexOutOfRange)
+		{
+			std::fprintf(stderr, "self-test: Step478 fit should be VertexOutOfRange (got %d t=%.4g)\n",
+				(int)c478Fit, t478Fit);
+			++fail;
+		}
+		const bool leftOut478 = std::isfinite(t478Fit) && t478Fit < -0.01;
+		const bool rightOut478 = std::isfinite(t478Fit) && t478Fit > (double)(n478 - 1) + 0.01;
+		if (!leftOut478 && !rightOut478)
+		{
+			std::fprintf(stderr, "self-test: Step478 t* should be outside window (t=%.4g n=%zu)\n",
+				t478Fit, n478);
+			++fail;
+		}
+		if (p478.argmaxIndex > 1 && IsRetryablePeakFailure(c478Fit, p478, (int)n478))
+		{
+			std::fprintf(stderr,
+				"self-test: Step478 interior argmax must not retry without failure (argmax=%d)\n",
+				p478.argmaxIndex);
+			++fail;
+		}
+		SweepRecenterFailureInfo fail478 = {};
+		fail478.code = Peak1DValidateCode::VertexOutOfRange;
+		fail478.tPeak = t478Fit;
+		fail478.hasTPeak = true;
+		if (!IsRetryablePeakFailure(c478Fit, p478, (int)n478, false, &step478, &fail478))
+		{
+			std::fprintf(stderr, "self-test: Step478 vertex-outside+left-argmax must retry (argmax=%d t=%.4g)\n",
+				p478.argmaxIndex, t478Fit);
+			++fail;
+		}
+		const SweepProfile adj478 = AdjustProfileForMonoRecenter(p478, step478, false, &fail478);
+		const double delta478 = SuggestSweepRecenterDeltaDac(adj478, (int)n478, 64, 0, fail478);
+		if (leftOut478)
+		{
+			if (adj478.trend != SweepTrend::StrictDec || adj478.argmaxIndex != 0)
+			{
+				std::fprintf(stderr, "self-test: Step478 left-outside -> StrictDec@0 (trend=%s argmax=%d)\n",
+					SweepTrendName(adj478.trend), adj478.argmaxIndex);
+				++fail;
+			}
+			if (delta478 >= 0.0)
+			{
+				std::fprintf(stderr, "self-test: Step478 left-outside should shift left (delta=%.4g)\n", delta478);
+				++fail;
+			}
+		}
+		else if (rightOut478)
+		{
+			if (adj478.trend != SweepTrend::StrictInc || adj478.argmaxIndex != (int)n478 - 1)
+			{
+				std::fprintf(stderr, "self-test: Step478 right-outside -> StrictInc@%d (trend=%s argmax=%d)\n",
+					(int)n478 - 1, SweepTrendName(adj478.trend), adj478.argmaxIndex);
+				++fail;
+			}
+			if (delta478 <= 0.0)
+			{
+				std::fprintf(stderr, "self-test: Step478 right-outside should shift right (delta=%.4g)\n", delta478);
+				++fail;
+			}
+		}
+
+		// Synthetic: t*>n-1 + left argmax (Step 478 class when fit reports right-outside vertex).
+		SweepProfile pSyn = p478;
+		pSyn.argmaxIndex = 1;
+		SweepRecenterFailureInfo failSyn = {};
+		failSyn.code = Peak1DValidateCode::VertexOutOfRange;
+		failSyn.tPeak = (double)n478 + 5.0;
+		failSyn.hasTPeak = true;
+		if (!IsRetryablePeakFailure(Peak1DValidateCode::VertexOutOfRange, pSyn, (int)n478, false, &step478, &failSyn))
+		{
+			std::fprintf(stderr, "self-test: synthetic right-outside+left-argmax must retry\n");
+			++fail;
+		}
+		if (IsRetryablePeakFailure(Peak1DValidateCode::VertexOutOfRange, pSyn, (int)n478, false, &step478, nullptr))
+		{
+			std::fprintf(stderr, "self-test: synthetic right-outside must not retry without failure t*\n");
+			++fail;
+		}
+		const SweepProfile adjSyn = AdjustProfileForMonoRecenter(pSyn, step478, false, &failSyn);
+		const double deltaSyn = SuggestSweepRecenterDeltaDac(adjSyn, (int)n478, 64, 0, failSyn);
+		if (adjSyn.trend != SweepTrend::StrictInc || adjSyn.argmaxIndex != (int)n478 - 1 || deltaSyn <= 0.0)
+		{
+			std::fprintf(stderr,
+				"self-test: synthetic right-outside -> StrictInc shift right (trend=%s delta=%.4g)\n",
+				SweepTrendName(adjSyn.trend), deltaSyn);
+			++fail;
+		}
+		// Interior argmax + right-outside t* must not retry (ambiguous direction).
+		SweepProfile pMid = p478;
+		pMid.argmaxIndex = (int)n478 / 2;
+		if (IsRetryablePeakFailure(Peak1DValidateCode::VertexOutOfRange, pMid, (int)n478, false, &step478, &failSyn))
+		{
+			std::fprintf(stderr, "self-test: right-outside+mid argmax must not retry\n");
 			++fail;
 		}
 	}
@@ -1158,6 +1538,67 @@ static int RunSweepRecenterSelfTests()
 	return fail;
 }
 
+/// Assert RECAL 3/5 six-parameter command strings match CRecalSession::SendRecal3/5 format (INV-18).
+static int RunRecalCmdFormatSelfTests()
+{
+	int fail = 0;
+	auto check = [&](const char* label, const std::string& cmd, int k, int mode, int bx, int by, int off, int step, int delay)
+	{
+		RecalSweepCmdFields cf;
+		if (!ParseRecalSweepCmd(cmd, cf) || cf.legacy5Param)
+		{
+			std::fprintf(stderr, "self-test recal-cmd: %s parse failed: %s\n", label, cmd.c_str());
+			++fail;
+			return;
+		}
+		if (cf.recalKind != k || cf.sweepMode != mode || cf.baseX != bx || cf.baseY != by
+			|| cf.offsetDac != off || cf.stepDac != step || cf.delayMs != delay)
+		{
+			std::fprintf(stderr,
+				"self-test recal-cmd: %s field mismatch for %s\n",
+				label,
+				cmd.c_str());
+			++fail;
+		}
+	};
+
+	const std::string mode0 = FormatRecalSweepCmd(3, 0, 9999, 9999, 64, 4, 80);
+	check("mode0 PM", mode0, 3, 0, 9999, 9999, 64, 4, 80);
+	if (mode0 != "RECAL 3 0 9999 9999 64 4 80")
+	{
+		std::fprintf(stderr, "self-test recal-cmd: mode0 string expected 'RECAL 3 0 9999 9999 64 4 80' got '%s'\n",
+			mode0.c_str());
+		++fail;
+	}
+
+	const std::string mode1 = FormatRecalSweepCmd(3, 1, -2663, 2186, 128, 4, 80);
+	check("mode1 PM", mode1, 3, 1, -2663, 2186, 128, 4, 80);
+	if (mode1 != "RECAL 3 1 -2663 2186 128 4 80")
+	{
+		std::fprintf(stderr, "self-test recal-cmd: mode1 string mismatch\n");
+		++fail;
+	}
+
+	const std::string pd5 = FormatRecalSweepCmd(5, 0, 9999, 9999, 64, 4, 80);
+	check("mode0 PD", pd5, 5, 0, 9999, 9999, 64, 4, 80);
+
+	RecalSweepCmdFields legacy;
+	if (!ParseRecalSweepCmd("RECAL 3 0 9999 64 4 80", legacy) || !legacy.legacy5Param
+		|| legacy.baseX != 9999 || legacy.baseY != 9999)
+	{
+		std::fprintf(stderr, "self-test recal-cmd: legacy 5-param mode0 mapping failed\n");
+		++fail;
+	}
+	if (!ParseRecalSweepCmd("RECAL 3 1 2189 64 4 80", legacy) || !legacy.legacy5Param
+		|| legacy.baseY != 2189 || legacy.baseX != 9999)
+	{
+		std::fprintf(stderr, "self-test recal-cmd: legacy 5-param mode1 mapping failed\n");
+		++fail;
+	}
+
+	return fail;
+}
+
 int main(int argc, char* argv[])
 {
 	if (argc >= 3 && std::strcmp(argv[1], "--export-peak-csv") == 0)
@@ -1171,6 +1612,8 @@ int main(int argc, char* argv[])
 
 	if (RunPeak1DSelfTests() != 0)
 		return 9;
+	if (RunRecalCmdFormatSelfTests() != 0)
+		return 12;
 	if (RunPmRangeSelfTests() != 0)
 		return 11;
 	if (RunSweepRecenterSelfTests() != 0)
