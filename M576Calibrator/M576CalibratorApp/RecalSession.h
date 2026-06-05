@@ -21,18 +21,16 @@ public:
 	// 命令 B：RECAL 1，target + 四路 Z4744 通道号，应答为 OK 行。
 	BOOL SendRecal1(const SPathStep& step, CString& err);
 
-	/// PM sweep: `RECAL 3` — sweepMode 0 = X fixed / Y sweep; 1 = Y fixed / X sweep.
-	/// Params: Base DAC (`M576_RECAL_FW_READ_BASE_DAC` = FW reads channel as base; else host sets), Offset, Step, Delay (ms).
-	// 功率计扫频 RECAL 3；sweepMode 0/1 为固定一轴、扫另一轴，参数含基准/偏置/步进/点间延时。
-	BOOL SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
+	/// PM sweep: `RECAL 3 <mode> <baseX> <baseY> <offset> <step> <delay>\r` — mode 0: fix X/sweep Y; mode 1: fix Y/sweep X.
+	/// `M576_RECAL_FW_READ_BASE_DAC` (9999) = FW reads channel DAC for that axis.
+	BOOL SendRecal3(int sweepMode, int baseX, int baseY, int offsetDac, int stepDac, int delayMs, CString& err);
 
 	/// Command C: `RECAL 2` — target 1..4 + two channel numbers (2#1x64 ch, MCS ch); response line is `OK`.
 	// 命令 C：RECAL 2，target + 2#1x64 与 MCS 两路通道号，应答为 OK 行（PD 路径用）。
 	BOOL SendRecal2(const SPathStepPd& step, CString& err);
 
-	/// PD sweep: `RECAL 5` — same sweep modes / params as `RECAL 3`.
-	// PD 扫频 RECAL 5，模式/参数与 RECAL 3 同构。
-	BOOL SendRecal5(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err);
+	/// PD sweep: `RECAL 5` — same 6-param layout as `RECAL 3`.
+	BOOL SendRecal5(int sweepMode, int baseX, int baseY, int offsetDac, int stepDac, int delayMs, CString& err);
 
 	/// Read until end-of-line: first of \\n or \\r (firmware uses CR-only lines).
 	// 读到行尾（\\n 或 \\r 先到先结束；固件可能只发 CR）。
@@ -60,8 +58,26 @@ public:
 	static int ParseOpmPmRangeReply(const CStringA& line);
 	BOOL ExchangeRecal1ReadLine(const SPathStep& step, CStringA& outLine, DWORD timeoutMs, CString& err);
 	BOOL ExchangeRecal2ReadLine(const SPathStepPd& step, CStringA& outLine, DWORD timeoutMs, CString& err);
-	BOOL ExchangeRecal3ReadSweep(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CStringA& outLine, DWORD readTimeoutMs, CString& err);
-	BOOL ExchangeRecal5ReadSweep(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CStringA& outLine, DWORD readTimeoutMs, CString& err);
+	BOOL ExchangeRecal3ReadSweep(
+		int sweepMode,
+		int baseX,
+		int baseY,
+		int offsetDac,
+		int stepDac,
+		int delayMs,
+		CStringA& outLine,
+		DWORD readTimeoutMs,
+		CString& err);
+	BOOL ExchangeRecal5ReadSweep(
+		int sweepMode,
+		int baseX,
+		int baseY,
+		int offsetDac,
+		int stepDac,
+		int delayMs,
+		CStringA& outLine,
+		DWORD readTimeoutMs,
+		CString& err);
 
 	/// Split payload by comma/space/tab into doubles (best-effort for bring-up).
 	// 按逗号/空白拆分功率样点（样机期宽松解析）。

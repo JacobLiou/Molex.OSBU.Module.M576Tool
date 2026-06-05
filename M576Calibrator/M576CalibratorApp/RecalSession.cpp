@@ -288,11 +288,11 @@ BOOL CRecalSession::SendRecal1(const SPathStep& step, CString& err)
 	return TRUE;
 }
 
-BOOL CRecalSession::SendRecal3(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err)
+BOOL CRecalSession::SendRecal3(int sweepMode, int baseX, int baseY, int offsetDac, int stepDac, int delayMs, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 3 %d %d %d %d %d\r",
-		sweepMode, baseDac, offsetDac, stepDac, delayMs);
+	cmd.Format("RECAL 3 %d %d %d %d %d %d\r",
+		sweepMode, baseX, baseY, offsetDac, stepDac, delayMs);
 	CString name;
 	name.Format(_T("RECAL 3 %d"), sweepMode);
 	TraceSend(name, cmd);
@@ -308,11 +308,11 @@ BOOL CRecalSession::SendRecal3(int sweepMode, int baseDac, int offsetDac, int st
 	return TRUE;
 }
 
-BOOL CRecalSession::SendRecal5(int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CString& err)
+BOOL CRecalSession::SendRecal5(int sweepMode, int baseX, int baseY, int offsetDac, int stepDac, int delayMs, CString& err)
 {
 	CStringA cmd;
-	cmd.Format("RECAL 5 %d %d %d %d %d\r",
-		sweepMode, baseDac, offsetDac, stepDac, delayMs);
+	cmd.Format("RECAL 5 %d %d %d %d %d %d\r",
+		sweepMode, baseX, baseY, offsetDac, stepDac, delayMs);
 	CString name;
 	name.Format(_T("RECAL 5 %d"), sweepMode);
 	TraceSend(name, cmd);
@@ -581,15 +581,23 @@ static void R3R5Name(int sweepMode, BOOL isFive, CString& o)
 }
 
 BOOL CRecalSession::ExchangeRecal3ReadSweep(
-	int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CStringA& outLine, DWORD readTimeoutMs, CString& err)
+	int sweepMode,
+	int baseX,
+	int baseY,
+	int offsetDac,
+	int stepDac,
+	int delayMs,
+	CStringA& outLine,
+	DWORD readTimeoutMs,
+	CString& err)
 {
 	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
 	for (int a = 1; a <= kMax; ++a)
 	{
 		const BOOL isFinal = (a >= kMax);
 		CStringA cmd;
-		cmd.Format("RECAL 3 %d %d %d %d %d\r",
-			sweepMode, baseDac, offsetDac, stepDac, delayMs);
+		cmd.Format("RECAL 3 %d %d %d %d %d %d\r",
+			sweepMode, baseX, baseY, offsetDac, stepDac, delayMs);
 		CString traceName;
 		R3R5Name(sweepMode, FALSE, traceName);
 		TraceSend(traceName, cmd);
@@ -621,15 +629,23 @@ BOOL CRecalSession::ExchangeRecal3ReadSweep(
 }
 
 BOOL CRecalSession::ExchangeRecal5ReadSweep(
-	int sweepMode, int baseDac, int offsetDac, int stepDac, int delayMs, CStringA& outLine, DWORD readTimeoutMs, CString& err)
+	int sweepMode,
+	int baseX,
+	int baseY,
+	int offsetDac,
+	int stepDac,
+	int delayMs,
+	CStringA& outLine,
+	DWORD readTimeoutMs,
+	CString& err)
 {
 	const int kMax = (int)M576_COMM_RETRY_MAX_ATTEMPTS;
 	for (int a = 1; a <= kMax; ++a)
 	{
 		const BOOL isFinal = (a >= kMax);
 		CStringA cmd;
-		cmd.Format("RECAL 5 %d %d %d %d %d\r",
-			sweepMode, baseDac, offsetDac, stepDac, delayMs);
+		cmd.Format("RECAL 5 %d %d %d %d %d %d\r",
+			sweepMode, baseX, baseY, offsetDac, stepDac, delayMs);
 		CString traceName;
 		R3R5Name(sweepMode, TRUE, traceName);
 		TraceSend(traceName, cmd);

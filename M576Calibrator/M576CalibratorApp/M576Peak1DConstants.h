@@ -56,7 +56,14 @@
 #endif
 /// RECAL 3/5 monotone sweep recenter: 1 initial + (MAX-1) hardware re-sweeps.
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS
-#define M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS 5
+#define M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS 10
+#endif
+#ifndef M576_PEAK1D_FLAT_EXPAND_FACTOR
+#define M576_PEAK1D_FLAT_EXPAND_FACTOR 2
+#endif
+/// Flat/cross Y resweep: max sweep offset (matches UI `M576_MAX_DAC_RANGE` in CalibConstants.h).
+#ifndef M576_MAX_DAC_RANGE
+#define M576_MAX_DAC_RANGE 200
 #endif
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC
 #define M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC 0.35

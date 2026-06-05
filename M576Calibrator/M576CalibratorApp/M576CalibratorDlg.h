@@ -183,12 +183,15 @@ private:
 		int& occT4,
 		LPCTSTR pmCsvAbsPath);
 	void RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathStepPd const&>& steps, int& globalProgress, int globalTotal, int& occT3, int& occT4);
-	/// RECAL 3/5 one-axis sweep + 1D peak find; on monotone/edge failure, data-driven recenter retry (max 2 retries).
+	/// RECAL 3/5 one-axis sweep + 1D peak find; dual-base (baseX, baseY). Retry adjusts moving axis only.
+	/// mode 0: fixedBase=baseX (9999), initialMoving=baseY; mode 1: fixedBase=baseY (Y@peak), initialMoving=baseX.
 	BOOL RunRecal1DSweepWithPeakRecenterRetry(
 		BOOL isPm,
 		int pmRangeIndex,
 		int sweepMode,
-		int initialBaseDac,
+		int fixedBaseDac,
+		int initialMovingBase,
+		int initialDacRange,
 		DWORD readTimeoutMs,
 		LPCTSTR axisTag,
 		LPCTSTR recalStageLabel,
@@ -199,6 +202,7 @@ private:
 		M576::Peak1DFitTrace& outTrace,
 		double& outTPeak,
 		int& outAttemptCount,
+		int& outDacRangeUsed,
 		CString& err);
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。

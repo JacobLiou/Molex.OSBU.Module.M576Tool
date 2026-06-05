@@ -39,6 +39,21 @@ alwaysApply: true
 3. **Write Bin** — 合并进 backup 再落盘  
 4. **Burn Flash** — 透传烧录  
 
+## 上位机算法 vs 固件（设计原则）
+
+**当前 RECAL/寻峰/重试类优化，本质是在补全固件能力不足**——固件侧扫频、定 base、判峰能力有限，上位机用软件策略兜底。
+
+**产线目标：尽可能让每一次校准都成功**，而不是在边界数据上轻易 skip 单步或整路 path。
+
+改算法时默认倾向：
+
+- **可重试、可恢复**：平坦 → 扩 offset；单调贴边 → 平移 base；通信失败与寻峰失败分开处理（**INV-12**）。
+- **可追溯**：日志带 validate_code、trend、offset、attempt、baseX/baseY，便于与 comm log 对表。
+- **可单测**：逻辑落在 `Peak1DSweepRecenter` / `CrossPeakTest`，勿只在 Dlg 里堆 if。
+- **不掩盖固件缺口**：注释或 INVARIANTS 写清「上位机补什么、固件仍须保证什么」。
+
+固件能力增强后，上位机策略可收敛，但**在未改 FW 前勿删除重试路径** unless 实机/comm 证明不再需要。
+
 ## 提交前检查（算法/Merge/RECAL 相关改动）
 
 ```text

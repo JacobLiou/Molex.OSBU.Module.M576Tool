@@ -5,7 +5,7 @@ Extract recal_sweeps + peak_summary CSV from comm_*.log in the working folder.
 
 Place ExtractCommLogs.exe next to comm_YYYY-MM-DD.log (e.g. under M576 output/) and double-click.
 Outputs (overwrite if present):
-  comm_<date>_recal_sweeps.csv   (cmd + power samples, UTF-8 BOM, header)
+  comm_<date>_recal_sweeps.csv   (one successful RECAL 3/5 mode-0/1 per path Step; retries omitted)
   comm_<date>_peak_summary.csv   (cmd_path + cmd_sweep_* + stats, UTF-8 BOM)
 """
 

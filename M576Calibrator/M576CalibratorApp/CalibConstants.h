@@ -88,8 +88,10 @@
 #include "M576Peak1DConstants.h"
 // 一维寻峰/抛物线门限见 M576Peak1DConstants.h（无 MFC，供 PeakFinder2D 等纯 C++ 单元 include）。
 
-/// RECAL 3 / 5 Base DAC: 9999 = firmware uses current channel DAC as sweep center (PRD); any other value = host sets base.
-// RECAL 3/5 基准 DAC：9999 表示由固件读当前通道 DAC 为扫频中心，其余值由上位机写基准。
+/// RECAL 3 / 5 dual-base sweep: `9999` (`M576_RECAL_FW_READ_BASE_DAC`) = firmware reads current channel DAC for that axis.
+/// mode 0 (fix X, sweep Y): baseX=9999 fixed; baseY=9999 first sweep, retry adjusts baseY only.
+/// mode 1 (fix Y, sweep X): baseY=Y@peak fixed; baseX=9999 first sweep, retry adjusts baseX only.
+// RECAL 3/5 双基准：9999 表示固件读该轴当前通道 DAC；mode0 定 X 扫 Y；mode1 定 Y@peak 扫 X。
 #ifndef M576_RECAL_FW_READ_BASE_DAC
 #define M576_RECAL_FW_READ_BASE_DAC 9999
 #endif

@@ -37,13 +37,11 @@ if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
 from recal_log_cmds import (
+    STEP_PATH_RE as STEP_RE,
     lookup_cmd_path,
     parse_block_sweep_cmds,
+    parse_recal_sweep_wire_step,
     split_runs,
-)
-
-STEP_RE = re.compile(
-    r"Step (\d+)/(\d+) \(slot (\d+)\) RECAL ([12]) -> OK",
 )
 _CROSS_MAX_RE = re.compile(
     r"RECAL([35])\s+"
@@ -71,9 +69,6 @@ _RECAL51_SWEEP_COL0_RE = re.compile(
 )
 _SEND_RECAL1_RE = re.compile(r"SEND RECAL 1 \| RECAL 1 (\d+)")
 _SEND_RECAL2_RE = re.compile(r"SEND RECAL 2 \| RECAL 2 (\d+)")
-_SEND_RECAL35_SWEEP_RE = re.compile(
-    r"SEND RECAL ([35]) ([01]) \| RECAL \1 \2\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)",
-)
 
 
 def _lookup_recal_switch(run_lines: List[str], step_line_index: int, recal_cmd: str) -> str | None:
@@ -114,15 +109,15 @@ def _parse_block(
     step_y: str | None = None
     step_x: str | None = None
     cmd_s0, cmd_s1, _skip_x = parse_block_sweep_cmds(block_lines)
+    if cmd_s0:
+        st = parse_recal_sweep_wire_step(cmd_s0, "0")
+        if st is not None:
+            step_y = st
+    if cmd_s1:
+        st = parse_recal_sweep_wire_step(cmd_s1, "1")
+        if st is not None:
+            step_x = st
     for line in block_lines:
-        sm = _SEND_RECAL35_SWEEP_RE.search(line)
-        if sm:
-            sweep_mode = sm.group(2)
-            step_val = sm.group(5)
-            if sweep_mode == "0":
-                step_y = step_val
-            else:
-                step_x = step_val
         m30 = _RECAL30_SWEEP_COL0_RE.search(line)
         if m30:
             base_y = m30.group(1)
