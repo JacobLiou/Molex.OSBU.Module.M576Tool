@@ -39,6 +39,9 @@ namespace M576
 
 	bool IsFlatSweepFailure(Peak1DValidateCode code, const SweepProfile& profile);
 
+	/// StrictInc/Dec or edge NonMono + ParabolaNotDownward / NotEnoughValidSamples (not Flat).
+	bool IsMonotoneSweepFailure(Peak1DValidateCode code, const SweepProfile& profile, int sampleCount);
+
 	/// Double current offset up to maxRange; returns 0 if no expansion possible.
 	int SuggestFlatRetryDacRange(int currentRange, int maxRange);
 
@@ -53,7 +56,8 @@ namespace M576
 		int& ioPrevArgmax,
 		double crossTPeak,
 		bool hasCrossTPeak,
-		bool& outUsedExpandRange);
+		bool& outUsedExpandRange,
+		bool& ioMonoRangeExpanded);
 
 	bool IsRetryablePeakFailure(
 		Peak1DValidateCode code,

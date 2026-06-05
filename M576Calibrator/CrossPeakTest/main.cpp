@@ -28,6 +28,7 @@ using M576::SweepTrend;
 using M576::AnalyzeRecal1DSweepProfile;
 using M576::IsRetryablePeakFailure;
 using M576::IsFlatSweepFailure;
+using M576::IsMonotoneSweepFailure;
 using M576::SuggestFlatRetryDacRange;
 using M576::PlanRecalYCrossResweep;
 using M576::AdjustProfileForMonoRecenter;
@@ -1088,6 +1089,16 @@ static int RunSweepRecenterSelfTests()
 			std::fprintf(stderr, "self-test: StrictDec ParabolaNotDownward should be retryable\n");
 			++fail;
 		}
+		if (!IsMonotoneSweepFailure(Peak1DValidateCode::ParabolaNotDownward, p, n))
+		{
+			std::fprintf(stderr, "self-test: StrictDec must be IsMonotoneSweepFailure\n");
+			++fail;
+		}
+		if (SuggestFlatRetryDacRange(dacRange, 200) != 128)
+		{
+			std::fprintf(stderr, "self-test: StrictDec @64 should expand to 128 before recenter\n");
+			++fail;
+		}
 	}
 
 	{
@@ -1099,6 +1110,81 @@ static int RunSweepRecenterSelfTests()
 		if (p.trend != SweepTrend::StrictInc || delta0 <= 0.0)
 		{
 			std::fprintf(stderr, "self-test: StrictInc should yield positive delta (got %.4g)\n", delta0);
+			++fail;
+		}
+		if (!IsMonotoneSweepFailure(Peak1DValidateCode::ParabolaNotDownward, p, n))
+		{
+			std::fprintf(stderr, "self-test: StrictInc must be IsMonotoneSweepFailure\n");
+			++fail;
+		}
+	}
+
+	{
+		// Edge NonMono (argmax=0): small bumps break StrictDec but keep max at index 0.
+		std::vector<double> edgeNonMono((size_t)n);
+		edgeNonMono[0] = -120000.0;
+		for (int i = 1; i < n; ++i)
+			edgeNonMono[(size_t)i] = -130000.0 - i * 800.0 + ((i % 4 == 0) ? 120.0 : 0.0);
+		const SweepProfile pEdge = AnalyzeRecal1DSweepProfile(edgeNonMono);
+		if (pEdge.argmaxIndex > 1)
+		{
+			std::fprintf(stderr, "self-test: edge NonMono fixture argmax=%d trend=%s\n",
+				pEdge.argmaxIndex, SweepTrendName(pEdge.trend));
+			++fail;
+		}
+		if (pEdge.trend == SweepTrend::Flat)
+		{
+			std::fprintf(stderr, "self-test: edge NonMono fixture must not be Flat\n");
+			++fail;
+		}
+		if (!IsMonotoneSweepFailure(Peak1DValidateCode::ParabolaNotDownward, pEdge, n))
+		{
+			std::fprintf(stderr, "self-test: edge NonMono must be IsMonotoneSweepFailure\n");
+			++fail;
+		}
+		std::vector<double> midNonMono((size_t)n, -130000.0);
+		midNonMono[(size_t)(n / 2)] = -120000.0;
+		const SweepProfile pMid = AnalyzeRecal1DSweepProfile(midNonMono);
+		if (IsMonotoneSweepFailure(Peak1DValidateCode::ParabolaNotDownward, pMid, n))
+		{
+			std::fprintf(stderr, "self-test: mid NonMono must not be IsMonotoneSweepFailure\n");
+			++fail;
+		}
+	}
+
+	{
+		// PlanRecalYCrossResweep: StrictDec cross fail expands offset once before recenter.
+		int baseYMono = -127;
+		int offsetMono = 64;
+		int prevArgMono = -1;
+		bool usedExpandMono = false;
+		bool monoExpandedCross = false;
+		std::vector<double> strictDecCross((size_t)n);
+		for (int i = 0; i < n; ++i)
+			strictDecCross[(size_t)i] = -130000.0 - i * 3000.0;
+		const SweepProfile pMonoCross = AnalyzeRecal1DSweepProfile(strictDecCross);
+		if (pMonoCross.trend != SweepTrend::StrictDec)
+		{
+			std::fprintf(stderr, "self-test: strictDecCross fixture trend=%s\n", SweepTrendName(pMonoCross.trend));
+			++fail;
+		}
+		if (!PlanRecalYCrossResweep(
+				Peak1DValidateCode::ParabolaNotDownward,
+				strictDecCross,
+				-132.0 + (double)offsetMono,
+				0,
+				baseYMono,
+				offsetMono,
+				prevArgMono,
+				0.0,
+				false,
+				usedExpandMono,
+				monoExpandedCross)
+			|| !usedExpandMono || offsetMono != 128 || baseYMono != -127 || !monoExpandedCross)
+		{
+			std::fprintf(stderr,
+				"self-test: PlanRecalYCrossResweep StrictDec should mono-expand (expand=%d offset=%d baseY=%d)\n",
+				usedExpandMono ? 1 : 0, offsetMono, baseYMono);
 			++fail;
 		}
 	}
@@ -1142,6 +1228,7 @@ static int RunSweepRecenterSelfTests()
 		int offset = 64;
 		int prevArg = -1;
 		bool usedExpand = false;
+		bool monoRangeExpanded = false;
 		static const double kBellY[] = {
 			-246880, -246853, -246833, -246818, -246797, -246775, -246777, -246756, -246752, -246737,
 			-246736, -246734, -246724, -246730, -246733, -246721, -246720, -246719, -246720, -246723,
@@ -1161,7 +1248,8 @@ static int RunSweepRecenterSelfTests()
 				prevArg,
 				15.0,
 				true,
-				usedExpand)
+				usedExpand,
+				monoRangeExpanded)
 			|| !usedExpand || offset != 128 || baseY != -127)
 		{
 			std::fprintf(stderr,
@@ -1177,6 +1265,7 @@ static int RunSweepRecenterSelfTests()
 		int offsetFlat = 200;
 		int prevArgFlat = -1;
 		bool usedExpandFlat = false;
+		bool monoRangeExpandedFlat = false;
 		static const double kFlatCross[] = {
 			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
 			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
@@ -1195,7 +1284,8 @@ static int RunSweepRecenterSelfTests()
 				prevArgFlat,
 				0.0,
 				false,
-				usedExpandFlat))
+				usedExpandFlat,
+				monoRangeExpandedFlat))
 		{
 			std::fprintf(stderr, "self-test: PlanRecalYCrossResweep flat at max offset should return false\n");
 			++fail;

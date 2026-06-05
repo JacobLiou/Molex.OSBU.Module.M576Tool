@@ -19,16 +19,17 @@ alwaysApply: false
 
 - ASCII??`CRecalSession`??App??
 - ?????`M576Peak1DConstants.h`
-- ?????`Peak1DSweepRecenter.cpp` ?? `IsFlatSweepFailure`, `SuggestFlatRetryDacRange`, `PlanRecalYCrossResweep`, `IsRetryablePeakFailure`, `SuggestSweepRecenterNewBase`
+- 策略辅助：`Peak1DSweepRecenter.cpp` 中 `IsFlatSweepFailure`, `IsMonotoneSweepFailure`, `SuggestFlatRetryDacRange`, `PlanRecalYCrossResweep`, `IsRetryablePeakFailure`, `SuggestSweepRecenterNewBase`
 - PM ??????`PmRangeValidation.cpp` ?? `ValidatePeakPowerInPmRange`???? RECAL 3??
 
 ## ?????????????
 
 | ??? | ???? | INV |
 |------|------|-----|
-| `Flat` + `ParabolaNotDownward` | **?? offset ??2**???? `M576_MAX_DAC_RANGE`????base ???? | INV-10 |
-| `StrictInc` / `StrictDec` | base ??? recenter | INV-11 |
-| `ParabolaNotDownward` + ???? NonMono | base ??? | INV-11 |
+| `Flat` + `ParabolaNotDownward` | **仅 expand offset ×2**（至 `M576_MAX_DAC_RANGE`），base 不变 | INV-10 |
+| `StrictInc` / `StrictDec` + `ParabolaNotDownward` | **先 mono expand offset ×1**（`IsMonotoneSweepFailure`），再 base 平移 | INV-11 |
+| `ParabolaNotDownward` + 贴边 NonMono | **先 mono expand offset ×1**，再 base 平移 | INV-11 |
+| `VertexOutOfRange` / `EdgeNotAllowed` | 启发式 + t* 混合（非 fixedRange） | INV-11 |
 | ?????? -999999 / -999900 | ??? | INV-14 |
 | `newBase` | int16 ???????????? | INV-13 |
 | ?????? | ?? validate_code??trend??col0??offset??attempts | INV-15 |

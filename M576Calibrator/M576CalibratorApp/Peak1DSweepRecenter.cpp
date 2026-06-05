@@ -370,6 +370,24 @@ namespace M576
 			|| code == Peak1DValidateCode::NotEnoughValidSamples;
 	}
 
+	bool IsMonotoneSweepFailure(Peak1DValidateCode code, const SweepProfile& profile, int sampleCount)
+	{
+		if (profile.trend == SweepTrend::Flat || sampleCount <= 0)
+			return false;
+		if (code != Peak1DValidateCode::ParabolaNotDownward
+			&& code != Peak1DValidateCode::NotEnoughValidSamples)
+		{
+			return false;
+		}
+		if (profile.trend == SweepTrend::StrictInc || profile.trend == SweepTrend::StrictDec)
+			return true;
+		if (profile.trend == SweepTrend::NonMono && sampleCount > 1)
+		{
+			return profile.argmaxIndex <= 1 || profile.argmaxIndex >= (sampleCount - 2);
+		}
+		return false;
+	}
+
 	int SuggestFlatRetryDacRange(int currentRange, int maxRange)
 	{
 		if (currentRange < 1 || maxRange < 1)
@@ -391,7 +409,8 @@ namespace M576
 		int& ioPrevArgmax,
 		double crossTPeak,
 		bool hasCrossTPeak,
-		bool& outUsedExpandRange)
+		bool& outUsedExpandRange,
+		bool& ioMonoRangeExpanded)
 	{
 		outUsedExpandRange = false;
 		if (crossCode == Peak1DValidateCode::Ok || crossCode == Peak1DValidateCode::PmRangeMismatch)
@@ -412,6 +431,18 @@ namespace M576
 				return true;
 			}
 			return false;
+		}
+
+		if (IsMonotoneSweepFailure(crossCode, profile, n) && !ioMonoRangeExpanded)
+		{
+			const int next = SuggestFlatRetryDacRange(ioDacRange, M576_MAX_DAC_RANGE);
+			if (next > ioDacRange)
+			{
+				ioDacRange = next;
+				ioMonoRangeExpanded = true;
+				outUsedExpandRange = true;
+				return true;
+			}
 		}
 
 		if (IsRetryablePeakFailure(crossCode, profile, n))
