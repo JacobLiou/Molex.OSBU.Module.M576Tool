@@ -288,11 +288,13 @@ namespace M576
 			double& spanAllValid,
 			std::vector<double>& xs,
 			std::vector<double>& ys,
-			Peak1DValidateCode& f)
+			Peak1DValidateCode& f,
+			Peak1DFitPolicy policy)
 		{
 			f = Peak1DValidateCode::Ok;
 			xs.clear();
 			ys.clear();
+			const bool relaxed = (policy == Peak1DFitPolicy::FineRefineRelaxed);
 
 			const int n = (int)p.size();
 			std::vector<double> pFilled = p;
@@ -331,8 +333,9 @@ namespace M576
 			spanAllValid = vmax - vmin;
 			{
 				const double maxAbs = (std::max)(std::abs(vmin), std::abs(vmax));
-				const bool relFlat = (maxAbs > 1e-6
-					&& spanAllValid / maxAbs < (double)M576_PEAK1D_FLAT_REL_SPAN_FRAC);
+				const bool relFlat = !relaxed
+					&& (maxAbs > 1e-6
+						&& spanAllValid / maxAbs < (double)M576_PEAK1D_FLAT_REL_SPAN_FRAC);
 				if (spanAllValid < (double)M576_PEAK1D_MIN_SPAN_DB || relFlat)
 				{
 					f = Peak1DValidateCode::ParabolaNotDownward;
@@ -480,13 +483,51 @@ namespace M576
 			const double spanPts = hiPts - loPts;
 			const double epsMono = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB, spanPts * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
 
-			if (FitsAreStrictMonotoneAlongIndex(xs, ys, epsMono))
+			if (!relaxed && FitsAreStrictMonotoneAlongIndex(xs, ys, epsMono))
 			{
 				f = Peak1DValidateCode::ParabolaNotDownward;
 				xs.clear();
 				ys.clear();
 				return false;
 			}
+			return true;
+		}
+
+		static bool TryFineRefineArgmaxFallback(
+			const std::vector<double>& p,
+			double spanAll,
+			Peak1DFitTrace* trace,
+			double& outT,
+			Peak1DValidateCode& f)
+		{
+			if (spanAll < (double)M576_PEAK1D_MIN_SPAN_DB)
+				return false;
+			const int n = (int)p.size();
+			if (n < 1)
+				return false;
+			int idx = -1;
+			if (trace != nullptr && trace->globalMaxIndex >= 0 && trace->globalMaxIndex < n)
+				idx = trace->globalMaxIndex;
+			else
+			{
+				double bestY = -(1e300);
+				for (int i = 0; i < n; ++i)
+				{
+					if (IsRecal1DPowerInvalidValue(p[(size_t)i]))
+						continue;
+					if (idx < 0 || p[(size_t)i] > bestY)
+					{
+						bestY = p[(size_t)i];
+						idx = i;
+					}
+				}
+			}
+			if (idx < 0 || idx >= n)
+				return false;
+			outT = (double)idx;
+			f = Peak1DValidateCode::Ok;
+			if (trace != nullptr)
+				trace->usedArgmaxFallback = true;
 			return true;
 		}
 
@@ -603,11 +644,19 @@ namespace M576
 		return v == (double)M576_RECAL_POW_INVALID_1 || v == (double)M576_RECAL_POW_INVALID_2;
 	}
 
-	bool ParabolaVertexMax1D(const std::vector<double>& p, double& outT, Peak1DValidateCode& f, Peak1DFitTrace* trace)
+	bool ParabolaVertexMax1D(
+		const std::vector<double>& p,
+		double& outT,
+		Peak1DValidateCode& f,
+		Peak1DFitTrace* trace,
+		Peak1DFitPolicy policy)
 	{
 		f = Peak1DValidateCode::Ok;
 		outT = 0;
 		ResetAndFillTraceGlobalMax(p, trace);
+		if (trace != nullptr)
+			trace->usedArgmaxFallback = false;
+		const bool relaxed = (policy == Peak1DFitPolicy::FineRefineRelaxed);
 		const int n = (int)p.size();
 		if (n < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
 		{
@@ -618,8 +667,12 @@ namespace M576
 		std::vector<double> xs;
 		std::vector<double> ys;
 		double spanAll = 0;
-		if (!Peak1DSamplesFromPreprocessed(p, spanAll, xs, ys, f))
+		if (!Peak1DSamplesFromPreprocessed(p, spanAll, xs, ys, f, policy))
+		{
+			if (relaxed && TryFineRefineArgmaxFallback(p, spanAll, trace, outT, f))
+				return true;
 			return false;
+		}
 		if (trace)
 		{
 			trace->fitIndex.clear();
@@ -632,7 +685,7 @@ namespace M576
 				trace->fitY.push_back(ys[k]);
 			}
 		}
-		if (spanAll <= (double)M576_PEAK1D_MIN_ABS_EPS_DB * kFlatSpanMult)
+		if (!relaxed && spanAll <= (double)M576_PEAK1D_MIN_ABS_EPS_DB * kFlatSpanMult)
 		{
 			f = Peak1DValidateCode::ParabolaNotDownward;
 			return false;
@@ -645,6 +698,8 @@ namespace M576
 		if (!FitCubicLeastSquares(xs, ys, abcd))
 		{
 			f = Peak1DValidateCode::ParabolaFitSingular;
+			if (relaxed && TryFineRefineArgmaxFallback(p, spanAll, trace, outT, f))
+				return true;
 			return false;
 		}
 
@@ -656,30 +711,35 @@ namespace M576
 		if (!std::isfinite(tStar) || !std::isfinite(yStar))
 		{
 			f = Peak1DValidateCode::ParabolaFitSingular;
+			if (relaxed && TryFineRefineArgmaxFallback(p, spanAll, trace, outT, f))
+				return true;
 			return false;
 		}
 
-		const double spanRef = spanAll <= 0 ? 1.0 : spanAll;
-		const double derivReject = spanRef * (double)M576_PEAK1D_EPS_REL_OF_SPAN * kDerivRejectScale;
-		const double xPad = (std::max)(kTRangeEps * 100, (xmax - xmin) * 1e-9 + kTRangeEps);
-		const bool attachSeqEnd = std::abs(tStar - xmax) <= kTRangeEps || tStar >= xmax - kTRangeEps;
-		if ((double)n >= (double)M576_PEAK1D_CUBIC_MIN_SAMPLES && attachSeqEnd && xmax >= (double)(n - 1) - kTRangeEps)
+		if (!relaxed)
 		{
-			const double xh = xmax - xPad;
-			if (xh > xmin + kTRangeEps && CubicDeriv(a, coefb, c, xh) > derivReject)
+			const double spanRef = spanAll <= 0 ? 1.0 : spanAll;
+			const double derivReject = spanRef * (double)M576_PEAK1D_EPS_REL_OF_SPAN * kDerivRejectScale;
+			const double xPad = (std::max)(kTRangeEps * 100, (xmax - xmin) * 1e-9 + kTRangeEps);
+			const bool attachSeqEnd = std::abs(tStar - xmax) <= kTRangeEps || tStar >= xmax - kTRangeEps;
+			if ((double)n >= (double)M576_PEAK1D_CUBIC_MIN_SAMPLES && attachSeqEnd && xmax >= (double)(n - 1) - kTRangeEps)
 			{
-				f = Peak1DValidateCode::ParabolaNotDownward;
-				return false;
+				const double xh = xmax - xPad;
+				if (xh > xmin + kTRangeEps && CubicDeriv(a, coefb, c, xh) > derivReject)
+				{
+					f = Peak1DValidateCode::ParabolaNotDownward;
+					return false;
+				}
 			}
-		}
-		const bool attachSeqStart = std::abs(tStar - xmin) <= kTRangeEps || tStar <= xmin + kTRangeEps;
-		if ((double)n >= (double)M576_PEAK1D_CUBIC_MIN_SAMPLES && attachSeqStart && xmin <= kTRangeEps)
-		{
-			const double xh = xmin + xPad;
-			if (xh < xmax - kTRangeEps && CubicDeriv(a, coefb, c, xh) < -derivReject)
+			const bool attachSeqStart = std::abs(tStar - xmin) <= kTRangeEps || tStar <= xmin + kTRangeEps;
+			if ((double)n >= (double)M576_PEAK1D_CUBIC_MIN_SAMPLES && attachSeqStart && xmin <= kTRangeEps)
 			{
-				f = Peak1DValidateCode::ParabolaNotDownward;
-				return false;
+				const double xh = xmin + xPad;
+				if (xh < xmax - kTRangeEps && CubicDeriv(a, coefb, c, xh) < -derivReject)
+				{
+					f = Peak1DValidateCode::ParabolaNotDownward;
+					return false;
+				}
 			}
 		}
 
@@ -687,17 +747,22 @@ namespace M576
 		if (!std::isfinite(outT) || outT < -kTRangeEps || outT > (double)(n - 1) + kTRangeEps)
 		{
 			f = Peak1DValidateCode::VertexOutOfRange;
+			if (relaxed && TryFineRefineArgmaxFallback(p, spanAll, trace, outT, f))
+				return true;
 			return false;
 		}
 
 #if M576_PEAK1D_REJECT_EDGE_MAX
-		if (outT <= kTRangeEps || outT >= (double)(n - 1) - kTRangeEps)
+		if (!relaxed)
 		{
-			f = Peak1DValidateCode::EdgeNotAllowed;
-			return false;
+			if (outT <= kTRangeEps || outT >= (double)(n - 1) - kTRangeEps)
+			{
+				f = Peak1DValidateCode::EdgeNotAllowed;
+				return false;
+			}
 		}
 #endif
-		if (IsFullSweepMonotoneMissedPeak(p))
+		if (!relaxed && IsFullSweepMonotoneMissedPeak(p))
 		{
 			f = Peak1DValidateCode::ParabolaNotDownward;
 			return false;
@@ -770,13 +835,14 @@ namespace M576
 		int& outIdx,
 		Peak1DValidateCode& f,
 		double* outTParabola,
-		Peak1DFitTrace* trace)
+		Peak1DFitTrace* trace,
+		Peak1DFitPolicy policy)
 	{
 		f = Peak1DValidateCode::Empty;
 		if (outTParabola)
 			*outTParabola = 0.0;
 		double t = 0.0;
-		if (!ParabolaVertexMax1D(data, t, f, trace))
+		if (!ParabolaVertexMax1D(data, t, f, trace, policy))
 		{
 			if (outTParabola && std::isfinite(t))
 				*outTParabola = t;
@@ -802,7 +868,9 @@ namespace M576
 		double* outTY,
 		double* outTX,
 		Peak1DFitTrace* traceY,
-		Peak1DFitTrace* traceX)
+		Peak1DFitTrace* traceX,
+		Peak1DFitPolicy policyY,
+		Peak1DFitPolicy policyX)
 	{
 		if (yDetail)
 			*yDetail = Peak1DValidateCode::Ok;
@@ -822,8 +890,8 @@ namespace M576
 		}
 		double tY = 0, tX = 0;
 		Peak1DValidateCode cy = Peak1DValidateCode::Ok, cx = Peak1DValidateCode::Ok;
-		const bool okY = ParabolaVertexMax1D(powY, tY, cy, traceY);
-		const bool okX = ParabolaVertexMax1D(powX, tX, cx, traceX);
+		const bool okY = ParabolaVertexMax1D(powY, tY, cy, traceY, policyY);
+		const bool okX = ParabolaVertexMax1D(powX, tX, cx, traceX, policyX);
 		if (yDetail)
 			*yDetail = okY ? Peak1DValidateCode::Ok : cy;
 		if (xDetail)

@@ -841,8 +841,22 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			return FALSE;
 		}
 
-		if (M576::FindUnimodalPeak1DIndex(outPow, outPeakIdx, outCode, &outTPeak, &outTrace))
+		const M576::Peak1DFitPolicy fitPolicy = M576::IsFineRefineSweepAttempt(retryState)
+			? M576::Peak1DFitPolicy::FineRefineRelaxed
+			: M576::Peak1DFitPolicy::Strict;
+		if (M576::FindUnimodalPeak1DIndex(outPow, outPeakIdx, outCode, &outTPeak, &outTrace, fitPolicy))
 		{
+			if (outTrace.usedArgmaxFallback)
+			{
+				CString msg;
+				msg.Format(
+					_T("  fine refine: %s %s cubic fallback to argmax t*=%.4g idx=%d"),
+					recalStageLabel,
+					axisTag,
+					outTPeak,
+					outPeakIdx);
+				SafeAppendLog(msg);
+			}
 			if (isPm && pmRangeIndex != M576_MAX_PM_RANGE)
 			{
 				const int peakHint = (outTrace.globalMaxIndex >= 0) ? outTrace.globalMaxIndex : outPeakIdx;
@@ -4289,8 +4303,31 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				lastAttemptDacRangeX = attemptDacRangeX;
 				yCross = M576::Peak1DValidateCode::Ok;
 				xCross = M576::Peak1DValidateCode::Ok;
+				const M576::Peak1DFitPolicy crossPolicyX = M576::IsFineRefineSweepAttempt(xRetryState)
+					? M576::Peak1DFitPolicy::FineRefineRelaxed
+					: M576::Peak1DFitPolicy::Strict;
 				crossOk = M576::PeakCrossFrom1DScans(
-					powY, powX, br, bc, &yCross, &xCross, &tYPm, &tXPm, &trCrossYPm, &trCrossXPm);
+					powY,
+					powX,
+					br,
+					bc,
+					&yCross,
+					&xCross,
+					&tYPm,
+					&tXPm,
+					&trCrossYPm,
+					&trCrossXPm,
+					M576::Peak1DFitPolicy::Strict,
+					crossPolicyX);
+				if (crossOk && trCrossXPm.usedArgmaxFallback)
+				{
+					CString msg;
+					msg.Format(
+						_T("  fine refine: RECAL 3 1 X cubic fallback to argmax t*=%.4g idx=%d"),
+						tXPm,
+						bc);
+					SafeAppendLog(msg);
+				}
 				if (crossOk)
 				{
 					if (M576::NeedsFineRefineAfterSuccess(attemptDacRangeX, uiFineRangeX)
@@ -4989,8 +5026,31 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				lastAttemptDacRangeXPd = attemptDacRangeXPd;
 				yCrossPd = M576::Peak1DValidateCode::Ok;
 				xCrossPd = M576::Peak1DValidateCode::Ok;
+				const M576::Peak1DFitPolicy crossPolicyXPd = M576::IsFineRefineSweepAttempt(xRetryStatePd)
+					? M576::Peak1DFitPolicy::FineRefineRelaxed
+					: M576::Peak1DFitPolicy::Strict;
 				crossOkPd = M576::PeakCrossFrom1DScans(
-					powY, powX, br, bc, &yCrossPd, &xCrossPd, &tYpd, &tXpd, &trCrossYPd, &trCrossXPd);
+					powY,
+					powX,
+					br,
+					bc,
+					&yCrossPd,
+					&xCrossPd,
+					&tYpd,
+					&tXpd,
+					&trCrossYPd,
+					&trCrossXPd,
+					M576::Peak1DFitPolicy::Strict,
+					crossPolicyXPd);
+				if (crossOkPd && trCrossXPd.usedArgmaxFallback)
+				{
+					CString msg;
+					msg.Format(
+						_T("  fine refine: RECAL 5 1 X cubic fallback to argmax t*=%.4g idx=%d"),
+						tXpd,
+						bc);
+					SafeAppendLog(msg);
+				}
 				if (crossOkPd)
 				{
 					if (M576::NeedsFineRefineAfterSuccess(attemptDacRangeXPd, uiFineRangeXPd)

@@ -34,6 +34,13 @@ namespace M576
 		PmRangeMismatch,        ///< 全局有效极大值 dBm 不在界面 PM 挡位内（RECAL 3）
 	};
 
+	/// Strict：粗扫 / jump-max / mono shift 全部门限。FineRefineRelaxed：粗扫 OK 后的 uiFineRange 精扫（跳过 relFlat 等；三阶失败可 argmax 回退）。
+	enum class Peak1DFitPolicy
+	{
+		Strict,
+		FineRefineRelaxed,
+	};
+
 	// --- 历史名保留：预处理 + P(i)≈a i^3+b i^2+c i+d（下标 i 为原扫频格点）；固件占位不参与。区间内求 P 最大得 t* ---
 	/// 固件 P 行中无效功率占位，仅二者之一。
 	bool IsRecal1DPowerInvalidValue(double v);
@@ -45,11 +52,17 @@ namespace M576
 		double globalMaxY = 0;
 		std::vector<int> fitIndex;
 		std::vector<double> fitY;
+		bool usedArgmaxFallback = false;
 	};
 
 	/// 失败时 f 非 Ok；成功时 outT 为连续峰位下标（相对整条扫频，含间隙格点下标）。
 	/// trace 非空时：入口即填全局最大；预处理成功后追加拟合点（即使后续拟合失败亦保留，便于追溯）。
-	bool ParabolaVertexMax1D(const std::vector<double>& p, double& outT, Peak1DValidateCode& f, Peak1DFitTrace* trace = nullptr);
+	bool ParabolaVertexMax1D(
+		const std::vector<double>& p,
+		double& outT,
+		Peak1DValidateCode& f,
+		Peak1DFitTrace* trace = nullptr,
+		Peak1DFitPolicy policy = Peak1DFitPolicy::Strict);
 
 	/// 在已有 argmax 下标 i 上校验（历史接口）。
 	bool ValidateUnimodal1DAtArgmax(const std::vector<double>& data, int i, Peak1DValidateCode& f);
@@ -60,7 +73,8 @@ namespace M576
 		int& outIdx,
 		Peak1DValidateCode& f,
 		double* outTParabola = nullptr,
-		Peak1DFitTrace* trace = nullptr);
+		Peak1DFitTrace* trace = nullptr,
+		Peak1DFitPolicy policy = Peak1DFitPolicy::Strict);
 
 	/// 两向各自三阶拟合寻峰；outRow/outCol = lround(tY), lround(tX)。outTY/outTX 供 SweepCol0+ 连续下标算 DAC。
 	bool PeakCrossFrom1DScans(
@@ -73,5 +87,7 @@ namespace M576
 		double* outTY = nullptr,
 		double* outTX = nullptr,
 		Peak1DFitTrace* traceY = nullptr,
-		Peak1DFitTrace* traceX = nullptr);
+		Peak1DFitTrace* traceX = nullptr,
+		Peak1DFitPolicy policyY = Peak1DFitPolicy::Strict,
+		Peak1DFitPolicy policyX = Peak1DFitPolicy::Strict);
 }

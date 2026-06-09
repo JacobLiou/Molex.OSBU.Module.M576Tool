@@ -43,6 +43,8 @@ using M576::SweepRetryPlan;
 using M576::InitSweepRecenterSessionState;
 using M576::IsCoarsePeakHint;
 using M576::NeedsFineRefineAfterSuccess;
+using M576::IsFineRefineSweepAttempt;
+using M576::Peak1DFitPolicy;
 using M576::PlanNextRecal1DSweepAttempt;
 using M576::PlanFineRefineAfterCoarseSuccess;
 using M576::ApplySweepRetryPlan;
@@ -1083,6 +1085,23 @@ static int RunSweepRetryPlannerSelfTests()
 		std::fprintf(stderr, "self-test: NeedsFineRefineAfterSuccess coarse vs fine\n");
 		++fail;
 	}
+	{
+		SweepRecenterSessionState fineSt = {};
+		fineSt.uiFineRange = 64;
+		fineSt.attemptRange = 64;
+		fineSt.fineConsumed = true;
+		if (!IsFineRefineSweepAttempt(fineSt))
+		{
+			std::fprintf(stderr, "self-test: IsFineRefineSweepAttempt when fineConsumed\n");
+			++fail;
+		}
+		fineSt.fineConsumed = false;
+		if (IsFineRefineSweepAttempt(fineSt))
+		{
+			std::fprintf(stderr, "self-test: IsFineRefineSweepAttempt before fine sweep\n");
+			++fail;
+		}
+	}
 
 	{
 		std::vector<double> strictDec((size_t)n);
@@ -1815,6 +1834,87 @@ static int RunRecalCmdFormatSelfTests()
 	return fail;
 }
 
+static int FineRefineRelaxedSelfTests()
+{
+	int fail = 0;
+	// 2026-06-08 Step 64 fine RECAL 3 0 @64: relFlat under Strict, visible peak at ~index 14.
+	static const double kFineJun8[] = {
+		-220349, -220352, -220344, -220338, -220333, -220336, -220324, -220324, -220318, -220315,
+		-220312, -220305, -220303, -220295, -220291, -220297, -220294, -220296, -220295, -220297,
+		-220301, -220301, -220316, -220320, -220331, -220343, -220354, -220375, -220396, -220424,
+		-220458, -220489, -220520,
+	};
+	const size_t nFine = sizeof(kFineJun8) / sizeof(kFineJun8[0]);
+	std::vector<double> fineJun8(kFineJun8, kFineJun8 + nFine);
+	{
+		Peak1DValidateCode cStrict = Peak1DValidateCode::Ok;
+		double tStrict = 0.0;
+		if (M576::ParabolaVertexMax1D(fineJun8, tStrict, cStrict, nullptr, Peak1DFitPolicy::Strict))
+		{
+			std::fprintf(stderr, "self-test: Jun8 fine sweep must fail Strict (relFlat)\n");
+			++fail;
+		}
+		if (cStrict == Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: Jun8 fine sweep Strict code unset\n");
+			++fail;
+		}
+	}
+	{
+		Peak1DValidateCode cRel = Peak1DValidateCode::Empty;
+		double tRel = 0.0;
+		int idxRel = 0;
+		M576::Peak1DFitTrace tr;
+		if (!M576::FindUnimodalPeak1DIndex(
+				fineJun8, idxRel, cRel, &tRel, &tr, Peak1DFitPolicy::FineRefineRelaxed)
+			|| cRel != Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: Jun8 fine sweep must pass FineRefineRelaxed\n");
+			++fail;
+		}
+		if (idxRel < 0 || idxRel >= (int)nFine)
+		{
+			std::fprintf(stderr, "self-test: Jun8 fine sweep idx out of range\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> flatLowSpan((size_t)nFine, -220000.0);
+		flatLowSpan[(size_t)(nFine / 2)] = -219999.0;
+		Peak1DValidateCode cFlat = Peak1DValidateCode::Ok;
+		double tFlat = 0.0;
+		int idxFlat = 0;
+		if (M576::FindUnimodalPeak1DIndex(
+				flatLowSpan, idxFlat, cFlat, &tFlat, nullptr, Peak1DFitPolicy::FineRefineRelaxed))
+		{
+			std::fprintf(stderr, "self-test: FineRefineRelaxed must reject span below MIN_SPAN\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> monoDec((size_t)nFine);
+		for (size_t i = 0; i < nFine; ++i)
+			monoDec[i] = -100.0 - (double)i * 10.0;
+		Peak1DValidateCode cMono = Peak1DValidateCode::Ok;
+		double tMono = 0.0;
+		if (M576::ParabolaVertexMax1D(monoDec, tMono, cMono, nullptr, Peak1DFitPolicy::Strict))
+		{
+			std::fprintf(stderr, "self-test: strict monotone sweep must fail Strict\n");
+			++fail;
+		}
+		M576::Peak1DFitTrace trMono;
+		int idxMono = 0;
+		if (!M576::FindUnimodalPeak1DIndex(
+				monoDec, idxMono, cMono, &tMono, &trMono, Peak1DFitPolicy::FineRefineRelaxed)
+			|| cMono != Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: FineRefineRelaxed must accept coarse-located monotone fine window\n");
+			++fail;
+		}
+	}
+	return fail;
+}
+
 static int RunPathSummarySelfTests()
 {
 	int fail = 0;
@@ -1882,6 +1982,8 @@ int main(int argc, char* argv[])
 		return 11;
 	if (RunSweepRecenterSelfTests() != 0)
 		return 10;
+	if (FineRefineRelaxedSelfTests() != 0)
+		return 14;
 	if (RunPathSummarySelfTests() != 0)
 		return 13;
 

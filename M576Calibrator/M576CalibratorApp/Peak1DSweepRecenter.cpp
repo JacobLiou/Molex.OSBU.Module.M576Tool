@@ -462,6 +462,11 @@ namespace M576
 		return attemptRange > uiFineRange;
 	}
 
+	bool IsFineRefineSweepAttempt(const SweepRecenterSessionState& state)
+	{
+		return state.fineConsumed && state.attemptRange == state.uiFineRange;
+	}
+
 	int PeakBaseFromCoarseHint(
 		double sweepCol0,
 		double tPeak,

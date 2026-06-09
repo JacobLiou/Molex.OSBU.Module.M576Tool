@@ -90,6 +90,9 @@ namespace M576
 
 	bool NeedsFineRefineAfterSuccess(int attemptRange, int uiFineRange);
 
+	/// After ApplySweepRetryPlan(FineRefine): next sweep uses relaxed peak validation.
+	bool IsFineRefineSweepAttempt(const SweepRecenterSessionState& state);
+
 	/// Moving-axis DAC at coarse peak index: col0 + t* * gridStep.
 	int PeakBaseFromCoarseHint(
 		double sweepCol0,
