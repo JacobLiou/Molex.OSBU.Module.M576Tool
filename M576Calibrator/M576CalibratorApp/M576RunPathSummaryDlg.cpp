@@ -47,6 +47,16 @@ void CM576RunPathSummaryDlg::DoDataExchange(CDataExchange* pDX)
 BOOL CM576RunPathSummaryDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
+	if (CWnd* pOwner = GetParent())
+	{
+		CRect rcOwner;
+		CRect rcDlg;
+		pOwner->GetWindowRect(&rcOwner);
+		GetWindowRect(&rcDlg);
+		const int x = rcOwner.left + (rcOwner.Width() - rcDlg.Width()) / 2;
+		const int y = rcOwner.top + (rcOwner.Height() - rcDlg.Height()) / 2;
+		SetWindowPos(nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+	}
 	const std::string hdr = FormatRunPathSummaryHeaderText(m_summary);
 	SetDlgItemText(IDC_RUNPATH_SUMMARY_HDR, Utf8ToCString(hdr));
 	PopulateCategoryText();
@@ -86,7 +96,7 @@ void CM576RunPathSummaryDlg::PopulateList()
 		_T("Detail"),
 	};
 	for (int c = 0; c < (int)(sizeof(kCols) / sizeof(kCols[0])); ++c)
-		m_listFailures.InsertColumn(c, kCols[c], LVCFMT_LEFT, c == 2 ? 120 : 72);
+		m_listFailures.InsertColumn(c, kCols[c], LVCFMT_LEFT, c == 2 ? 88 : (c == 11 ? 96 : 52));
 	for (size_t i = 0; i < m_summary.failureRows.size(); ++i)
 	{
 		const SCalibPathStepOutcome& r = m_summary.failureRows[i];

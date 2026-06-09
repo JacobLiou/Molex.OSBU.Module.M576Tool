@@ -45,6 +45,8 @@ using M576::IsCoarsePeakHint;
 using M576::NeedsFineRefineAfterSuccess;
 using M576::IsFineRefineSweepAttempt;
 using M576::Peak1DFitPolicy;
+using M576::Peak1DFitPolicyForCrossAxis;
+using M576::Peak1DFitPolicyForSweepResult;
 using M576::PlanNextRecal1DSweepAttempt;
 using M576::PlanFineRefineAfterCoarseSuccess;
 using M576::ApplySweepRetryPlan;
@@ -1101,6 +1103,34 @@ static int RunSweepRetryPlannerSelfTests()
 			std::fprintf(stderr, "self-test: IsFineRefineSweepAttempt before fine sweep\n");
 			++fail;
 		}
+		if (Peak1DFitPolicyForSweepResult(64, 64) != Peak1DFitPolicy::FineRefineRelaxed
+			|| Peak1DFitPolicyForSweepResult(200, 64) != Peak1DFitPolicy::Strict)
+		{
+			std::fprintf(stderr, "self-test: Peak1DFitPolicyForSweepResult\n");
+			++fail;
+		}
+		{
+			SweepRecenterSessionState xSt = {};
+			xSt.uiFineRange = 64;
+			xSt.attemptRange = 64;
+			xSt.fineConsumed = true;
+			if (Peak1DFitPolicyForCrossAxis(xSt, 64, 64) != Peak1DFitPolicy::FineRefineRelaxed)
+			{
+				std::fprintf(stderr, "self-test: Peak1DFitPolicyForCrossAxis fine attempt\n");
+				++fail;
+			}
+			xSt.fineConsumed = false;
+			if (Peak1DFitPolicyForCrossAxis(xSt, 64, 64) != Peak1DFitPolicy::FineRefineRelaxed)
+			{
+				std::fprintf(stderr, "self-test: Peak1DFitPolicyForCrossAxis fine-range result\n");
+				++fail;
+			}
+			if (Peak1DFitPolicyForCrossAxis(xSt, 200, 64) != Peak1DFitPolicy::Strict)
+			{
+				std::fprintf(stderr, "self-test: Peak1DFitPolicyForCrossAxis coarse range\n");
+				++fail;
+			}
+		}
 	}
 
 	{
@@ -1909,6 +1939,55 @@ static int FineRefineRelaxedSelfTests()
 			|| cMono != Peak1DValidateCode::Ok)
 		{
 			std::fprintf(stderr, "self-test: FineRefineRelaxed must accept coarse-located monotone fine window\n");
+			++fail;
+		}
+	}
+	// 2026-06-09: Y pre @64 OK but cross Y failed Strict — cross must use FineRefineRelaxed when range==uiFine.
+	{
+		static const double kFineJun9Y[] = {
+			-220441, -220436, -220430, -220425, -220425, -220414, -220412, -220411, -220412, -220403,
+			-220396, -220394, -220387, -220386, -220384, -220380, -220384, -220381, -220385, -220385,
+			-220393, -220399, -220408, -220416, -220428, -220444, -220458, -220478, -220500, -220531,
+			-220563, -220591, -220629,
+		};
+		const size_t nCross = sizeof(kFineJun9Y) / sizeof(kFineJun9Y[0]);
+		std::vector<double> powY(kFineJun9Y, kFineJun9Y + nCross);
+		std::vector<double> powX(nCross);
+		for (size_t i = 0; i < nCross; ++i)
+		{
+			const double t = (double)i - 16.0;
+			powX[i] = -1000.0 - 10.0 * t * t;
+		}
+		SweepRecenterSessionState xSt = {};
+		InitSweepRecenterSessionState(xSt, 64, 9999);
+		xSt.attemptRange = 64;
+		const Peak1DFitPolicy crossYOk = Peak1DFitPolicyForSweepResult(64, 64);
+		const Peak1DFitPolicy crossXOk = Peak1DFitPolicyForCrossAxis(xSt, 64, 64);
+		int br = 0, bc = 0;
+		Peak1DValidateCode yCross = Peak1DValidateCode::Ok;
+		Peak1DValidateCode xCross = Peak1DValidateCode::Ok;
+		if (M576::PeakCrossFrom1DScans(
+				powY, powX, br, bc, &yCross, &xCross, nullptr, nullptr, nullptr, nullptr,
+				Peak1DFitPolicy::Strict, Peak1DFitPolicy::Strict))
+		{
+			std::fprintf(stderr, "self-test: Jun9 cross must fail Strict Y on fine-range powY\n");
+			++fail;
+		}
+		if (yCross == Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: Jun9 cross Strict Y should set failure code\n");
+			++fail;
+		}
+		yCross = Peak1DValidateCode::Ok;
+		xCross = Peak1DValidateCode::Ok;
+		br = bc = 0;
+		if (!M576::PeakCrossFrom1DScans(
+				powY, powX, br, bc, &yCross, &xCross, nullptr, nullptr, nullptr, nullptr,
+				crossYOk, crossXOk)
+			|| yCross != Peak1DValidateCode::Ok || xCross != Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: Jun9 cross must pass Relaxed Y (fine-range policy) y=%d x=%d\n",
+				(int)yCross, (int)xCross);
 			++fail;
 		}
 	}

@@ -93,6 +93,15 @@ namespace M576
 	/// After ApplySweepRetryPlan(FineRefine): next sweep uses relaxed peak validation.
 	bool IsFineRefineSweepAttempt(const SweepRecenterSessionState& state);
 
+	/// Y/X 扫频结果已在 UI fine range（粗扫+FineRefine 或首轮即 fine）：交叉寻峰与预扫同用 FineRefineRelaxed。
+	Peak1DFitPolicy Peak1DFitPolicyForSweepResult(int dacRangeUsed, int uiFineRange);
+
+	/// 交叉轴：X retry 精扫 attempt，或扫频结果已在 uiFineRange。
+	Peak1DFitPolicy Peak1DFitPolicyForCrossAxis(
+		const SweepRecenterSessionState& retryState,
+		int dacRangeUsed,
+		int uiFineRange);
+
 	/// Moving-axis DAC at coarse peak index: col0 + t* * gridStep.
 	int PeakBaseFromCoarseHint(
 		double sweepCol0,

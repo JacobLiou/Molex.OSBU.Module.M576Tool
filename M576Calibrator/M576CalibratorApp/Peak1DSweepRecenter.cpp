@@ -467,6 +467,23 @@ namespace M576
 		return state.fineConsumed && state.attemptRange == state.uiFineRange;
 	}
 
+	Peak1DFitPolicy Peak1DFitPolicyForSweepResult(int dacRangeUsed, int uiFineRange)
+	{
+		if (dacRangeUsed == uiFineRange)
+			return Peak1DFitPolicy::FineRefineRelaxed;
+		return Peak1DFitPolicy::Strict;
+	}
+
+	Peak1DFitPolicy Peak1DFitPolicyForCrossAxis(
+		const SweepRecenterSessionState& retryState,
+		int dacRangeUsed,
+		int uiFineRange)
+	{
+		if (IsFineRefineSweepAttempt(retryState))
+			return Peak1DFitPolicy::FineRefineRelaxed;
+		return Peak1DFitPolicyForSweepResult(dacRangeUsed, uiFineRange);
+	}
+
 	int PeakBaseFromCoarseHint(
 		double sweepCol0,
 		double tPeak,

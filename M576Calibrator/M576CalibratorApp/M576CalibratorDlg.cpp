@@ -4303,9 +4303,10 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				lastAttemptDacRangeX = attemptDacRangeX;
 				yCross = M576::Peak1DValidateCode::Ok;
 				xCross = M576::Peak1DValidateCode::Ok;
-				const M576::Peak1DFitPolicy crossPolicyX = M576::IsFineRefineSweepAttempt(xRetryState)
-					? M576::Peak1DFitPolicy::FineRefineRelaxed
-					: M576::Peak1DFitPolicy::Strict;
+				const M576::Peak1DFitPolicy crossPolicyY =
+					M576::Peak1DFitPolicyForSweepResult(ySweepRangePm, m_dacRange);
+				const M576::Peak1DFitPolicy crossPolicyX =
+					M576::Peak1DFitPolicyForCrossAxis(xRetryState, attemptDacRangeX, uiFineRangeX);
 				crossOk = M576::PeakCrossFrom1DScans(
 					powY,
 					powX,
@@ -4317,8 +4318,17 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					&tXPm,
 					&trCrossYPm,
 					&trCrossXPm,
-					M576::Peak1DFitPolicy::Strict,
+					crossPolicyY,
 					crossPolicyX);
+				if (crossOk && trCrossYPm.usedArgmaxFallback)
+				{
+					CString msg;
+					msg.Format(
+						_T("  fine refine: RECAL 3 0 Y cross cubic fallback to argmax t*=%.4g idx=%d"),
+						tYPm,
+						br);
+					SafeAppendLog(msg);
+				}
 				if (crossOk && trCrossXPm.usedArgmaxFallback)
 				{
 					CString msg;
@@ -5026,9 +5036,10 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				lastAttemptDacRangeXPd = attemptDacRangeXPd;
 				yCrossPd = M576::Peak1DValidateCode::Ok;
 				xCrossPd = M576::Peak1DValidateCode::Ok;
-				const M576::Peak1DFitPolicy crossPolicyXPd = M576::IsFineRefineSweepAttempt(xRetryStatePd)
-					? M576::Peak1DFitPolicy::FineRefineRelaxed
-					: M576::Peak1DFitPolicy::Strict;
+				const M576::Peak1DFitPolicy crossPolicyYPd =
+					M576::Peak1DFitPolicyForSweepResult(ySweepRangePd, m_dacRange);
+				const M576::Peak1DFitPolicy crossPolicyXPd =
+					M576::Peak1DFitPolicyForCrossAxis(xRetryStatePd, attemptDacRangeXPd, uiFineRangeXPd);
 				crossOkPd = M576::PeakCrossFrom1DScans(
 					powY,
 					powX,
@@ -5040,8 +5051,17 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					&tXpd,
 					&trCrossYPd,
 					&trCrossXPd,
-					M576::Peak1DFitPolicy::Strict,
+					crossPolicyYPd,
 					crossPolicyXPd);
+				if (crossOkPd && trCrossYPd.usedArgmaxFallback)
+				{
+					CString msg;
+					msg.Format(
+						_T("  fine refine: RECAL 5 0 Y cross cubic fallback to argmax t*=%.4g idx=%d"),
+						tYpd,
+						br);
+					SafeAppendLog(msg);
+				}
 				if (crossOkPd && trCrossXPd.usedArgmaxFallback)
 				{
 					CString msg;
