@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576CalibratorDlg.h"
+#include "CalibPathOutcome.h"
+#include "M576RunPathSummaryDlg.h"
 #include "M576BurnSelectDlg.h"
 #include "M576RecoverSelectDlg.h"
 #include "LutMerge1310.h"
@@ -160,6 +162,137 @@ static CString M576FormatPeak1DMsg(bool isPm, M576Peak1DLogStage st, M576::Peak1
 		break;
 	}
 	return a;
+}
+
+static std::string M576WideCStringToUtf8(const CStringW& w)
+{
+	if (w.IsEmpty())
+		return std::string();
+	const int wlen = w.GetLength();
+	const int n8 = ::WideCharToMultiByte(CP_UTF8, 0, w, wlen, NULL, 0, NULL, NULL);
+	if (n8 < 1)
+		return std::string();
+	std::string out(static_cast<size_t>(n8), '\0');
+	::WideCharToMultiByte(CP_UTF8, 0, w, wlen, &out[0], n8, NULL, NULL);
+	return out;
+}
+
+static std::string M576CStringToUtf8(const CString& s)
+{
+	if (s.IsEmpty())
+		return std::string();
+	const int n = s.GetLength();
+	const char* p = reinterpret_cast<const char*>(reinterpret_cast<LPCTSTR>(s.GetString()));
+	int cch = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, p, n, NULL, 0);
+	CStringW w;
+	if (cch > 0)
+	{
+		::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, p, n, w.GetBuffer(cch), cch);
+		w.ReleaseBuffer(cch);
+	}
+	else
+	{
+		cch = ::MultiByteToWideChar(CP_ACP, 0, p, n, NULL, 0);
+		if (cch <= 0)
+			return std::string(p, static_cast<size_t>(n));
+		::MultiByteToWideChar(CP_ACP, 0, p, n, w.GetBuffer(cch), cch);
+		w.ReleaseBuffer(cch);
+	}
+	return M576WideCStringToUtf8(w);
+}
+
+static std::string M576PathBasenameUtf8(LPCTSTR path)
+{
+	if (path == NULL || path[0] == 0)
+		return std::string();
+	CString base(path);
+	const int bs = base.ReverseFind(_T('\\'));
+	const int fs = base.ReverseFind(_T('/'));
+	const int slash = (bs > fs) ? bs : fs;
+	if (slash >= 0)
+		base = base.Mid(slash + 1);
+	return M576CStringToUtf8(base);
+}
+
+static void M576FillPeakCodeFields(SCalibPathStepOutcome& o, M576::Peak1DValidateCode code)
+{
+	o.peakCode = code;
+	if (code != M576::Peak1DValidateCode::Ok)
+		o.peakCodeText = M576CStringToUtf8(CString(M576Peak1DWhy(code)));
+}
+
+static std::string M576FormatPathStepRouteLabelPm(const SPathStep& step)
+{
+	char buf[128];
+	std::snprintf(
+		buf,
+		sizeof(buf),
+		"tgt=%d c1=%d c2=%d c3=%d c4=%d",
+		step.targetSwitchIndex,
+		step.c1,
+		step.c2,
+		step.c3,
+		step.c4);
+	return std::string(buf);
+}
+
+static std::string M576FormatPathStepRouteLabelPd(const SPathStepPd& step)
+{
+	char buf[96];
+	std::snprintf(
+		buf,
+		sizeof(buf),
+		"tgt=%d ch1=%d ch2=%d",
+		step.targetSwitchIndex,
+		step.ch1,
+		step.ch2);
+	return std::string(buf);
+}
+
+static SCalibPathStepOutcome M576MakePmOutcome(
+	int fileSlot,
+	const std::string& csvPath,
+	int line1,
+	const SPathStep& st)
+{
+	SCalibPathStepOutcome o = {};
+	o.isPm = true;
+	o.fileSlot = fileSlot;
+	o.csvPath = csvPath;
+	o.pathLine1Based = line1;
+	o.targetSwitchIndex = st.targetSwitchIndex;
+	o.routeLabel = M576FormatPathStepRouteLabelPm(st);
+	return o;
+}
+
+static SCalibPathStepOutcome M576MakePdOutcome(
+	int fileSlot,
+	const std::string& csvPath,
+	int line1,
+	const SPathStepPd& st)
+{
+	SCalibPathStepOutcome o = {};
+	o.isPm = false;
+	o.fileSlot = fileSlot;
+	o.csvPath = csvPath;
+	o.pathLine1Based = line1;
+	o.targetSwitchIndex = st.targetSwitchIndex;
+	o.routeLabel = M576FormatPathStepRouteLabelPd(st);
+	return o;
+}
+
+static void M576FillSweepPowContext(
+	SCalibPathStepOutcome& o,
+	const std::vector<double>& pow,
+	bool isY)
+{
+	if (pow.empty())
+		return;
+	const M576::SweepProfile p = M576::AnalyzeRecal1DSweepProfile(pow);
+	if (isY)
+		FillSweepProfileContext(p, o.sweepTrendY, o.spanY, o.argmaxY);
+	else
+		FillSweepProfileContext(p, o.sweepTrendX, o.spanX, o.argmaxX);
 }
 
 /// 439F 管理口文本：发送 `info<CR>`，在超时内收齐应答（空闲 200ms 或最长 3s 结束），用于“测试连接”。
@@ -672,11 +805,11 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 		return FALSE;
 	}
 
-	int movingBase = initialMovingBase;
-	int prevArgmax = -1;
-	bool afterFlatExpandRange = false;
-	bool monoRangeExpanded = false;
-	int attemptDacRange = (initialDacRange >= M576_MIN_DAC_RANGE) ? initialDacRange : m_dacRange;
+	const int uiFineRange = (initialDacRange >= M576_MIN_DAC_RANGE) ? initialDacRange : m_dacRange;
+	M576::SweepRecenterSessionState retryState = {};
+	M576::InitSweepRecenterSessionState(retryState, uiFineRange, initialMovingBase);
+	int movingBase = retryState.movingBase;
+	int attemptDacRange = retryState.attemptRange;
 	DWORD attemptTimeout = (initialDacRange >= M576_MIN_DAC_RANGE)
 		? ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep)
 		: readTimeoutMs;
@@ -734,116 +867,135 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 					return FALSE;
 				}
 			}
+			if (M576::NeedsFineRefineAfterSuccess(attemptDacRange, uiFineRange)
+				&& !retryState.fineConsumed)
+			{
+				const M576::SweepRetryPlan finePlan = M576::PlanFineRefineAfterCoarseSuccess(
+					retryState, outCol0, outTPeak, n, attemptDacRange);
+				if (finePlan.action == M576::SweepRetryAction::FineRefine)
+				{
+					const int prevRange = attemptDacRange;
+					M576::ApplySweepRetryPlan(retryState, finePlan);
+					movingBase = retryState.movingBase;
+					attemptDacRange = retryState.attemptRange;
+					attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep);
+					{
+						CString msg;
+						msg.Format(
+							_T("  %hs %s %s attempt %d/%d trend=coarseOk span=%.4g refine offset %d->%d base %d->%d (fine @%d)"),
+							M576::SweepRetryActionLogTag(finePlan.action),
+							recalStageLabel,
+							axisTag,
+							attempt + 1,
+							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+							M576::AnalyzeRecal1DSweepProfile(outPow).span,
+							prevRange,
+							attemptDacRange,
+							movingBase,
+							finePlan.nextBase,
+							uiFineRange);
+						SafeAppendLog(msg);
+					}
+					movingBase = finePlan.nextBase;
+					retryState.movingBase = movingBase;
+					continue;
+				}
+			}
 			outDacRangeUsed = attemptDacRange;
 			return TRUE;
 		}
 
 		const M576::SweepProfile profile = M576::AnalyzeRecal1DSweepProfile(outPow);
 		const BOOL lastAttempt = (attempt >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
-		if (M576::IsFlatSweepFailure(outCode, profile))
-		{
-			const int nextRange = M576::SuggestFlatRetryDacRange(attemptDacRange, M576_MAX_DAC_RANGE);
-			if (nextRange <= attemptDacRange || lastAttempt)
-				return FALSE;
-			{
-				CString msg;
-				msg.Format(
-					_T("  flat retry: %s %s attempt %d/%d code=%hs trend=%hs span=%.4g expand offset %d->%d (base unchanged)"),
-					recalStageLabel,
-					axisTag,
-					attempt + 1,
-					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-					M576Peak1DWhy(outCode),
-					M576::SweepTrendName(profile.trend),
-					profile.span,
-					attemptDacRange,
-					nextRange);
-				SafeAppendLog(msg);
-			}
-			attemptDacRange = nextRange;
-			attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep);
-			afterFlatExpandRange = true;
-			continue;
-		}
-
-		if (M576::IsMonotoneSweepFailure(outCode, profile, n) && !monoRangeExpanded)
-		{
-			const int nextRange = M576::SuggestFlatRetryDacRange(attemptDacRange, M576_MAX_DAC_RANGE);
-			if (nextRange > attemptDacRange && !lastAttempt)
-			{
-				CString msg;
-				msg.Format(
-					_T("  mono retry: %s %s attempt %d/%d code=%hs trend=%hs span=%.4g expand offset %d->%d (base unchanged)"),
-					recalStageLabel,
-					axisTag,
-					attempt + 1,
-					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-					M576Peak1DWhy(outCode),
-					M576::SweepTrendName(profile.trend),
-					profile.span,
-					attemptDacRange,
-					nextRange);
-				SafeAppendLog(msg);
-				attemptDacRange = nextRange;
-				attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep);
-				monoRangeExpanded = true;
-				afterFlatExpandRange = true;
-				continue;
-			}
-		}
 
 		M576::SweepRecenterFailureInfo failInfo = {};
 		failInfo.code = outCode;
 		failInfo.tPeak = outTPeak;
 		failInfo.hasTPeak = std::isfinite(outTPeak);
-		failInfo.prevArgmaxIndex = prevArgmax;
+		failInfo.prevArgmaxIndex = retryState.prevArgmax;
 		failInfo.hasPrevAttempt = (attempt > 0);
 
-		const BOOL canRetry = M576::IsRetryablePeakFailure(
-			outCode, profile, n, afterFlatExpandRange, &outPow, &failInfo);
-		if (!canRetry || lastAttempt)
+		retryState.movingBase = movingBase;
+		retryState.attemptRange = attemptDacRange;
+		const double centerDac = RecalSweepCenterFromCol0(outCol0, attemptDacRange);
+		const M576::SweepRetryPlan plan = M576::PlanNextRecal1DSweepAttempt(
+			retryState, outCode, profile, outPow, centerDac, attempt, lastAttempt, failInfo);
+		if (plan.action == M576::SweepRetryAction::GiveUp)
 			return FALSE;
 
-		const M576::SweepProfile recenterProfile =
-			M576::AdjustProfileForMonoRecenter(profile, outPow, afterFlatExpandRange, &failInfo);
-		const double centerDac = RecalSweepCenterFromCol0(outCol0, attemptDacRange);
-		const double deltaDac = M576::SuggestSweepRecenterDeltaDac(
-			recenterProfile, n, attemptDacRange, attempt, failInfo);
-		const double nextUnclamped = centerDac + deltaDac;
-		const int roundedBase = (int)floor(nextUnclamped + 0.5);
-		const int newMovingBase = M576::SuggestSweepRecenterNewBase(
-			centerDac, recenterProfile, n, attemptDacRange, attempt, failInfo);
+		const int prevRange = attemptDacRange;
+		const int prevBase = movingBase;
+		M576::ApplySweepRetryPlan(retryState, plan);
+		movingBase = retryState.movingBase;
+		attemptDacRange = retryState.attemptRange;
+		attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep);
 		{
-			CString clampNote;
-			if (roundedBase != newMovingBase)
-				clampNote.Format(_T(" clampedFrom=%d"), roundedBase);
 			CString msg;
-			msg.Format(
-				_T("  peak retry: %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g col0=%.4g offset=%d deltaDac=%.4g next=%.4g newMoving=%d fixed=%d (center=%.4g moving=%d)%s%s"),
-				recalStageLabel,
-				axisTag,
-				attempt + 1,
-				(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-				M576Peak1DWhy(outCode),
-				M576::SweepTrendName(recenterProfile.trend),
-				recenterProfile.argmaxIndex,
-				outTPeak,
-				recenterProfile.span,
-				outCol0,
-				attemptDacRange,
-				deltaDac,
-				nextUnclamped,
-				newMovingBase,
-				fixedBaseDac,
-				centerDac,
-				movingBase,
-				(recenterProfile.trend != profile.trend) ? _T(" postFlatExpand") : _T(""),
-				(outCode == M576::Peak1DValidateCode::VertexOutOfRange) ? _T(" vertexOutside") : _T(""),
-				clampNote.GetString());
+			if (plan.action == M576::SweepRetryAction::JumpFlatMax)
+			{
+				msg.Format(
+					_T("  %hs %s %s attempt %d/%d code=%hs trend=%hs span=%.4g offset %d->%d (base unchanged)"),
+					M576::SweepRetryActionLogTag(plan.action),
+					recalStageLabel,
+					axisTag,
+					attempt + 1,
+					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+					M576Peak1DWhy(outCode),
+					M576::SweepTrendName(profile.trend),
+					profile.span,
+					prevRange,
+					attemptDacRange);
+			}
+			else if (plan.action == M576::SweepRetryAction::FineRefine)
+			{
+				msg.Format(
+					_T("  %hs %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset %d->%d base %d->%d"),
+					M576::SweepRetryActionLogTag(plan.action),
+					recalStageLabel,
+					axisTag,
+					attempt + 1,
+					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+					M576Peak1DWhy(outCode),
+					M576::SweepTrendName(profile.trend),
+					profile.argmaxIndex,
+					outTPeak,
+					profile.span,
+					prevRange,
+					attemptDacRange,
+					prevBase,
+					movingBase);
+			}
+			else
+			{
+				const M576::SweepProfile recenterProfile =
+					M576::AdjustProfileForMonoRecenter(profile, outPow, retryState.inCoarsePhase, &failInfo);
+				const double deltaDac = M576::SuggestSweepRecenterDeltaDac(
+					recenterProfile, n, attemptDacRange, attempt, failInfo);
+				msg.Format(
+					_T("  %hs %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g col0=%.4g offset=%d deltaDac=%.4g newMoving=%d fixed=%d (center=%.4g moving=%d->%d)%s"),
+					M576::SweepRetryActionLogTag(plan.action),
+					recalStageLabel,
+					axisTag,
+					attempt + 1,
+					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+					M576Peak1DWhy(outCode),
+					M576::SweepTrendName(recenterProfile.trend),
+					recenterProfile.argmaxIndex,
+					outTPeak,
+					recenterProfile.span,
+					outCol0,
+					attemptDacRange,
+					deltaDac,
+					movingBase,
+					fixedBaseDac,
+					centerDac,
+					prevBase,
+					movingBase,
+					(recenterProfile.trend != profile.trend) ? _T(" postCoarse") : _T(""));
+			}
 			SafeAppendLog(msg);
 		}
-		prevArgmax = profile.argmaxIndex;
-		movingBase = newMovingBase;
+		retryState.prevArgmax = profile.argmaxIndex;
 	}
 	return FALSE;
 }
@@ -1247,6 +1399,36 @@ void CM576CalibratorDlg::ClearCalibStats()
 	m_statsRows.clear();
 }
 
+void CM576CalibratorDlg::ClearPathOutcomes()
+{
+	std::lock_guard<std::mutex> lock(m_pathOutcomesMutex);
+	m_pathFailureOutcomes.clear();
+}
+
+void CM576CalibratorDlg::PushPathFailureOutcome(const SCalibPathStepOutcome& o)
+{
+	std::lock_guard<std::mutex> lock(m_pathOutcomesMutex);
+	m_pathFailureOutcomes.push_back(o);
+}
+
+void CM576CalibratorDlg::ShowRunPathSummaryDialog(BOOL userStopped)
+{
+	std::vector<SCalibPathStepOutcome> failures;
+	int successCount = 0;
+	{
+		std::lock_guard<std::mutex> lockOut(m_pathOutcomesMutex);
+		failures = m_pathFailureOutcomes;
+	}
+	{
+		std::lock_guard<std::mutex> lockStats(m_statsRowsMutex);
+		successCount = (int)m_statsRows.size();
+	}
+	const SRunPathSummary summary = BuildRunPathSummary(
+		failures, successCount, m_nCalMode == 0, userStopped != FALSE);
+	CM576RunPathSummaryDlg dlg(summary, this);
+	dlg.DoModal();
+}
+
 void CM576CalibratorDlg::PushCalibStatRow(const SCalibrationStatRow& r)
 {
 	std::lock_guard<std::mutex> lock(m_statsRowsMutex);
@@ -1375,17 +1557,8 @@ LRESULT CM576CalibratorDlg::OnPathFinished(WPARAM, LPARAM)
 	if (m_pathShowFinishInfoBox)
 	{
 		if (stopped)
-		{
-			MessageBoxM576(
-				_T("Run Path ended after Stop was requested.\n\nSome steps may have been skipped; see the log."),
-				MB_OK | MB_ICONWARNING);
-		}
-		else
-		{
-			MessageBoxM576(
-				_T("Run Path completed.\n\nSee the log for details. Use \"Export calib stats CSV\" to save step records if needed."),
-				MB_OK | MB_ICONINFORMATION);
-		}
+			AppendLog(_T("Run Path stopped by user."));
+		ShowRunPathSummaryDialog(stopped);
 	}
 	m_pathShowFinishInfoBox = TRUE;
 	return 0;
@@ -3513,6 +3686,7 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 void CM576CalibratorDlg::RunPathPowerMeter()
 {
 	ClearCalibStats();
+	ClearPathOutcomes();
 	CString err;
 	int totalAll = 0;
 	for (int fs = 0; fs < 4; ++fs)
@@ -3752,23 +3926,57 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			CString m;
 			m.Format(_T("PM slot %d: skipping path run (1x64 firmware mapping required)."), fileSlot + 1);
 			SafeAppendLog(m);
+			const std::string csvBase = M576PathBasenameUtf8(pmCsvAbsPath);
+			std::string detail = M576CStringToUtf8(mapErr.IsEmpty()
+				? _T("PM 1x64: mapping CSV missing or invalid.")
+				: mapErr);
+			TruncatePathOutcomeDetail(detail);
+			for (int si = 0; si < total; ++si)
+			{
+				SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBase, si + 1, steps[si]);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::FileMappingSkip;
+				o.failStage = "1x64 mapping";
+				o.commDetail = detail;
+				PushPathFailureOutcome(o);
+			}
 			globalProgress += total;
 			SafeSetProgressPos(globalProgress);
 			return;
 		}
 	}
+	const std::string csvBasename = M576PathBasenameUtf8(pmCsvAbsPath);
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
 	CStringA lineOk, lineY, lineX;
 	for (int i = 0; i < total; ++i)
 	{
 		if (m_bStop)
+		{
+			for (int j = i; j < total; ++j)
+			{
+				SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, j + 1, steps[j]);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::UserStop;
+				o.failStage = "user stop";
+				PushPathFailureOutcome(o);
+			}
 			break;
+		}
 		SPathStep& st = steps[i];
 		CString verr;
 		if (!ValidatePathStep(st, verr))
 		{
 			SafeAppendLog(verr);
+			{
+				SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::CsvValidation;
+				o.failStage = "CSV validation";
+				o.commDetail = M576CStringToUtf8(verr);
+				TruncatePathOutcomeDetail(o.commDetail);
+				PushPathFailureOutcome(o);
+			}
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -3777,6 +3985,15 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		if (!PmStepMatchesFileSlot(st, fileSlot, &wslot))
 		{
 			SafeAppendLog(wslot);
+			{
+				SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::CsvValidation;
+				o.failStage = "file slot filter";
+				o.commDetail = M576CStringToUtf8(wslot);
+				TruncatePathOutcomeDetail(o.commDetail);
+				PushPathFailureOutcome(o);
+			}
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -3794,6 +4011,17 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				SafeAppendLog(_T("RECAL 1: no OK line after retries."));
 			else
 				SafeAppendLog(err);
+			{
+				SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+				o.result = CalibPathStepResult::Failed;
+				o.failCategory = M576CommErrIsSerialWriteFailure(err)
+					? CalibPathFailCategory::CommSerialBreak
+					: CalibPathFailCategory::CommRecalSetup;
+				o.failStage = "RECAL 1";
+				o.commDetail = M576CStringToUtf8(err.IsEmpty() ? _T("RECAL 1: no OK line") : err);
+				TruncatePathOutcomeDetail(o.commDetail);
+				PushPathFailureOutcome(o);
+			}
 			if (M576CommErrIsSerialWriteFailure(err))
 				break;
 			++globalProgress;
@@ -3838,13 +4066,23 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		BOOL crossOk = FALSE;
 		BOOL pmSkipStep = FALSE;
 		BOOL pmBreakPath = FALSE;
+		BOOL pmFailRecorded = FALSE;
 		int fixedY = 0;
 		int xSweepRange = m_dacRange;
+		int lastMovingX = M576_RECAL_FW_READ_BASE_DAC;
+		int lastAttemptDacRangeX = m_dacRange;
+		int lastCrossRound = 0;
+		double pmRejectDbm = 0.0;
+		double pmRejectLo = 0.0;
+		double pmRejectHi = 0.0;
+		int pmRejectIdx = -1;
+		int pmRejectRangeIdx = -1;
 
 		for (int yCrossRound = 0;
 			yCrossRound < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOk && !pmSkipStep && !pmBreakPath;
 			++yCrossRound)
 		{
+			lastCrossRound = yCrossRound;
 			if (yCrossRound > 0)
 			{
 				CString msg;
@@ -3901,6 +4139,37 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					else if (powY.empty())
 						SafeAppendLog(_T("  RECAL 3 1: no Y samples; skip X sweep (RECAL 3 1)."));
 					pmSkipStep = TRUE;
+					if (!pmFailRecorded)
+					{
+						SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+						o.result = CalibPathStepResult::Failed;
+						o.crossRound = yCrossRound;
+						o.lastBaseY = yMovingBasePm;
+						o.lastOffsetY = ySeedDacRangePm;
+						o.sweepCol0Y = xFixedDac;
+						o.sampleCountY = (int)powY.size();
+						M576FillSweepPowContext(o, powY, true);
+						if (!powY.empty() && yPreCode != M576::Peak1DValidateCode::Ok)
+						{
+							o.failCategory = CalibPathFailCategory::YPrePeak;
+							o.failStage = "Y pre-sweep";
+							o.peakAttempts = yPreAttemptsPm;
+							M576FillPeakCodeFields(o, yPreCode);
+							o.tPeakY = tYPre;
+							o.hasTPeakY = std::isfinite(tYPre);
+						}
+						else
+						{
+							o.failCategory = powY.empty()
+								? CalibPathFailCategory::CommSweep
+								: CalibPathFailCategory::CommSerialBreak;
+							o.failStage = powY.empty() ? "RECAL 3 0 sweep" : "serial";
+							o.commDetail = M576CStringToUtf8(err);
+							TruncatePathOutcomeDetail(o.commDetail);
+						}
+						PushPathFailureOutcome(o);
+						pmFailRecorded = TRUE;
+					}
 				}
 				else
 					SafeAppendLog(_T("  cross retry: RECAL 3 0 re-sweep failed."));
@@ -3923,10 +4192,11 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			ySeedDacRangePm = ySweepRangePm;
 
 			int movingX = M576_RECAL_FW_READ_BASE_DAC;
-			int xPrevArgmax = -1;
-			bool xMonoRangeExpanded = false;
-			bool xAfterFlatExpandRange = false;
+			const int uiFineRangeX = m_dacRange;
+			M576::SweepRecenterSessionState xRetryState = {};
+			M576::InitSweepRecenterSessionState(xRetryState, uiFineRangeX, movingX);
 			int attemptDacRangeX = (ySweepRangePm > m_dacRange) ? ySweepRangePm : m_dacRange;
+			xRetryState.attemptRange = attemptDacRangeX;
 			DWORD xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
 			BOOL retryYAfterCross = FALSE;
 
@@ -3942,12 +4212,41 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					pmSkipStep = TRUE;
 					if (M576CommErrIsSerialWriteFailure(err))
 						pmBreakPath = TRUE;
+					if (!pmFailRecorded)
+					{
+						SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+						o.result = CalibPathStepResult::Failed;
+						o.failCategory = M576CommErrIsSerialWriteFailure(err)
+							? CalibPathFailCategory::CommSerialBreak
+							: CalibPathFailCategory::CommSweep;
+						o.failStage = "RECAL 3 1 sweep";
+						o.crossRound = yCrossRound;
+						o.lastBaseY = yMovingBasePm;
+						o.lastBaseX = movingX;
+						o.lastOffsetY = ySeedDacRangePm;
+						o.lastOffsetX = attemptDacRangeX;
+						o.commDetail = M576CStringToUtf8(err.IsEmpty() ? _T("RECAL 3 1: no line") : err);
+						TruncatePathOutcomeDetail(o.commDetail);
+						PushPathFailureOutcome(o);
+						pmFailRecorded = TRUE;
+					}
 					break;
 				}
 				if (!CRecalSession::ParseRecal3SweepLine(lineX, sweep1LineCol0, powX))
 				{
 					SafeAppendLog(_T("RECAL 3 1: could not parse [axis0] P1..Pn."));
 					pmSkipStep = TRUE;
+					if (!pmFailRecorded)
+					{
+						SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+						o.result = CalibPathStepResult::Failed;
+						o.failCategory = CalibPathFailCategory::CommSweep;
+						o.failStage = "RECAL 3 1 parse";
+						o.crossRound = yCrossRound;
+						o.commDetail = "could not parse sweep line";
+						PushPathFailureOutcome(o);
+						pmFailRecorded = TRUE;
+					}
 					break;
 				}
 				{
@@ -3972,14 +4271,53 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				if (powY.size() != powX.size() || powY.empty())
 				{
 					SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
+					if (!pmFailRecorded)
+					{
+						SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+						o.result = CalibPathStepResult::Failed;
+						o.failCategory = CalibPathFailCategory::SweepDataMismatch;
+						o.failStage = "Y/X length";
+						o.crossRound = yCrossRound;
+						o.sampleCountY = (int)powY.size();
+						o.sampleCountX = (int)powX.size();
+						PushPathFailureOutcome(o);
+						pmFailRecorded = TRUE;
+					}
 					break;
 				}
+				lastMovingX = movingX;
+				lastAttemptDacRangeX = attemptDacRangeX;
 				yCross = M576::Peak1DValidateCode::Ok;
 				xCross = M576::Peak1DValidateCode::Ok;
 				crossOk = M576::PeakCrossFrom1DScans(
 					powY, powX, br, bc, &yCross, &xCross, &tYPm, &tXPm, &trCrossYPm, &trCrossXPm);
 				if (crossOk)
 				{
+					if (M576::NeedsFineRefineAfterSuccess(attemptDacRangeX, uiFineRangeX)
+						&& !xRetryState.fineConsumed
+						&& RecalSweepPowerSampleCount(uiFineRangeX, m_dacStep) == (int)powY.size())
+					{
+						const M576::SweepRetryPlan fineX = M576::PlanFineRefineAfterCoarseSuccess(
+							xRetryState, sweep1LineCol0, tXPm, (int)powX.size(), attemptDacRangeX);
+						if (fineX.action == M576::SweepRetryAction::FineRefine)
+						{
+							M576::ApplySweepRetryPlan(xRetryState, fineX);
+							movingX = xRetryState.movingBase = fineX.nextBase;
+							attemptDacRangeX = xRetryState.attemptRange;
+							xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
+							CString msg;
+							msg.Format(
+								_T("  fine refine: RECAL 3 1 X attempt %d/%d offset %d->%d newMovingX=%d fixedY=%d"),
+								xAttempt + 1,
+								(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+								(int)M576_PEAK1D_COARSE_DAC_RANGE,
+								attemptDacRangeX,
+								movingX,
+								fixedY);
+							SafeAppendLog(msg);
+							continue;
+						}
+					}
 					xSweepRange = attemptDacRangeX;
 					break;
 				}
@@ -4019,53 +4357,6 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				const int nX = (int)powX.size();
 				const M576::SweepProfile xProfile = M576::AnalyzeRecal1DSweepProfile(powX);
 				const BOOL xLastAttempt = (xAttempt >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
-				if (M576::IsFlatSweepFailure(xCross, xProfile))
-				{
-					const int nextRange = M576::SuggestFlatRetryDacRange(attemptDacRangeX, M576_MAX_DAC_RANGE);
-					if (nextRange <= attemptDacRangeX || xLastAttempt
-						|| RecalSweepPowerSampleCount(nextRange, m_dacStep) != (int)powY.size())
-						break;
-					{
-						CString msg;
-						msg.Format(
-							_T("  flat retry: RECAL 3 1 X attempt %d/%d code=%hs trend=%hs span=%.4g expand offset %d->%d (base unchanged)"),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCross),
-							M576::SweepTrendName(xProfile.trend),
-							xProfile.span,
-							attemptDacRangeX,
-							nextRange);
-						SafeAppendLog(msg);
-					}
-					attemptDacRangeX = nextRange;
-					xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
-					continue;
-				}
-				if (M576::IsMonotoneSweepFailure(xCross, xProfile, nX) && !xMonoRangeExpanded)
-				{
-					const int nextRange = M576::SuggestFlatRetryDacRange(attemptDacRangeX, M576_MAX_DAC_RANGE);
-					if (nextRange > attemptDacRangeX && !xLastAttempt
-						&& RecalSweepPowerSampleCount(nextRange, m_dacStep) == (int)powY.size())
-					{
-						CString msg;
-						msg.Format(
-							_T("  mono retry: RECAL 3 1 X attempt %d/%d code=%hs trend=%hs span=%.4g expand offset %d->%d (base unchanged)"),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCross),
-							M576::SweepTrendName(xProfile.trend),
-							xProfile.span,
-							attemptDacRangeX,
-							nextRange);
-						SafeAppendLog(msg);
-						attemptDacRangeX = nextRange;
-						xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
-						xMonoRangeExpanded = true;
-						xAfterFlatExpandRange = true;
-						continue;
-					}
-				}
 				M576::SweepRecenterFailureInfo xFailInfo = {};
 				xFailInfo.code = xCross;
 				double tXPeak = 0.0;
@@ -4074,39 +4365,64 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				(void)M576::FindUnimodalPeak1DIndex(powX, xIdxTmp, xFitCode, &tXPeak, nullptr);
 				xFailInfo.tPeak = tXPeak;
 				xFailInfo.hasTPeak = std::isfinite(tXPeak);
-				xFailInfo.prevArgmaxIndex = xPrevArgmax;
+				xFailInfo.prevArgmaxIndex = xRetryState.prevArgmax;
 				xFailInfo.hasPrevAttempt = (xAttempt > 0);
-				const BOOL xCanRetry = M576::IsRetryablePeakFailure(
-					xCross, xProfile, nX, xAfterFlatExpandRange, &powX, &xFailInfo);
-				if (!xCanRetry || xLastAttempt)
-					break;
+				xRetryState.movingBase = movingX;
+				xRetryState.attemptRange = attemptDacRangeX;
 				const double xCenter = RecalSweepCenterFromCol0(sweep1LineCol0, attemptDacRangeX);
-				const M576::SweepProfile xRecenterProfile =
-					M576::AdjustProfileForMonoRecenter(xProfile, powX, xAfterFlatExpandRange, &xFailInfo);
-				const double deltaDac = M576::SuggestSweepRecenterDeltaDac(
-					xRecenterProfile, nX, attemptDacRangeX, xAttempt, xFailInfo);
-				movingX = M576::SuggestSweepRecenterNewBase(
-					xCenter, xRecenterProfile, nX, attemptDacRangeX, xAttempt, xFailInfo);
+				const M576::SweepRetryPlan xPlan = M576::PlanNextRecal1DSweepAttempt(
+					xRetryState, xCross, xProfile, powX, xCenter, xAttempt, xLastAttempt, xFailInfo);
+				if (xPlan.action == M576::SweepRetryAction::GiveUp)
+					break;
+				if (RecalSweepPowerSampleCount(xPlan.nextRange, m_dacStep) != (int)powY.size())
+					break;
+				const int prevRangeX = attemptDacRangeX;
+				const int prevBaseX = movingX;
+				M576::ApplySweepRetryPlan(xRetryState, xPlan);
+				movingX = xRetryState.movingBase;
+				attemptDacRangeX = xRetryState.attemptRange;
+				xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
 				{
 					CString msg;
-					msg.Format(
-						_T("  peak retry: RECAL 3 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset=%d deltaDac=%.4g newMovingX=%d fixedY=%d (center=%.4g)%s"),
-						xAttempt + 1,
-						(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-						M576Peak1DWhy(xCross),
-						M576::SweepTrendName(xRecenterProfile.trend),
-						xRecenterProfile.argmaxIndex,
-						tXPeak,
-						xRecenterProfile.span,
-						attemptDacRangeX,
-						deltaDac,
-						movingX,
-						fixedY,
-						xCenter,
-						(xRecenterProfile.trend != xProfile.trend) ? _T(" postFlatExpand") : _T(""));
+					if (xPlan.action == M576::SweepRetryAction::JumpFlatMax)
+					{
+						msg.Format(
+							_T("  %hs RECAL 3 1 X attempt %d/%d code=%hs trend=%hs span=%.4g offset %d->%d"),
+							M576::SweepRetryActionLogTag(xPlan.action),
+							xAttempt + 1,
+							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+							M576Peak1DWhy(xCross),
+							M576::SweepTrendName(xProfile.trend),
+							xProfile.span,
+							prevRangeX,
+							attemptDacRangeX);
+					}
+					else
+					{
+						const M576::SweepProfile xRecenterProfile =
+							M576::AdjustProfileForMonoRecenter(xProfile, powX, xRetryState.inCoarsePhase, &xFailInfo);
+						const double deltaDac = M576::SuggestSweepRecenterDeltaDac(
+							xRecenterProfile, nX, attemptDacRangeX, xAttempt, xFailInfo);
+						msg.Format(
+							_T("  %hs RECAL 3 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset=%d deltaDac=%.4g newMovingX=%d fixedY=%d (%d->%d)"),
+							M576::SweepRetryActionLogTag(xPlan.action),
+							xAttempt + 1,
+							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+							M576Peak1DWhy(xCross),
+							M576::SweepTrendName(xRecenterProfile.trend),
+							xRecenterProfile.argmaxIndex,
+							tXPeak,
+							xRecenterProfile.span,
+							attemptDacRangeX,
+							deltaDac,
+							movingX,
+							fixedY,
+							prevBaseX,
+							movingX);
+					}
 					SafeAppendLog(msg);
 				}
-				xPrevArgmax = xProfile.argmaxIndex;
+				xRetryState.prevArgmax = xProfile.argmaxIndex;
 			}
 
 			if (retryYAfterCross)
@@ -4135,6 +4451,11 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 						m_pmRangeIndex, pow, peakHint, peakRaw, peakDbm, loDbm, hiDbm, peakIdxUsed))
 					return TRUE;
 				axisCode = M576::Peak1DValidateCode::PmRangeMismatch;
+				pmRejectDbm = peakDbm;
+				pmRejectLo = loDbm;
+				pmRejectHi = hiDbm;
+				pmRejectIdx = peakIdxUsed;
+				pmRejectRangeIdx = m_pmRangeIndex;
 				M576AppendPmRangeRejectLog(
 					this, m_pmRangeIndex, stageLabel, axisTag, col0, pow, peakIdxUsed, peakRaw, peakDbm, loDbm, hiDbm);
 				return FALSE;
@@ -4223,6 +4544,68 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					PushCalibStatRow(srow);
 			}
 		}
+		else if (!pmFailRecorded)
+		{
+			SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+			o.result = CalibPathStepResult::Failed;
+			o.crossRound = lastCrossRound;
+			o.lastBaseY = yMovingBasePm;
+			o.lastBaseX = lastMovingX;
+			o.lastOffsetY = ySeedDacRangePm;
+			o.lastOffsetX = lastAttemptDacRangeX;
+			o.sweepCol0Y = xFixedDac;
+			o.sweepCol0X = sweep1LineCol0;
+			o.sampleCountY = (int)powY.size();
+			o.sampleCountX = (int)powX.size();
+			M576FillSweepPowContext(o, powY, true);
+			M576FillSweepPowContext(o, powX, false);
+			o.tPeakY = tYPm;
+			o.tPeakX = tXPm;
+			o.hasTPeakY = std::isfinite(tYPm);
+			o.hasTPeakX = std::isfinite(tXPm);
+			if (yCross == M576::Peak1DValidateCode::PmRangeMismatch
+				|| xCross == M576::Peak1DValidateCode::PmRangeMismatch)
+			{
+				o.failCategory = CalibPathFailCategory::PmRangeMismatch;
+				o.failStage = (yCross == M576::Peak1DValidateCode::PmRangeMismatch) ? "PM range Y" : "PM range X";
+				M576FillPeakCodeFields(o, M576::Peak1DValidateCode::PmRangeMismatch);
+				o.peakDbm = pmRejectDbm;
+				o.loDbm = pmRejectLo;
+				o.hiDbm = pmRejectHi;
+				o.peakIdxUsed = pmRejectIdx;
+				o.pmRangeIndex = pmRejectRangeIdx;
+			}
+			else if (yCross != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::YCrossPeak;
+				o.failStage = "cross Y";
+				o.peakAttempts = (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS;
+				M576FillPeakCodeFields(o, yCross);
+			}
+			else if (xCross != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::XCrossPeak;
+				o.failStage = "cross X";
+				o.peakAttempts = (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS;
+				M576FillPeakCodeFields(o, xCross);
+			}
+			else if (yPreCode != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::YPrePeak;
+				o.failStage = "Y pre-sweep";
+				o.peakAttempts = yPreAttemptsPm;
+				M576FillPeakCodeFields(o, yPreCode);
+			}
+			else
+			{
+				o.failCategory = CalibPathFailCategory::XCrossPeak;
+				o.failStage = "cross peak";
+				o.peakAttempts = (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS;
+				o.commDetail = "peak not found after retries";
+			}
+			PushPathFailureOutcome(o);
+			pmFailRecorded = TRUE;
+		}
 
 		++globalProgress;
 		SafeSetProgressPos(globalProgress);
@@ -4235,6 +4618,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 void CM576CalibratorDlg::RunPathPd()
 {
 	ClearCalibStats();
+	ClearPathOutcomes();
 	CString err;
 	int totalAll = 0;
 	for (int fs = 0; fs < 4; ++fs)
@@ -4338,18 +4722,39 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 	const int memsCalibSlot = MemsPrimaryCalibSlot(m_sessionCalibPolicy);
 	CString err;
 	const int total = (int)steps.GetSize();
+	const CString pdAbs = ResolveFilePath(m_strCsvPd[fileSlot].Trim());
+	const std::string csvBasename = M576PathBasenameUtf8(pdAbs);
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
 	CStringA lineOk, lineY, lineX;
 	for (int i = 0; i < total; ++i)
 	{
 		if (m_bStop)
+		{
+			for (int j = i; j < total; ++j)
+			{
+				SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, j + 1, steps[j]);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::UserStop;
+				o.failStage = "user stop";
+				PushPathFailureOutcome(o);
+			}
 			break;
+		}
 		SPathStepPd& st = steps[i];
 		CString verr;
 		if (!ValidatePathStepPd(st, verr))
 		{
 			SafeAppendLog(verr);
+			{
+				SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, i + 1, st);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::CsvValidation;
+				o.failStage = "CSV validation";
+				o.commDetail = M576CStringToUtf8(verr);
+				TruncatePathOutcomeDetail(o.commDetail);
+				PushPathFailureOutcome(o);
+			}
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -4358,6 +4763,15 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		if (!PdStepMatchesFileSlot(st, fileSlot, &wslot))
 		{
 			SafeAppendLog(wslot);
+			{
+				SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, i + 1, st);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::CsvValidation;
+				o.failStage = "file slot filter";
+				o.commDetail = M576CStringToUtf8(wslot);
+				TruncatePathOutcomeDetail(o.commDetail);
+				PushPathFailureOutcome(o);
+			}
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -4375,6 +4789,17 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				SafeAppendLog(_T("RECAL 2: no OK line after retries."));
 			else
 				SafeAppendLog(err);
+			{
+				SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, i + 1, st);
+				o.result = CalibPathStepResult::Failed;
+				o.failCategory = M576CommErrIsSerialWriteFailure(err)
+					? CalibPathFailCategory::CommSerialBreak
+					: CalibPathFailCategory::CommRecalSetup;
+				o.failStage = "RECAL 2";
+				o.commDetail = M576CStringToUtf8(err.IsEmpty() ? _T("RECAL 2: no OK line") : err);
+				TruncatePathOutcomeDetail(o.commDetail);
+				PushPathFailureOutcome(o);
+			}
 			if (M576CommErrIsSerialWriteFailure(err))
 				break;
 			++globalProgress;
@@ -4419,13 +4844,18 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		BOOL crossOkPd = FALSE;
 		BOOL pdSkipStep = FALSE;
 		BOOL pdBreakPath = FALSE;
+		BOOL pdFailRecorded = FALSE;
 		int fixedYPd = 0;
 		int xSweepRangePd = m_dacRange;
+		int lastMovingXPd = M576_RECAL_FW_READ_BASE_DAC;
+		int lastAttemptDacRangeXPd = m_dacRange;
+		int lastCrossRoundPd = 0;
 
 		for (int yCrossRoundPd = 0;
 			yCrossRoundPd < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOkPd && !pdSkipStep && !pdBreakPath;
 			++yCrossRoundPd)
 		{
+			lastCrossRoundPd = yCrossRoundPd;
 			if (yCrossRoundPd > 0)
 			{
 				CString msg;
@@ -4503,10 +4933,11 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			ySeedDacRangePd = ySweepRangePd;
 
 			int movingXPd = M576_RECAL_FW_READ_BASE_DAC;
-			int xPrevArgmaxPd = -1;
-			bool xMonoRangeExpandedPd = false;
-			bool xAfterFlatExpandRangePd = false;
+			const int uiFineRangeXPd = m_dacRange;
+			M576::SweepRecenterSessionState xRetryStatePd = {};
+			M576::InitSweepRecenterSessionState(xRetryStatePd, uiFineRangeXPd, movingXPd);
 			int attemptDacRangeXPd = (ySweepRangePd > m_dacRange) ? ySweepRangePd : m_dacRange;
+			xRetryStatePd.attemptRange = attemptDacRangeXPd;
 			DWORD xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
 			BOOL retryYAfterCrossPd = FALSE;
 
@@ -4554,12 +4985,39 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 					break;
 				}
+				lastMovingXPd = movingXPd;
+				lastAttemptDacRangeXPd = attemptDacRangeXPd;
 				yCrossPd = M576::Peak1DValidateCode::Ok;
 				xCrossPd = M576::Peak1DValidateCode::Ok;
 				crossOkPd = M576::PeakCrossFrom1DScans(
 					powY, powX, br, bc, &yCrossPd, &xCrossPd, &tYpd, &tXpd, &trCrossYPd, &trCrossXPd);
 				if (crossOkPd)
 				{
+					if (M576::NeedsFineRefineAfterSuccess(attemptDacRangeXPd, uiFineRangeXPd)
+						&& !xRetryStatePd.fineConsumed
+						&& RecalSweepPowerSampleCount(uiFineRangeXPd, m_dacStep) == (int)powY.size())
+					{
+						const M576::SweepRetryPlan fineXPd = M576::PlanFineRefineAfterCoarseSuccess(
+							xRetryStatePd, sweep1LineCol0Pd, tXpd, (int)powX.size(), attemptDacRangeXPd);
+						if (fineXPd.action == M576::SweepRetryAction::FineRefine)
+						{
+							M576::ApplySweepRetryPlan(xRetryStatePd, fineXPd);
+							movingXPd = xRetryStatePd.movingBase = fineXPd.nextBase;
+							attemptDacRangeXPd = xRetryStatePd.attemptRange;
+							xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
+							CString msg;
+							msg.Format(
+								_T("  fine refine: RECAL 5 1 X attempt %d/%d offset %d->%d newMovingX=%d fixedY=%d"),
+								xAttempt + 1,
+								(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+								(int)M576_PEAK1D_COARSE_DAC_RANGE,
+								attemptDacRangeXPd,
+								movingXPd,
+								fixedYPd);
+							SafeAppendLog(msg);
+							continue;
+						}
+					}
 					xSweepRangePd = attemptDacRangeXPd;
 					break;
 				}
@@ -4599,53 +5057,6 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				const int nXpd = (int)powX.size();
 				const M576::SweepProfile xProfilePd = M576::AnalyzeRecal1DSweepProfile(powX);
 				const BOOL xLastAttemptPd = (xAttempt >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
-				if (M576::IsFlatSweepFailure(xCrossPd, xProfilePd))
-				{
-					const int nextRange = M576::SuggestFlatRetryDacRange(attemptDacRangeXPd, M576_MAX_DAC_RANGE);
-					if (nextRange <= attemptDacRangeXPd || xLastAttemptPd
-						|| RecalSweepPowerSampleCount(nextRange, m_dacStep) != (int)powY.size())
-						break;
-					{
-						CString msg;
-						msg.Format(
-							_T("  flat retry: RECAL 5 1 X attempt %d/%d code=%hs trend=%hs span=%.4g expand offset %d->%d (base unchanged)"),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCrossPd),
-							M576::SweepTrendName(xProfilePd.trend),
-							xProfilePd.span,
-							attemptDacRangeXPd,
-							nextRange);
-						SafeAppendLog(msg);
-					}
-					attemptDacRangeXPd = nextRange;
-					xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
-					continue;
-				}
-				if (M576::IsMonotoneSweepFailure(xCrossPd, xProfilePd, nXpd) && !xMonoRangeExpandedPd)
-				{
-					const int nextRange = M576::SuggestFlatRetryDacRange(attemptDacRangeXPd, M576_MAX_DAC_RANGE);
-					if (nextRange > attemptDacRangeXPd && !xLastAttemptPd
-						&& RecalSweepPowerSampleCount(nextRange, m_dacStep) == (int)powY.size())
-					{
-						CString msg;
-						msg.Format(
-							_T("  mono retry: RECAL 5 1 X attempt %d/%d code=%hs trend=%hs span=%.4g expand offset %d->%d (base unchanged)"),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCrossPd),
-							M576::SweepTrendName(xProfilePd.trend),
-							xProfilePd.span,
-							attemptDacRangeXPd,
-							nextRange);
-						SafeAppendLog(msg);
-						attemptDacRangeXPd = nextRange;
-						xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
-						xMonoRangeExpandedPd = true;
-						xAfterFlatExpandRangePd = true;
-						continue;
-					}
-				}
 				M576::SweepRecenterFailureInfo xFailInfoPd = {};
 				xFailInfoPd.code = xCrossPd;
 				double tXPeakPd = 0.0;
@@ -4654,39 +5065,64 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				(void)M576::FindUnimodalPeak1DIndex(powX, xIdxTmpPd, xFitCodePd, &tXPeakPd, nullptr);
 				xFailInfoPd.tPeak = tXPeakPd;
 				xFailInfoPd.hasTPeak = std::isfinite(tXPeakPd);
-				xFailInfoPd.prevArgmaxIndex = xPrevArgmaxPd;
+				xFailInfoPd.prevArgmaxIndex = xRetryStatePd.prevArgmax;
 				xFailInfoPd.hasPrevAttempt = (xAttempt > 0);
-				const BOOL xCanRetryPd = M576::IsRetryablePeakFailure(
-					xCrossPd, xProfilePd, nXpd, xAfterFlatExpandRangePd, &powX, &xFailInfoPd);
-				if (!xCanRetryPd || xLastAttemptPd)
-					break;
+				xRetryStatePd.movingBase = movingXPd;
+				xRetryStatePd.attemptRange = attemptDacRangeXPd;
 				const double xCenterPd = RecalSweepCenterFromCol0(sweep1LineCol0Pd, attemptDacRangeXPd);
-				const M576::SweepProfile xRecenterProfilePd =
-					M576::AdjustProfileForMonoRecenter(xProfilePd, powX, xAfterFlatExpandRangePd, &xFailInfoPd);
-				const double deltaDacPd = M576::SuggestSweepRecenterDeltaDac(
-					xRecenterProfilePd, nXpd, attemptDacRangeXPd, xAttempt, xFailInfoPd);
-				movingXPd = M576::SuggestSweepRecenterNewBase(
-					xCenterPd, xRecenterProfilePd, nXpd, attemptDacRangeXPd, xAttempt, xFailInfoPd);
+				const M576::SweepRetryPlan xPlanPd = M576::PlanNextRecal1DSweepAttempt(
+					xRetryStatePd, xCrossPd, xProfilePd, powX, xCenterPd, xAttempt, xLastAttemptPd, xFailInfoPd);
+				if (xPlanPd.action == M576::SweepRetryAction::GiveUp)
+					break;
+				if (RecalSweepPowerSampleCount(xPlanPd.nextRange, m_dacStep) != (int)powY.size())
+					break;
+				const int prevRangeXPd = attemptDacRangeXPd;
+				const int prevBaseXPd = movingXPd;
+				M576::ApplySweepRetryPlan(xRetryStatePd, xPlanPd);
+				movingXPd = xRetryStatePd.movingBase;
+				attemptDacRangeXPd = xRetryStatePd.attemptRange;
+				xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
 				{
 					CString msg;
-					msg.Format(
-						_T("  peak retry: RECAL 5 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset=%d deltaDac=%.4g newMovingX=%d fixedY=%d (center=%.4g)%s"),
-						xAttempt + 1,
-						(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-						M576Peak1DWhy(xCrossPd),
-						M576::SweepTrendName(xRecenterProfilePd.trend),
-						xRecenterProfilePd.argmaxIndex,
-						tXPeakPd,
-						xRecenterProfilePd.span,
-						attemptDacRangeXPd,
-						deltaDacPd,
-						movingXPd,
-						fixedYPd,
-						xCenterPd,
-						(xRecenterProfilePd.trend != xProfilePd.trend) ? _T(" postFlatExpand") : _T(""));
+					if (xPlanPd.action == M576::SweepRetryAction::JumpFlatMax)
+					{
+						msg.Format(
+							_T("  %hs RECAL 5 1 X attempt %d/%d code=%hs trend=%hs span=%.4g offset %d->%d"),
+							M576::SweepRetryActionLogTag(xPlanPd.action),
+							xAttempt + 1,
+							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+							M576Peak1DWhy(xCrossPd),
+							M576::SweepTrendName(xProfilePd.trend),
+							xProfilePd.span,
+							prevRangeXPd,
+							attemptDacRangeXPd);
+					}
+					else
+					{
+						const M576::SweepProfile xRecenterProfilePd =
+							M576::AdjustProfileForMonoRecenter(xProfilePd, powX, xRetryStatePd.inCoarsePhase, &xFailInfoPd);
+						const double deltaDacPd = M576::SuggestSweepRecenterDeltaDac(
+							xRecenterProfilePd, nXpd, attemptDacRangeXPd, xAttempt, xFailInfoPd);
+						msg.Format(
+							_T("  %hs RECAL 5 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset=%d deltaDac=%.4g newMovingX=%d fixedY=%d (%d->%d)"),
+							M576::SweepRetryActionLogTag(xPlanPd.action),
+							xAttempt + 1,
+							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+							M576Peak1DWhy(xCrossPd),
+							M576::SweepTrendName(xRecenterProfilePd.trend),
+							xRecenterProfilePd.argmaxIndex,
+							tXPeakPd,
+							xRecenterProfilePd.span,
+							attemptDacRangeXPd,
+							deltaDacPd,
+							movingXPd,
+							fixedYPd,
+							prevBaseXPd,
+							movingXPd);
+					}
 					SafeAppendLog(msg);
 				}
-				xPrevArgmaxPd = xProfilePd.argmaxIndex;
+				xRetryStatePd.prevArgmax = xProfilePd.argmaxIndex;
 			}
 
 			if (retryYAfterCrossPd)
@@ -4756,6 +5192,63 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 						st, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, memsCalibSlot, srow))
 					PushCalibStatRow(srow);
 			}
+		}
+		else if (!pdFailRecorded)
+		{
+			SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, i + 1, st);
+			o.result = CalibPathStepResult::Failed;
+			o.crossRound = lastCrossRoundPd;
+			o.lastBaseY = yMovingBasePd;
+			o.lastBaseX = lastMovingXPd;
+			o.lastOffsetY = ySeedDacRangePd;
+			o.lastOffsetX = lastAttemptDacRangeXPd;
+			o.sweepCol0Y = xFixedDacPd;
+			o.sweepCol0X = sweep1LineCol0Pd;
+			o.sampleCountY = (int)powY.size();
+			o.sampleCountX = (int)powX.size();
+			M576FillSweepPowContext(o, powY, true);
+			M576FillSweepPowContext(o, powX, false);
+			o.tPeakY = tYpd;
+			o.tPeakX = tXpd;
+			o.hasTPeakY = std::isfinite(tYpd);
+			o.hasTPeakX = std::isfinite(tXpd);
+			if (yCrossPd != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::YCrossPeak;
+				o.failStage = "cross Y";
+				o.peakAttempts = (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS;
+				M576FillPeakCodeFields(o, yCrossPd);
+			}
+			else if (xCrossPd != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::XCrossPeak;
+				o.failStage = "cross X";
+				o.peakAttempts = (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS;
+				M576FillPeakCodeFields(o, xCrossPd);
+			}
+			else if (yPreCodePd != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::YPrePeak;
+				o.failStage = "Y pre-sweep";
+				o.peakAttempts = yPreAttemptsPd;
+				M576FillPeakCodeFields(o, yPreCodePd);
+			}
+			else if (pdSkipStep)
+			{
+				o.failCategory = CalibPathFailCategory::CommSweep;
+				o.failStage = "RECAL 5 sweep";
+				o.commDetail = M576CStringToUtf8(err);
+				TruncatePathOutcomeDetail(o.commDetail);
+			}
+			else
+			{
+				o.failCategory = CalibPathFailCategory::XCrossPeak;
+				o.failStage = "cross peak";
+				o.peakAttempts = (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS;
+				o.commDetail = "peak not found after retries";
+			}
+			PushPathFailureOutcome(o);
+			pdFailRecorded = TRUE;
 		}
 
 		++globalProgress;

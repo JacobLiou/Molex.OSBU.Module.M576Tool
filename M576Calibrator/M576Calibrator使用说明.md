@@ -50,6 +50,15 @@
 
 ### 4.3 跑路径（RECAL）
 
+Run Path 正常结束（含 100% 成功、部分失败、用户 Stop）后，会弹出 **Run Path summary** 统计对话框：
+
+- **顶栏**：`PM/PD | success N | failed F | skipped S`；用户 Stop 时追加 `STOP requested`。
+- **成功步**：仅计数（与 **Export calib stats** 同源），弹窗不逐条列出。
+- **失败/跳过**：按类别汇总，并在列表中展示明细（光路、阶段、寻峰原因、重试、base/offset、PM 功率区间、备注等）；双击行可看完整详情。
+- **Export failures CSV**：仅导出失败/跳过行（UTF-8 BOM），字段与列表对齐。
+
+预载 CSV 失败仍走原有专用错误框，不显示本统计弹窗。
+
 ### 4.4 生成 BIN（写 BIN）
 
 ### 4.5 烧录

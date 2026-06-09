@@ -18,6 +18,8 @@
 #include "McsFwTransport.h"
 #include "TransLutRoute.h"
 #include "CalibWriteMeta.h"
+#include "CalibPathOutcome.h"
+#include "M576RunPathSummaryDlg.h"
 #include "DiagnosisSession.h"
 #include "DiagnosisCsv.h"
 #include "CalibWavelengthPolicy.h"
@@ -146,6 +148,13 @@ private:
 	void ClearCalibStats();
 	void PushCalibStatRow(const SCalibrationStatRow& r);
 	void SyncExportStatsButton();
+
+	/// Run Path failure/skip outcomes (success count from m_statsRows only).
+	std::vector<SCalibPathStepOutcome> m_pathFailureOutcomes;
+	std::mutex m_pathOutcomesMutex;
+	void ClearPathOutcomes();
+	void PushPathFailureOutcome(const SCalibPathStepOutcome& o);
+	void ShowRunPathSummaryDialog(BOOL userStopped);
 
 	// --- 日志与 UI 安全调用（可跨线程）---
 	void AppendLog(LPCTSTR sz);

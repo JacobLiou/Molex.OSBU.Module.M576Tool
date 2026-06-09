@@ -19,16 +19,16 @@ alwaysApply: false
 
 - ASCII??`CRecalSession`??App??
 - ?????`M576Peak1DConstants.h`
-- 策略辅助：`Peak1DSweepRecenter.cpp` 中 `IsFlatSweepFailure`, `IsMonotoneSweepFailure`, `SuggestFlatRetryDacRange`, `PlanRecalYCrossResweep`, `IsRetryablePeakFailure`, `SuggestSweepRecenterNewBase`
+- 策略辅助：`Peak1DSweepRecenter.cpp` 中 `PlanNextRecal1DSweepAttempt`, `PlanFineRefineAfterCoarseSuccess`, `IsFlatSweepFailure`, `IsMonotoneSweepFailure`, `SuggestJumpMaxDacRange`, `IsCoarsePeakHint`, `PlanRecalYCrossResweep`, `IsRetryablePeakFailure`, `SuggestSweepRecenterNewBase`
 - PM ??????`PmRangeValidation.cpp` ?? `ValidatePeakPowerInPmRange`???? RECAL 3??
 
 ## ?????????????
 
 | ??? | ???? | INV |
 |------|------|-----|
-| `Flat` + `ParabolaNotDownward` | **仅 expand offset ×2**（至 `M576_MAX_DAC_RANGE`），base 不变 | INV-10 |
-| `StrictInc` / `StrictDec` + `ParabolaNotDownward` | **先 mono expand offset ×1**（`IsMonotoneSweepFailure`），再 base 平移 | INV-11 |
-| `ParabolaNotDownward` + 贴边 NonMono | **先 mono expand offset ×1**，再 base 平移 | INV-11 |
+| `Flat` + `ParabolaNotDownward` | **jump-max** 至 200（`JumpFlatMax`）；@200 仍失败 → **FlatAtMaxShift**；粗扫 OK → **FineRefine** 回 UI range | INV-10 |
+| `StrictInc` / `StrictDec` + `ParabolaNotDownward` | **MonoCoarseShift**：offset=200 **且** base 平移同一步；后续 **ShiftOnly**@200；粗扫 OK/hint → **FineRefine** | INV-11 |
+| `ParabolaNotDownward` + 贴边 NonMono | 同 mono：**MonoCoarseShift** → **ShiftOnly** → **FineRefine** | INV-11 |
 | `VertexOutOfRange` / `EdgeNotAllowed` | 启发式 + t* 混合（非 fixedRange） | INV-11 |
 | ?????? -999999 / -999900 | ??? | INV-14 |
 | `newBase` | int16 ???????????? | INV-13 |
@@ -38,7 +38,7 @@ alwaysApply: false
 | Y pre OK, cross Y fail | re-sweep mode 0 Y (`PlanRecalYCrossResweep`) | INV-19 |
 
 - Flat **????** mono `IsRetryablePeakFailure`???? range ???????????? recenter??**INV-10/11/12**????
-- ??? attempt??`M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS`????? 10????
+- 最大 attempt：`M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS`（当前 12）；日志标签：`flat jump:` / `mono coarse:` / `flat shift:` / `fine refine:` / `peak retry:`
 - peak??DAC ???? **??????? offset**???? range ???????? UI `m_dacRange`????
 - ????????????????????????????? `no line` ??????????????? recenter??
 - ???? base ???? `M576_RECAL_FW_READ_BASE_DAC` (9999)??mode0 ?? X??mode1 ?? Y@peak??INV-18????

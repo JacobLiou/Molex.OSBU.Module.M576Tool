@@ -11,6 +11,7 @@
 #define IDD_M576CALIBRATOR_DIALOG       102
 #define IDD_M576_BURN_SELECT            110
 #define IDD_M576_RECOVER_SELECT         111
+#define IDD_M576_RUN_PATH_SUMMARY       112
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -124,6 +125,10 @@
 #define IDC_BTN_RUN_DIAG               1061
 #define IDC_BTN_STOP_DIAG              1062
 #define IDC_STATIC_DIAG_HINT           1063
+#define IDC_RUNPATH_SUMMARY_HDR        2180
+#define IDC_RUNPATH_CATEGORY_TEXT      2181
+#define IDC_RUNPATH_FAILURE_LIST       2182
+#define IDC_RUNPATH_BTN_EXPORT         2183
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -629,9 +634,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        112
+#define _APS_NEXT_RESOURCE_VALUE        113
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2180
+#define _APS_NEXT_CONTROL_VALUE         2184
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

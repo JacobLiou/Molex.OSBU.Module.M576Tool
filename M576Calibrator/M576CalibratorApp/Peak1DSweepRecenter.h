@@ -14,6 +14,16 @@ namespace M576
 		NonMono
 	};
 
+	enum class SweepRetryAction
+	{
+		GiveUp,
+		JumpFlatMax,
+		MonoCoarseShift,
+		FlatAtMaxShift,
+		ShiftOnly,
+		FineRefine,
+	};
+
 	struct SweepProfile
 	{
 		SweepTrend trend = SweepTrend::Unknown;
@@ -33,7 +43,31 @@ namespace M576
 		bool hasPrevAttempt = false;
 	};
 
+	struct SweepRecenterSessionState
+	{
+		int uiFineRange = 64;
+		int movingBase = 0;
+		int attemptRange = 64;
+		bool flatJumpedToMax = false;
+		bool inCoarsePhase = false;
+		bool fineConsumed = false;
+		int prevArgmax = -1;
+	};
+
+	struct SweepRetryPlan
+	{
+		SweepRetryAction action = SweepRetryAction::GiveUp;
+		int nextRange = 0;
+		int nextBase = 0;
+	};
+
 	const char* SweepTrendName(SweepTrend t);
+	const char* SweepRetryActionLogTag(SweepRetryAction action);
+
+	void InitSweepRecenterSessionState(
+		SweepRecenterSessionState& state,
+		int uiFineRange,
+		int movingBase);
 
 	SweepProfile AnalyzeRecal1DSweepProfile(const std::vector<double>& powY);
 
@@ -44,6 +78,47 @@ namespace M576
 
 	/// Double current offset up to maxRange; returns 0 if no expansion possible.
 	int SuggestFlatRetryDacRange(int currentRange, int maxRange);
+
+	/// Flat retry: jump directly to maxRange (not ×2 steps).
+	int SuggestJumpMaxDacRange(int currentRange, int maxRange);
+
+	bool IsCoarsePeakHint(
+		Peak1DValidateCode code,
+		const SweepProfile& profile,
+		int sampleCount,
+		const SweepRecenterFailureInfo* failure);
+
+	bool NeedsFineRefineAfterSuccess(int attemptRange, int uiFineRange);
+
+	/// Moving-axis DAC at coarse peak index: col0 + t* * gridStep.
+	int PeakBaseFromCoarseHint(
+		double sweepCol0,
+		double tPeak,
+		bool hasTPeak,
+		int argmaxIndex,
+		int sampleCount,
+		int halfRange);
+
+	SweepProfile AdjustProfileForFlatAtMaxShift(const SweepProfile& profile, int sampleCount);
+
+	SweepRetryPlan PlanNextRecal1DSweepAttempt(
+		const SweepRecenterSessionState& state,
+		Peak1DValidateCode code,
+		const SweepProfile& profile,
+		const std::vector<double>& powSamples,
+		double sweepCenterDac,
+		int attemptIndex,
+		bool lastAttempt,
+		const SweepRecenterFailureInfo& failure);
+
+	SweepRetryPlan PlanFineRefineAfterCoarseSuccess(
+		const SweepRecenterSessionState& state,
+		double sweepCol0,
+		double tPeak,
+		int sampleCount,
+		int coarseRange);
+
+	void ApplySweepRetryPlan(SweepRecenterSessionState& state, const SweepRetryPlan& plan);
 
 	/// After Y cross fit fails, plan next RECAL 3/5 mode-0 re-sweep (expand offset and/or shift baseY).
 	bool PlanRecalYCrossResweep(

@@ -11,6 +11,7 @@
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
 #include "PmRangeValidation.h"
+#include "CalibPathOutcome.h"
 #include "M576Peak1DConstants.h"
 #include <windows.h>
 #include <cstdio>
@@ -30,11 +31,21 @@ using M576::IsRetryablePeakFailure;
 using M576::IsFlatSweepFailure;
 using M576::IsMonotoneSweepFailure;
 using M576::SuggestFlatRetryDacRange;
+using M576::SuggestJumpMaxDacRange;
 using M576::PlanRecalYCrossResweep;
 using M576::AdjustProfileForMonoRecenter;
 using M576::SuggestSweepRecenterDeltaDac;
 using M576::SweepRecenterFailureInfo;
 using M576::SweepTrendName;
+using M576::SweepRecenterSessionState;
+using M576::SweepRetryAction;
+using M576::SweepRetryPlan;
+using M576::InitSweepRecenterSessionState;
+using M576::IsCoarsePeakHint;
+using M576::NeedsFineRefineAfterSuccess;
+using M576::PlanNextRecal1DSweepAttempt;
+using M576::PlanFineRefineAfterCoarseSuccess;
+using M576::ApplySweepRetryPlan;
 
 static bool ParseNumberLine(const std::string& line, std::vector<double>& out);
 
@@ -1055,9 +1066,123 @@ static int RunPmRangeSelfTests()
 	return fail;
 }
 
-static int RunSweepRecenterSelfTests()
+static int RunSweepRetryPlannerSelfTests()
 {
 	int fail = 0;
+	const int uiFine = 64;
+	const int n = 33;
+
+	if (SuggestJumpMaxDacRange(64, 200) != 200 || SuggestJumpMaxDacRange(150, 200) != 200
+		|| SuggestJumpMaxDacRange(200, 200) != 0)
+	{
+		std::fprintf(stderr, "self-test: SuggestJumpMaxDacRange 64/150->200 cap\n");
+		++fail;
+	}
+	if (!NeedsFineRefineAfterSuccess(200, 64) || NeedsFineRefineAfterSuccess(64, 64))
+	{
+		std::fprintf(stderr, "self-test: NeedsFineRefineAfterSuccess coarse vs fine\n");
+		++fail;
+	}
+
+	{
+		std::vector<double> strictDec((size_t)n);
+		for (int i = 0; i < n; ++i)
+			strictDec[(size_t)i] = -130000.0 - i * 3000.0;
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(strictDec);
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, 9999);
+		SweepRecenterFailureInfo fi = {};
+		fi.code = Peak1DValidateCode::ParabolaNotDownward;
+		const double center = -100.0 + 64.0;
+		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+			st, Peak1DValidateCode::ParabolaNotDownward, p, strictDec, center, 0, false, fi);
+		if (plan.action != SweepRetryAction::MonoCoarseShift || plan.nextRange != 200
+			|| plan.nextBase == 9999)
+		{
+			std::fprintf(stderr, "self-test: StrictDec planner must MonoCoarseShift @200 (action=%d range=%d base=%d)\n",
+				(int)plan.action, plan.nextRange, plan.nextBase);
+			++fail;
+		}
+	}
+
+	{
+		const double commFlat[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(commFlat, commFlat + n);
+		const SweepProfile pFlat = AnalyzeRecal1DSweepProfile(flat);
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, 9999);
+		SweepRecenterFailureInfo fi = {};
+		fi.code = Peak1DValidateCode::ParabolaNotDownward;
+		const SweepRetryPlan jump = PlanNextRecal1DSweepAttempt(
+			st, Peak1DValidateCode::ParabolaNotDownward, pFlat, flat, -31.0 + 64.0, 0, false, fi);
+		if (jump.action != SweepRetryAction::JumpFlatMax || jump.nextRange != 200 || jump.nextBase != 9999)
+		{
+			std::fprintf(stderr, "self-test: Flat planner must JumpFlatMax to 200\n");
+			++fail;
+		}
+		SweepRecenterSessionState stMax = st;
+		stMax.flatJumpedToMax = true;
+		stMax.attemptRange = 200;
+		const SweepRetryPlan shift = PlanNextRecal1DSweepAttempt(
+			stMax, Peak1DValidateCode::ParabolaNotDownward, pFlat, flat, -31.0 + 200.0, 1, false, fi);
+		if (shift.action != SweepRetryAction::FlatAtMaxShift || shift.nextRange != 200)
+		{
+			std::fprintf(stderr, "self-test: Flat@200 planner must FlatAtMaxShift (got action=%d)\n",
+				(int)shift.action);
+			++fail;
+		}
+	}
+
+	{
+		std::vector<double> midPeak((size_t)n, -130000.0);
+		midPeak[(size_t)(n / 2)] = -120000.0;
+		const SweepProfile pMid = AnalyzeRecal1DSweepProfile(midPeak);
+		SweepRecenterFailureInfo fi = {};
+		fi.code = Peak1DValidateCode::ParabolaNotDownward;
+		fi.tPeak = (double)(n / 2);
+		fi.hasTPeak = true;
+		if (!IsCoarsePeakHint(Peak1DValidateCode::ParabolaNotDownward, pMid, n, &fi))
+		{
+			std::fprintf(stderr, "self-test: interior NonMono must be IsCoarsePeakHint\n");
+			++fail;
+		}
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, 9999);
+		st.attemptRange = 200;
+		st.inCoarsePhase = true;
+		const SweepRetryPlan fine = PlanNextRecal1DSweepAttempt(
+			st, Peak1DValidateCode::ParabolaNotDownward, pMid, midPeak, 0.0 + 200.0, 2, false, fi);
+		if (fine.action != SweepRetryAction::FineRefine || fine.nextRange != uiFine)
+		{
+			std::fprintf(stderr, "self-test: coarse hint must FineRefine to uiFine (action=%d range=%d)\n",
+				(int)fine.action, fine.nextRange);
+			++fail;
+		}
+	}
+
+	{
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, 9999);
+		const SweepRetryPlan fineOk = PlanFineRefineAfterCoarseSuccess(
+			st, -100.0, 16.0, n, 200);
+		if (fineOk.action != SweepRetryAction::FineRefine || fineOk.nextRange != uiFine)
+		{
+			std::fprintf(stderr, "self-test: PlanFineRefineAfterCoarseSuccess\n");
+			++fail;
+		}
+	}
+
+	return fail;
+}
+
+static int RunSweepRecenterSelfTests()
+{
+	int fail = RunSweepRetryPlannerSelfTests();
 	const int dacRange = 64;
 	const int n = 33;
 
@@ -1094,9 +1219,9 @@ static int RunSweepRecenterSelfTests()
 			std::fprintf(stderr, "self-test: StrictDec must be IsMonotoneSweepFailure\n");
 			++fail;
 		}
-		if (SuggestFlatRetryDacRange(dacRange, 200) != 128)
+		if (SuggestJumpMaxDacRange(dacRange, 200) != 200)
 		{
-			std::fprintf(stderr, "self-test: StrictDec @64 should expand to 128 before recenter\n");
+			std::fprintf(stderr, "self-test: StrictDec path uses jump-max coarse range 200\n");
 			++fail;
 		}
 	}
@@ -1180,10 +1305,10 @@ static int RunSweepRecenterSelfTests()
 				false,
 				usedExpandMono,
 				monoExpandedCross)
-			|| !usedExpandMono || offsetMono != 128 || baseYMono != -127 || !monoExpandedCross)
+			|| !usedExpandMono || offsetMono != 200 || !monoExpandedCross)
 		{
 			std::fprintf(stderr,
-				"self-test: PlanRecalYCrossResweep StrictDec should mono-expand (expand=%d offset=%d baseY=%d)\n",
+				"self-test: PlanRecalYCrossResweep StrictDec should mono-coarse @200 (expand=%d offset=%d baseY=%d)\n",
 				usedExpandMono ? 1 : 0, offsetMono, baseYMono);
 			++fail;
 		}
@@ -1250,10 +1375,10 @@ static int RunSweepRecenterSelfTests()
 				true,
 				usedExpand,
 				monoRangeExpanded)
-			|| !usedExpand || offset != 128 || baseY != -127)
+			|| !usedExpand || offset != 200)
 		{
 			std::fprintf(stderr,
-				"self-test: PlanRecalYCrossResweep cross-fail should expand offset (expand=%d offset=%d baseY=%d)\n",
+				"self-test: PlanRecalYCrossResweep shallow cross-fail should jump-max (expand=%d offset=%d baseY=%d)\n",
 				usedExpand ? 1 : 0, offset, baseY);
 			++fail;
 		}
@@ -1274,7 +1399,7 @@ static int RunSweepRecenterSelfTests()
 		};
 		const size_t nFlatCross = sizeof(kFlatCross) / sizeof(kFlatCross[0]);
 		std::vector<double> flatCross(kFlatCross, kFlatCross + nFlatCross);
-		if (PlanRecalYCrossResweep(
+		if (!PlanRecalYCrossResweep(
 				Peak1DValidateCode::ParabolaNotDownward,
 				flatCross,
 				-31.0 + 200.0,
@@ -1285,9 +1410,10 @@ static int RunSweepRecenterSelfTests()
 				0.0,
 				false,
 				usedExpandFlat,
-				monoRangeExpandedFlat))
+				monoRangeExpandedFlat)
+			|| offsetFlat != 200)
 		{
-			std::fprintf(stderr, "self-test: PlanRecalYCrossResweep flat at max offset should return false\n");
+			std::fprintf(stderr, "self-test: PlanRecalYCrossResweep flat@200 should FlatAtMaxShift\n");
 			++fail;
 		}
 	}
@@ -1343,9 +1469,9 @@ static int RunSweepRecenterSelfTests()
 			std::fprintf(stderr, "self-test: comm 2026-06-03 offset=64 must be Flat failure\n");
 			++fail;
 		}
-		if (SuggestFlatRetryDacRange(64, 200) != 128)
+		if (SuggestJumpMaxDacRange(64, 200) != 200)
 		{
-			std::fprintf(stderr, "self-test: flat64 should expand 64->128\n");
+			std::fprintf(stderr, "self-test: flat64 should jump-max 64->200\n");
 			++fail;
 		}
 
@@ -1689,6 +1815,54 @@ static int RunRecalCmdFormatSelfTests()
 	return fail;
 }
 
+static int RunPathSummarySelfTests()
+{
+	int fail = 0;
+	std::vector<SCalibPathStepOutcome> rows;
+	{
+		SCalibPathStepOutcome o = {};
+		o.result = CalibPathStepResult::Failed;
+		o.failCategory = CalibPathFailCategory::PmRangeMismatch;
+		o.peakDbm = -5.0;
+		o.loDbm = -10.0;
+		o.hiDbm = 0.0;
+		rows.push_back(o);
+	}
+	{
+		SCalibPathStepOutcome o = {};
+		o.result = CalibPathStepResult::Failed;
+		o.failCategory = CalibPathFailCategory::XCrossPeak;
+		rows.push_back(o);
+	}
+	{
+		SCalibPathStepOutcome o = {};
+		o.result = CalibPathStepResult::Skipped;
+		o.failCategory = CalibPathFailCategory::CsvValidation;
+		rows.push_back(o);
+	}
+	const SRunPathSummary s = BuildRunPathSummary(rows, 42, true, false);
+	if (s.successCount != 42 || s.failedCount != 2 || s.skippedCount != 1)
+	{
+		std::fprintf(stderr, "self-test: BuildRunPathSummary counts (ok=%d fail=%d skip=%d)\n",
+			s.successCount, s.failedCount, s.skippedCount);
+		++fail;
+	}
+	if (s.failByCategory.count(CalibPathFailCategory::PmRangeMismatch) != 1
+		|| s.failByCategory.count(CalibPathFailCategory::XCrossPeak) != 1
+		|| s.failByCategory.count(CalibPathFailCategory::CsvValidation) != 1)
+	{
+		std::fprintf(stderr, "self-test: BuildRunPathSummary category buckets\n");
+		++fail;
+	}
+	const std::string hdr = FormatRunPathSummaryHeaderText(s);
+	if (hdr.find("success 42") == std::string::npos || hdr.find("failed 2") == std::string::npos)
+	{
+		std::fprintf(stderr, "self-test: FormatRunPathSummaryHeaderText\n");
+		++fail;
+	}
+	return fail;
+}
+
 int main(int argc, char* argv[])
 {
 	if (argc >= 3 && std::strcmp(argv[1], "--export-peak-csv") == 0)
@@ -1708,6 +1882,8 @@ int main(int argc, char* argv[])
 		return 11;
 	if (RunSweepRecenterSelfTests() != 0)
 		return 10;
+	if (RunPathSummarySelfTests() != 0)
+		return 13;
 
 	SweepRow sweepY, sweepX;
 	double step = 1.0;

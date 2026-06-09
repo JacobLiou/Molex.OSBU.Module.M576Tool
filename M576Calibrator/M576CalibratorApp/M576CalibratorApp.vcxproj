@@ -136,6 +136,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="CalibWriteMeta.h" />
+    <ClInclude Include="CalibPathOutcome.h" />
+    <ClInclude Include="CalibPathOutcomeExport.h" />
+    <ClInclude Include="M576RunPathSummaryDlg.h" />
     <ClInclude Include="Board439fTransTunnel.h" />
     <ClInclude Include="CalibConstants.h" />
     <ClInclude Include="M576Peak1DConstants.h" />
@@ -167,6 +170,11 @@
   <ItemGroup>
     <ClCompile Include="Board439fTransTunnel.cpp" />
     <ClCompile Include="CalibWriteMeta.cpp" />
+    <ClCompile Include="CalibPathOutcome.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="CalibPathOutcomeExport.cpp" />
+    <ClCompile Include="M576RunPathSummaryDlg.cpp" />
     <ClCompile Include="CalibWavelengthPolicy.cpp" />
     <ClCompile Include="LutMerge1310.cpp" />
     <ClCompile Include="LutMerge1550.cpp" />

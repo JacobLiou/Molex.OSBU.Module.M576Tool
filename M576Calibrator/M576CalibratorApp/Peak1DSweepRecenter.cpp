@@ -399,6 +399,261 @@ namespace M576
 		return next;
 	}
 
+	int SuggestJumpMaxDacRange(int currentRange, int maxRange)
+	{
+		if (currentRange < 1 || maxRange < 1)
+			return 0;
+		if (currentRange >= maxRange)
+			return 0;
+		return maxRange;
+	}
+
+	const char* SweepRetryActionLogTag(SweepRetryAction action)
+	{
+		switch (action)
+		{
+		case SweepRetryAction::JumpFlatMax: return "flat jump:";
+		case SweepRetryAction::MonoCoarseShift: return "mono coarse:";
+		case SweepRetryAction::FlatAtMaxShift: return "flat shift:";
+		case SweepRetryAction::ShiftOnly: return "peak retry:";
+		case SweepRetryAction::FineRefine: return "fine refine:";
+		default: return "peak retry:";
+		}
+	}
+
+	void InitSweepRecenterSessionState(
+		SweepRecenterSessionState& state,
+		int uiFineRange,
+		int movingBase)
+	{
+		state.uiFineRange = (uiFineRange >= 1) ? uiFineRange : 1;
+		state.movingBase = movingBase;
+		state.attemptRange = state.uiFineRange;
+		state.flatJumpedToMax = false;
+		state.inCoarsePhase = false;
+		state.fineConsumed = false;
+		state.prevArgmax = -1;
+	}
+
+	bool IsCoarsePeakHint(
+		Peak1DValidateCode code,
+		const SweepProfile& profile,
+		int sampleCount,
+		const SweepRecenterFailureInfo* failure)
+	{
+		(void)code;
+		if (sampleCount <= 0)
+			return false;
+		if (profile.trend == SweepTrend::NonMono && sampleCount > 3)
+		{
+			if (profile.argmaxIndex > 1 && profile.argmaxIndex < (sampleCount - 2))
+				return true;
+		}
+		if (failure != nullptr && failure->hasTPeak && std::isfinite(failure->tPeak))
+		{
+			if (failure->tPeak > 0.5 && failure->tPeak < (double)(sampleCount - 1) - 0.5)
+				return true;
+		}
+		return false;
+	}
+
+	bool NeedsFineRefineAfterSuccess(int attemptRange, int uiFineRange)
+	{
+		return attemptRange > uiFineRange;
+	}
+
+	int PeakBaseFromCoarseHint(
+		double sweepCol0,
+		double tPeak,
+		bool hasTPeak,
+		int argmaxIndex,
+		int sampleCount,
+		int halfRange)
+	{
+		if (sampleCount <= 1 || halfRange < 1)
+			return (int)floor(sweepCol0 + 0.5);
+		const double tUse = (hasTPeak && std::isfinite(tPeak))
+			? tPeak
+			: (double)argmaxIndex;
+		const double step = (2.0 * (double)halfRange) / (double)(sampleCount - 1);
+		const double dac = sweepCol0 + tUse * step;
+		int iDac = (int)floor(dac + 0.5);
+		if (iDac < M576_RECAL_DAC_MIN)
+			iDac = M576_RECAL_DAC_MIN;
+		if (iDac > M576_RECAL_DAC_MAX)
+			iDac = M576_RECAL_DAC_MAX;
+		return iDac;
+	}
+
+	SweepProfile AdjustProfileForFlatAtMaxShift(const SweepProfile& profile, int sampleCount)
+	{
+		SweepProfile out = profile;
+		if (sampleCount <= 1)
+			return out;
+		if (profile.argmaxIndex <= sampleCount / 3)
+		{
+			out.trend = SweepTrend::StrictDec;
+			out.argmaxIndex = 0;
+		}
+		else if (profile.argmaxIndex >= (sampleCount * 2) / 3)
+		{
+			out.trend = SweepTrend::StrictInc;
+			out.argmaxIndex = sampleCount - 1;
+		}
+		else if (profile.slopePerIndex > 0.0)
+		{
+			out.trend = SweepTrend::StrictInc;
+			out.argmaxIndex = sampleCount - 1;
+		}
+		else
+		{
+			out.trend = SweepTrend::StrictDec;
+			out.argmaxIndex = 0;
+		}
+		return out;
+	}
+
+	static int CoarseDacRange()
+	{
+		return M576_PEAK1D_COARSE_DAC_RANGE;
+	}
+
+	static bool IsAtMaxDacRange(int range)
+	{
+		return range >= M576_MAX_DAC_RANGE;
+	}
+
+	SweepRetryPlan PlanFineRefineAfterCoarseSuccess(
+		const SweepRecenterSessionState& state,
+		double sweepCol0,
+		double tPeak,
+		int sampleCount,
+		int coarseRange)
+	{
+		SweepRetryPlan plan = {};
+		if (state.fineConsumed || !NeedsFineRefineAfterSuccess(coarseRange, state.uiFineRange))
+			return plan;
+		plan.action = SweepRetryAction::FineRefine;
+		plan.nextRange = state.uiFineRange;
+		plan.nextBase = PeakBaseFromCoarseHint(
+			sweepCol0, tPeak, true, 0, sampleCount, coarseRange);
+		return plan;
+	}
+
+	SweepRetryPlan PlanNextRecal1DSweepAttempt(
+		const SweepRecenterSessionState& state,
+		Peak1DValidateCode code,
+		const SweepProfile& profile,
+		const std::vector<double>& powSamples,
+		double sweepCenterDac,
+		int attemptIndex,
+		bool lastAttempt,
+		const SweepRecenterFailureInfo& failure)
+	{
+		SweepRetryPlan plan = {};
+		const int n = (int)powSamples.size();
+		if (n <= 0 || lastAttempt)
+			return plan;
+
+		const int coarseRange = CoarseDacRange();
+		const bool afterExpand = state.flatJumpedToMax || state.inCoarsePhase
+			|| state.attemptRange >= coarseRange;
+
+		if (IsFlatSweepFailure(code, profile) && !state.flatJumpedToMax)
+		{
+			const int next = SuggestJumpMaxDacRange(state.attemptRange, M576_MAX_DAC_RANGE);
+			if (next > state.attemptRange)
+			{
+				plan.action = SweepRetryAction::JumpFlatMax;
+				plan.nextRange = next;
+				plan.nextBase = state.movingBase;
+				return plan;
+			}
+		}
+
+		if (IsFlatSweepFailure(code, profile) && state.flatJumpedToMax && IsAtMaxDacRange(state.attemptRange))
+		{
+			const SweepProfile shiftProf = AdjustProfileForFlatAtMaxShift(profile, n);
+			plan.action = SweepRetryAction::FlatAtMaxShift;
+			plan.nextRange = state.attemptRange;
+			plan.nextBase = SuggestSweepRecenterNewBase(
+				sweepCenterDac, shiftProf, n, state.attemptRange, attemptIndex, failure);
+			return plan;
+		}
+
+		if (IsMonotoneSweepFailure(code, profile, n) && !state.inCoarsePhase)
+		{
+			const SweepProfile recenterProfile = AdjustProfileForMonoRecenter(
+				profile, powSamples, true, &failure);
+			plan.action = SweepRetryAction::MonoCoarseShift;
+			plan.nextRange = coarseRange;
+			plan.nextBase = SuggestSweepRecenterNewBase(
+				sweepCenterDac, recenterProfile, n, coarseRange, attemptIndex, failure);
+			return plan;
+		}
+
+		if (IsCoarsePeakHint(code, profile, n, &failure) && !state.fineConsumed)
+		{
+			const double sweepCol0 = sweepCenterDac - (double)state.attemptRange;
+			plan.action = SweepRetryAction::FineRefine;
+			plan.nextRange = state.uiFineRange;
+			plan.nextBase = PeakBaseFromCoarseHint(
+				sweepCol0,
+				failure.tPeak,
+				failure.hasTPeak,
+				profile.argmaxIndex,
+				n,
+				state.attemptRange);
+			return plan;
+		}
+
+		if (IsRetryablePeakFailure(code, profile, n, afterExpand, &powSamples, &failure))
+		{
+			const int shiftRange = state.inCoarsePhase || IsAtMaxDacRange(state.attemptRange)
+				? coarseRange
+				: state.attemptRange;
+			const SweepProfile recenterProfile = AdjustProfileForMonoRecenter(
+				profile, powSamples, afterExpand, &failure);
+			plan.action = SweepRetryAction::ShiftOnly;
+			plan.nextRange = shiftRange;
+			plan.nextBase = SuggestSweepRecenterNewBase(
+				sweepCenterDac, recenterProfile, n, shiftRange, attemptIndex, failure);
+			return plan;
+		}
+
+		return plan;
+	}
+
+	void ApplySweepRetryPlan(SweepRecenterSessionState& state, const SweepRetryPlan& plan)
+	{
+		if (plan.action == SweepRetryAction::GiveUp)
+			return;
+		state.attemptRange = plan.nextRange;
+		state.movingBase = plan.nextBase;
+		switch (plan.action)
+		{
+		case SweepRetryAction::JumpFlatMax:
+			state.flatJumpedToMax = true;
+			break;
+		case SweepRetryAction::MonoCoarseShift:
+			state.inCoarsePhase = true;
+			state.flatJumpedToMax = true;
+			break;
+		case SweepRetryAction::FlatAtMaxShift:
+			break;
+		case SweepRetryAction::FineRefine:
+			state.fineConsumed = true;
+			state.inCoarsePhase = false;
+			break;
+		case SweepRetryAction::ShiftOnly:
+			if (plan.nextRange >= CoarseDacRange())
+				state.inCoarsePhase = true;
+			break;
+		default:
+			break;
+		}
+	}
+
 	bool PlanRecalYCrossResweep(
 		Peak1DValidateCode crossCode,
 		const std::vector<double>& powY,
@@ -419,70 +674,37 @@ namespace M576
 		if (n <= 0 || ioDacRange < 1)
 			return false;
 
+		SweepRecenterSessionState session = {};
+		InitSweepRecenterSessionState(session, ioDacRange, ioMovingBase);
+		session.attemptRange = ioDacRange;
+		session.flatJumpedToMax = ioMonoRangeExpanded || (ioDacRange >= M576_MAX_DAC_RANGE);
+		session.inCoarsePhase = ioMonoRangeExpanded;
+		session.prevArgmax = ioPrevArgmax;
+
 		const SweepProfile profile = AnalyzeRecal1DSweepProfile(powY);
+		SweepRecenterFailureInfo failInfo = {};
+		failInfo.code = crossCode;
+		failInfo.tPeak = crossTPeak;
+		failInfo.hasTPeak = hasCrossTPeak;
+		failInfo.prevArgmaxIndex = ioPrevArgmax;
+		failInfo.hasPrevAttempt = (roundIndex > 0);
 
-		if (IsFlatSweepFailure(crossCode, profile))
-		{
-			const int next = SuggestFlatRetryDacRange(ioDacRange, M576_MAX_DAC_RANGE);
-			if (next > ioDacRange)
-			{
-				ioDacRange = next;
-				outUsedExpandRange = true;
-				return true;
-			}
+		const bool lastRound = (roundIndex >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
+		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+			session, crossCode, profile, powY, sweepCenterDac, roundIndex, lastRound, failInfo);
+		if (plan.action == SweepRetryAction::GiveUp)
 			return false;
-		}
 
-		if (IsMonotoneSweepFailure(crossCode, profile, n) && !ioMonoRangeExpanded)
-		{
-			const int next = SuggestFlatRetryDacRange(ioDacRange, M576_MAX_DAC_RANGE);
-			if (next > ioDacRange)
-			{
-				ioDacRange = next;
-				ioMonoRangeExpanded = true;
-				outUsedExpandRange = true;
-				return true;
-			}
-		}
-
-		if (IsRetryablePeakFailure(crossCode, profile, n))
-		{
-			M576::SweepRecenterFailureInfo failInfo = {};
-			failInfo.code = crossCode;
-			failInfo.tPeak = crossTPeak;
-			failInfo.hasTPeak = hasCrossTPeak;
-			failInfo.prevArgmaxIndex = ioPrevArgmax;
-			failInfo.hasPrevAttempt = (roundIndex > 0);
-			ioMovingBase = SuggestSweepRecenterNewBase(
-				sweepCenterDac, profile, n, ioDacRange, roundIndex, failInfo);
-			ioPrevArgmax = profile.argmaxIndex;
-			return true;
-		}
-
-		// Pre passed but cross rejected (shallow / weak peak): expand offset first, else nudge base.
-		{
-			const int next = SuggestFlatRetryDacRange(ioDacRange, M576_MAX_DAC_RANGE);
-			if (next > ioDacRange)
-			{
-				ioDacRange = next;
-				outUsedExpandRange = true;
-				return true;
-			}
-		}
-		if (profile.trend != SweepTrend::Flat)
-		{
-			M576::SweepRecenterFailureInfo failInfo = {};
-			failInfo.code = crossCode;
-			failInfo.tPeak = crossTPeak;
-			failInfo.hasTPeak = hasCrossTPeak;
-			failInfo.prevArgmaxIndex = ioPrevArgmax;
-			failInfo.hasPrevAttempt = (roundIndex > 0);
-			ioMovingBase = SuggestSweepRecenterNewBase(
-				sweepCenterDac, profile, n, ioDacRange, roundIndex, failInfo);
-			ioPrevArgmax = profile.argmaxIndex;
-			return true;
-		}
-		return false;
+		const int prevRange = ioDacRange;
+		ApplySweepRetryPlan(session, plan);
+		ioMovingBase = session.movingBase;
+		ioDacRange = session.attemptRange;
+		ioPrevArgmax = profile.argmaxIndex;
+		ioMonoRangeExpanded = session.inCoarsePhase || session.flatJumpedToMax;
+		outUsedExpandRange = (plan.action == SweepRetryAction::JumpFlatMax
+			|| plan.action == SweepRetryAction::MonoCoarseShift
+			|| (session.attemptRange > prevRange && plan.action != SweepRetryAction::FineRefine));
+		return true;
 	}
 
 	bool IsRetryablePeakFailure(
