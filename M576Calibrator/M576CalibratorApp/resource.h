@@ -62,6 +62,7 @@
 #define IDC_BTN_READ_FLASH_BACKUP       1022
 #define IDC_BTN_EXPORT_CALIB_STATS      1040
 #define IDC_BTN_TEST_CONNECTION         1041
+#define IDC_BTN_BURN_BOARD              2184
 #define IDC_RADIO_CAL_PM                1023
 #define IDC_RADIO_CAL_PD                1024
 #define IDC_EDIT_RECAL_DELAY            1025
@@ -636,7 +637,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        113
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2184
+#define _APS_NEXT_CONTROL_VALUE         2185
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

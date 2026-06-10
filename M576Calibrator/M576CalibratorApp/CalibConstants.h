@@ -276,6 +276,10 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 #ifndef M576_1X64_FWDL_PRE_MS
 #define M576_1X64_FWDL_PRE_MS 5000u
 #endif
+/// After `fwdl\\r` on 439F main board (direct, no trans) before first XMODEM block.
+#ifndef M576_BOARD_FWDL_PRE_MS
+#define M576_BOARD_FWDL_PRE_MS 5000u
+#endif
 
 #if defined(__cplusplus)
 #include <cstddef>
