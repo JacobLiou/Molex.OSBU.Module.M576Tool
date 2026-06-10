@@ -1962,9 +1962,23 @@ void CM576CalibratorDlg::BurnBoardWorkerEntry(CString absBinPath)
 		else
 		{
 			m_burnBoardLastOk = TRUE;
-			m_burnBoardLastMsg.Format(
-				_T("Burn Board completed: %s"),
-				absBinPath.GetString());
+			if (M576Board439fLastBurnDeviceRebooting())
+			{
+				m_burnBoardLastMsg.Format(
+					_T("Main board firmware upgrade succeeded.\n\n")
+					_T("File: %s\n\n")
+					_T("The 439F board reported UpgradeOK and is rebooting.\n")
+					_T("Wait for it to come back, then use Test connection to verify."),
+					absBinPath.GetString());
+			}
+			else
+			{
+				m_burnBoardLastMsg.Format(
+					_T("Main board firmware upgrade succeeded.\n\n")
+					_T("File: %s\n\n")
+					_T("Use Test connection to verify the board is online."),
+					absBinPath.GetString());
+			}
 			SafeSetProgressPos(100);
 			SafeAppendLog(m_burnBoardLastMsg);
 		}
