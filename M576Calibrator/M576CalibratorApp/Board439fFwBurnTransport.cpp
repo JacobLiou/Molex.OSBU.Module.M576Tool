@@ -12,6 +12,9 @@ static char THIS_FILE[] = __FILE__;
 
 namespace {
 // 439F main board direct XMODEM (standalone; does not call Switch1x64FwTransport).
+
+static BOOL g_board439fEotUpgradeOk = FALSE;
+
 enum {
 	XMODEM_SOH = 0x01,
 	XMODEM_STX = 0x02,
@@ -126,14 +129,19 @@ static BOOL Board439fFwdlBannerIsDeviceError(const BYTE* banner, DWORD bn)
 	return FALSE;
 }
 
-/// 439F main board EOT: legacy Z4671 uses ACK at byte[0] then "Successful" text (not last-byte ACK like 1x64).
+/// 439F EOT: firmware may reply UpgradeOK (reboot in progress) or legacy Successful.
+static BOOL Board439fEotResponseIsUpgradeOk(const char* buf, DWORD len)
+{
+	if (!buf || len < 9)
+		return FALSE;
+	return strstr(buf, "UpgradeOK") != nullptr;
+}
+
 static BOOL Board439fEotResponseHasSuccessfulBanner(const char* buf, DWORD len)
 {
 	if (!buf || len < 2)
 		return FALSE;
-	if (strstr(buf, "Successful") != nullptr)
-		return TRUE;
-	return FALSE;
+	return strstr(buf, "Successful") != nullptr;
 }
 
 static int Board439fXmodemSendOneBlock(
@@ -283,8 +291,19 @@ static int Board439fXmodemSendOneBlock(
 				{
 					if (dwr < sizeof(byTempBuf) - 1)
 						byTempBuf[dwr] = 0;
+					// UpgradeOK may follow NAK+ACK prefix while the board is already rebooting.
+					if (Board439fEotResponseIsUpgradeOk(byTempBuf, dwr))
+					{
+						g_board439fEotUpgradeOk = TRUE;
+						cmd.TraceInfo(
+							kFwBoardTag,
+							_T("XMODEM EOT complete at pass %d/40: UpgradeOK (device rebooting, skip RSET): %s"),
+							eotPass + 1,
+							Board439fBytesToPrintable((const BYTE*)byTempBuf, dwr, 64).GetString());
+						return XMODEM_DOWNLOAD_SUCCESS;
+					}
 					const BYTE firstB = (BYTE)byTempBuf[0];
-					// 439F board: ACK at [0] + "Successful" banner (legacy Z4671 / HyperTerminal 1K Xmodem).
+					// Legacy Z4671: ACK at [0] + "Successful" banner.
 					if (firstB == XMODEM_ACK)
 					{
 						const bool gotBanner = Board439fEotResponseHasSuccessfulBanner(byTempBuf, dwr);
@@ -362,6 +381,11 @@ static int Board439fXmodemSendOneBlock(
 
 } // namespace
 
+BOOL M576Board439fLastBurnDeviceRebooting(void)
+{
+	return g_board439fEotUpgradeOk;
+}
+
 int M576Board439fXmodemChunkCountForFileSize(DWORD fileBytes)
 {
 	DWORD left = fileBytes;
@@ -385,6 +409,7 @@ BOOL M576BurnBoard439fFirmware(
 	Z4671Command& cmd, LPCTSTR szBinPath, CString& err, McsFwProgressCb cb, void* user)
 {
 	err.Empty();
+	g_board439fEotUpgradeOk = FALSE;
 
 	HANDLE hPort = cmd.GetPortHandle();
 	if (!hPort || hPort == INVALID_HANDLE_VALUE)
@@ -585,7 +610,15 @@ BOOL M576BurnBoard439fFirmware(
 		iCount,
 		totalBlocks);
 
-	// Stage 4: RSET.
+	// Stage 4: RSET (skip when UpgradeOK — firmware already rebooting).
+	if (g_board439fEotUpgradeOk)
+	{
+		cmd.TraceInfo(
+			kFwBoardTag,
+			_T("XMODEM stage 4/4 (RSET): skipped (UpgradeOK; board rebooting): %s"),
+			szBinPath);
+		return TRUE;
+	}
 	cmd.TraceInfo(kFwBoardTag, _T("XMODEM stage 4/4 (RSET): sleep 4 s then send RSET\\r."));
 	Sleep(4000);
 	{

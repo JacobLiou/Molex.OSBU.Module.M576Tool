@@ -12,3 +12,6 @@ BOOL M576BurnBoard439fFirmware(
 	void* user);
 
 int M576Board439fXmodemChunkCountForFileSize(DWORD fileBytes);
+
+/// After successful `M576BurnBoard439fFirmware`: TRUE when EOT banner contained UpgradeOK (device already rebooting; RSET skipped).
+BOOL M576Board439fLastBurnDeviceRebooting(void);
