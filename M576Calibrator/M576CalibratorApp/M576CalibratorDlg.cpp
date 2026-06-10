@@ -364,6 +364,7 @@ constexpr UINT WM_M576_READ_BACKUP_FINISHED = WM_APP + 104;
 constexpr UINT WM_M576_READ_SN_FINISHED = WM_APP + 105;
 constexpr UINT WM_M576_BURN_FLASH_FINISHED = WM_APP + 106;
 constexpr UINT WM_M576_DIAG_FINISHED = WM_APP + 107;
+constexpr UINT WM_M576_BURN_BOARD_FINISHED = WM_APP + 108;
 
 /// RECAL 3/5 一行：`[轴上 DAC 或首列][P1..Pn]`。沿动轴在 [-range,+range] 上含端点步进时，功率点数
 /// N = floor((2*range)/step)+1 = (2*range)/step+1（整型除法），与固件一致（例 range=64 step=4 -> N=33；step=5 -> N=26；整行 1+N 个数）。旧式 ceil(2*range/step) 在 2*range 整除 step 时会少 1 点。
@@ -1136,6 +1137,7 @@ void CM576CalibratorDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
 	ON_BN_CLICKED(IDC_BTN_TEST_CONNECTION, &CM576CalibratorDlg::OnBnClickedTestConnection)
+	ON_BN_CLICKED(IDC_BTN_BURN_BOARD, &CM576CalibratorDlg::OnBnClickedBurnBoard)
 	ON_BN_CLICKED(IDC_BTN_CLOSE_PORT, &CM576CalibratorDlg::OnBnClickedClosePort)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
@@ -1162,6 +1164,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_MESSAGE(WM_M576_READ_BACKUP_FINISHED, &CM576CalibratorDlg::OnReadBackupFinished)
 	ON_MESSAGE(WM_M576_READ_SN_FINISHED, &CM576CalibratorDlg::OnReadAllSnFinished)
 	ON_MESSAGE(WM_M576_BURN_FLASH_FINISHED, &CM576CalibratorDlg::OnBurnFlashFinished)
+	ON_MESSAGE(WM_M576_BURN_BOARD_FINISHED, &CM576CalibratorDlg::OnBurnBoardFinished)
 	ON_MESSAGE(WM_M576_DIAG_FINISHED, &CM576CalibratorDlg::OnDiagFinished)
 END_MESSAGE_MAP()
 
@@ -1470,7 +1473,8 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 	if (!m_hWnd || !::IsWindow(m_hWnd))
 		return;
 	const BOOL open = IsSerialPortOpen();
-	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load() || m_diagRunning.load();
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load() || m_diagRunning.load();
 	if (CWnd* p = GetDlgItem(IDC_BTN_OPEN_PORTS))
 		p->EnableWindow(!open && !busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_CLOSE_PORT))
@@ -1478,6 +1482,8 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 	if (CWnd* p = GetDlgItem(IDC_COMBO_COM))
 		p->EnableWindow(!open);
 	if (CWnd* p = GetDlgItem(IDC_BTN_TEST_CONNECTION))
+		p->EnableWindow(!busy);
+	if (CWnd* p = GetDlgItem(IDC_BTN_BURN_BOARD))
 		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
 		p->EnableWindow(!busy);
@@ -1676,6 +1682,29 @@ LRESULT CM576CalibratorDlg::OnBurnFlashFinished(WPARAM, LPARAM)
 		box.Format(
 			m_burnFlashLastRecover ? _T("Recover Flash failed:\n\n%s") : _T("Burn Flash failed:\n\n%s"),
 			m_burnFlashLastMsg.GetString());
+		MessageBoxM576(box, MB_OK | MB_ICONERROR);
+	}
+	return 0;
+}
+
+LRESULT CM576CalibratorDlg::OnBurnBoardFinished(WPARAM, LPARAM)
+{
+	if (m_burnBoardThread.joinable())
+		m_burnBoardThread.join();
+	m_burnBoardRunning = false;
+	SetPathActionButtonsEnabled(TRUE);
+	if (m_burnBoardLastOk)
+	{
+		AppendLog(m_burnBoardLastMsg);
+		MessageBoxM576(m_burnBoardLastMsg, MB_OK | MB_ICONINFORMATION);
+	}
+	else
+	{
+		CString oneLine;
+		oneLine.Format(_T("Burn Board failed: %s"), m_burnBoardLastMsg.GetString());
+		AppendLog(oneLine);
+		CString box;
+		box.Format(_T("Burn Board failed:\n\n%s"), m_burnBoardLastMsg.GetString());
 		MessageBoxM576(box, MB_OK | MB_ICONERROR);
 	}
 	return 0;
@@ -1892,6 +1921,74 @@ void CM576CalibratorDlg::RecoverFlashWorkerEntry(
 		::PostMessage(m_hWnd, WM_M576_BURN_FLASH_FINISHED, 0, 0);
 }
 
+void CM576CalibratorDlg::BurnBoardProgressThunk(int cur, int total, void* user)
+{
+	CM576CalibratorDlg* p = (CM576CalibratorDlg*)user;
+	if (!p || !::IsWindow(p->m_hWnd))
+		return;
+	int pct = (total > 0) ? (cur * 100 / total) : 0;
+	p->SafeSetProgressPos(pct);
+	if (cur == total || (cur % 10) == 0)
+	{
+		CString line;
+		line.Format(_T("Burn Board progress: block %d/%d"), cur, total);
+		p->SafeAppendLog(line);
+	}
+}
+
+void CM576CalibratorDlg::BurnBoardWorkerEntry(CString absBinPath)
+{
+	try
+	{
+		CString err;
+		SafeSetProgressRange(0, 100);
+		SafeSetProgressPos(0);
+		CString startLine;
+		startLine.Format(_T("Burn Board started: %s"), absBinPath.GetString());
+		SafeAppendLog(startLine);
+		if (!M576BurnBoard439fFirmware(
+				m_dev429f,
+				absBinPath,
+				err,
+				&CM576CalibratorDlg::BurnBoardProgressThunk,
+				this))
+		{
+			m_burnBoardLastOk = FALSE;
+			m_burnBoardLastMsg = err;
+			CString failLine;
+			failLine.Format(_T("Burn Board failed: %s"), err.GetString());
+			SafeAppendLog(failLine);
+		}
+		else
+		{
+			m_burnBoardLastOk = TRUE;
+			m_burnBoardLastMsg.Format(
+				_T("Burn Board completed: %s"),
+				absBinPath.GetString());
+			SafeSetProgressPos(100);
+			SafeAppendLog(m_burnBoardLastMsg);
+		}
+	}
+	catch (const std::exception& e)
+	{
+		m_burnBoardLastOk = FALSE;
+		CStringA a;
+		a.Format("Burn Board: std::exception: %s", e.what());
+		m_burnBoardLastMsg = CString(a);
+		SafeAppendLog(m_burnBoardLastMsg);
+		M576AppendFatalLogUtf8(a.GetString());
+	}
+	catch (...)
+	{
+		m_burnBoardLastOk = FALSE;
+		m_burnBoardLastMsg = _T("Burn Board: unknown C++ exception (see m576_fatal.log).");
+		SafeAppendLog(m_burnBoardLastMsg);
+		M576AppendFatalLogUtf8("[Burn Board] unknown C++ exception");
+	}
+	if (m_hWnd && ::IsWindow(m_hWnd))
+		::PostMessage(m_hWnd, WM_M576_BURN_BOARD_FINISHED, 0, 0);
+}
+
 void CM576CalibratorDlg::WriteLogFileLine(const CString& line)
 {
 	const CString absPath = ResolveFilePath(CommLogPathForCurrentDay(m_strCommLogPath));
@@ -2031,7 +2128,8 @@ void CM576CalibratorDlg::OnBnClickedOpenPorts()
 void CM576CalibratorDlg::OnBnClickedTestConnection()
 {
 	UpdateData(TRUE);
-	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load();
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load();
 	if (busy)
 	{
 		AppendLog(_T("Test connection: a background task is running; wait for it to finish."));
@@ -2073,6 +2171,69 @@ void CM576CalibratorDlg::OnBnClickedTestConnection()
 	}
 }
 
+void CM576CalibratorDlg::OnBnClickedBurnBoard()
+{
+	UpdateData(TRUE);
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load() || m_diagRunning.load();
+	if (busy)
+	{
+		AppendLog(_T("Burn Board: a background task is running; wait for it to finish."));
+		return;
+	}
+	if (!IsSerialPortOpen())
+	{
+		AppendLog(_T("Burn Board: opening port first..."));
+		if (!OpenPort())
+		{
+			AppendLog(_T("Burn Board: failed to open serial port."));
+			return;
+		}
+		SyncSerialPortUi();
+	}
+	CFileDialog dlg(
+		TRUE,
+		_T("bin"),
+		NULL,
+		OFN_FILEMUSTEXIST | OFN_HIDEREADONLY,
+		_T("Firmware (*.bin)|*.bin||"),
+		this);
+	if (dlg.DoModal() != IDOK)
+	{
+		AppendLog(_T("Burn Board cancelled (file selection)."));
+		return;
+	}
+	const CString absBinPath = ResolveFilePath(dlg.GetPathName());
+	HANDLE hProbe = CreateFile(absBinPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	if (hProbe == INVALID_HANDLE_VALUE)
+	{
+		AppendLog(_T("Burn Board: cannot open selected .bin file."));
+		return;
+	}
+	const DWORD sz = GetFileSize(hProbe, NULL);
+	CloseHandle(hProbe);
+	if (sz == 0 || sz == INVALID_FILE_SIZE)
+	{
+		AppendLog(_T("Burn Board: selected .bin is empty or unreadable."));
+		return;
+	}
+	if (MessageBoxM576(
+			_T("Warning: Burn Board will program the 439F main board firmware directly (no trans).\n\n")
+			_T("File: ") + absBinPath + _T("\n\nContinue?"),
+			MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)
+		!= IDYES)
+	{
+		AppendLog(_T("Burn Board cancelled by user."));
+		return;
+	}
+	if (m_burnBoardThread.joinable())
+		m_burnBoardThread.join();
+	m_burnBoardRunning = true;
+	SetPathActionButtonsEnabled(FALSE);
+	AppendLog(_T("Burn Board started in background..."));
+	m_burnBoardThread = std::thread([this, absBinPath]() { BurnBoardWorkerEntry(absBinPath); });
+}
+
 void CM576CalibratorDlg::OnBnClickedClosePort()
 {
 	UpdateData(TRUE);
@@ -2097,9 +2258,9 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	ApplyFixedBinBasePaths(TRUE);
 	if (m_readBackupRunning.load())
 		return;
-	if (m_burnFlashRunning.load())
+	if (m_burnFlashRunning.load() || m_burnBoardRunning.load())
 	{
-		AppendLog(_T("Burn Flash in progress; wait before reading Flash backup."));
+		AppendLog(_T("Flash/board burn in progress; wait before reading Flash backup."));
 		return;
 	}
 	if (m_pathRunning.load())
@@ -2150,7 +2311,8 @@ void CM576CalibratorDlg::OnBnClickedRunDiag()
 		AppendLog(_T("Diagnosis: already running."));
 		return;
 	}
-	const BOOL otherBusy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load() || m_burnFlashRunning.load();
+	const BOOL otherBusy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load();
 	if (otherBusy)
 	{
 		AppendLog(_T("Diagnosis: another background task is running; wait for it to finish."));
@@ -3206,9 +3368,9 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 {
 	if (m_pathRunning.load())
 		return;
-	if (m_burnFlashRunning.load())
+	if (m_burnFlashRunning.load() || m_burnBoardRunning.load())
 	{
-		AppendLog(_T("Burn Flash in progress; wait before running path."));
+		AppendLog(_T("Flash/board burn in progress; wait before running path."));
 		return;
 	}
 	if (m_readBackupRunning.load())
@@ -3347,10 +3509,31 @@ void CM576CalibratorDlg::OnDestroy()
 		}
 		m_burnFlashThread.join();
 	}
+	if (m_burnBoardThread.joinable())
+	{
+		HANDLE h = (HANDLE)m_burnBoardThread.native_handle();
+		for (;;)
+		{
+			const DWORD w = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+			if (w == WAIT_OBJECT_0)
+				break;
+			MSG msg;
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			{
+				if (!IsDialogMessage(&msg))
+				{
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
+			}
+		}
+		m_burnBoardThread.join();
+	}
 	m_pathRunning = false;
 	m_readBackupRunning = false;
 	m_readSnRunning = false;
 	m_burnFlashRunning = false;
+	m_burnBoardRunning = false;
 	m_diagRunning = false;
 	m_suppressPathProgress = false;
 	CDialogEx::OnDestroy();
@@ -5588,9 +5771,9 @@ void CM576CalibratorDlg::OnBnClickedReadAllSn()
 {
 	if (m_readSnRunning.load())
 		return;
-	if (m_burnFlashRunning.load())
+	if (m_burnFlashRunning.load() || m_burnBoardRunning.load())
 	{
-		AppendLog(_T("Burn Flash in progress; wait before reading SN."));
+		AppendLog(_T("Flash/board burn in progress; wait before reading SN."));
 		return;
 	}
 	if (m_pathRunning.load())
@@ -5631,7 +5814,7 @@ void CM576CalibratorDlg::ProgressThunk(int cur, int total, void* user)
 
 void CM576CalibratorDlg::OnBnClickedFlash()
 {
-	if (m_burnFlashRunning.load())
+	if (m_burnFlashRunning.load() || m_burnBoardRunning.load())
 		return;
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);
@@ -5761,7 +5944,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 
 void CM576CalibratorDlg::OnBnClickedRecoverFlash()
 {
-	if (m_burnFlashRunning.load())
+	if (m_burnFlashRunning.load() || m_burnBoardRunning.load())
 		return;
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);

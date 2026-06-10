@@ -139,6 +139,7 @@
     <ClInclude Include="CalibPathOutcome.h" />
     <ClInclude Include="CalibPathOutcomeExport.h" />
     <ClInclude Include="M576RunPathSummaryDlg.h" />
+    <ClInclude Include="Board439fFwBurnTransport.h" />
     <ClInclude Include="Board439fTransTunnel.h" />
     <ClInclude Include="CalibConstants.h" />
     <ClInclude Include="M576Peak1DConstants.h" />
@@ -168,6 +169,7 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Board439fFwBurnTransport.cpp" />
     <ClCompile Include="Board439fTransTunnel.cpp" />
     <ClCompile Include="CalibWriteMeta.cpp" />
     <ClCompile Include="CalibPathOutcome.cpp">

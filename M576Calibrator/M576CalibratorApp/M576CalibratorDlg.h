@@ -24,6 +24,7 @@
 #include "DiagnosisCsv.h"
 #include "CalibWavelengthPolicy.h"
 #include "Peak1DSweepRecenter.h"
+#include "Board439fFwBurnTransport.h"
 
 namespace M576 { struct Peak1DFitTrace; }
 
@@ -90,6 +91,7 @@ private:
 	std::thread m_readBackupThread;
 	std::thread m_readSnThread;
 	std::thread m_burnFlashThread;
+	std::thread m_burnBoardThread;
 	std::thread m_diagThread;
 	std::atomic<bool> m_pathRunning{ false };
 	/// FALSE when Run Path exits early (e.g. preload fail); suppresses generic "completed" dialog in OnPathFinished.
@@ -97,6 +99,7 @@ private:
 	std::atomic<bool> m_readBackupRunning{ false };
 	std::atomic<bool> m_readSnRunning{ false };
 	std::atomic<bool> m_burnFlashRunning{ false };
+	std::atomic<bool> m_burnBoardRunning{ false };
 	std::atomic<bool> m_diagRunning{ false };
 	volatile BOOL m_diagStop{ FALSE };
 	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
@@ -125,6 +128,8 @@ private:
 	BOOL m_burnFlashLastPartial;
 	BOOL m_burnFlashLastRecover;
 	CString m_burnFlashLastMsg;
+	BOOL m_burnBoardLastOk;
+	CString m_burnBoardLastMsg;
 
 	// --- 定标模式与 RECAL 步参 ---
 	/// 0 = power meter (RECAL 1), 1 = PD (RECAL 2). See DDX_Radio(IDC_RADIO_CAL_PM).
@@ -174,6 +179,8 @@ private:
 	void ReadFlashBackupWorkerEntry(CString absBackupBin);
 	void ReadAllSnWorkerEntry();
 	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
+	void BurnBoardWorkerEntry(CString absBinPath);
+	static void BurnBoardProgressThunk(int cur, int total, void* user);
 	void DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString outDir);
 	void RecoverFlashWorkerEntry(
 		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
@@ -262,6 +269,7 @@ private:
 	// --- 按钮与自定义消息（路径日志/进度/完成）---
 	afx_msg void OnBnClickedOpenPorts();
 	afx_msg void OnBnClickedTestConnection();
+	afx_msg void OnBnClickedBurnBoard();
 	afx_msg void OnBnClickedClosePort();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();
@@ -287,5 +295,6 @@ private:
 	afx_msg LRESULT OnReadBackupFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnReadAllSnFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnBurnFlashFinished(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnBurnBoardFinished(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnDiagFinished(WPARAM wParam, LPARAM lParam);
 };
