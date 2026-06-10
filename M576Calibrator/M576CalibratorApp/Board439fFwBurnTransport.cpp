@@ -126,6 +126,16 @@ static BOOL Board439fFwdlBannerIsDeviceError(const BYTE* banner, DWORD bn)
 	return FALSE;
 }
 
+/// 439F main board EOT: legacy Z4671 uses ACK at byte[0] then "Successful" text (not last-byte ACK like 1x64).
+static BOOL Board439fEotResponseHasSuccessfulBanner(const char* buf, DWORD len)
+{
+	if (!buf || len < 2)
+		return FALSE;
+	if (strstr(buf, "Successful") != nullptr)
+		return TRUE;
+	return FALSE;
+}
+
 static int Board439fXmodemSendOneBlock(
 	Z4671Command& cmd, BYTE* pbBinData, WORD wWireLen, BOOL bFileDone, int blockNo, int totalBlocks)
 {
@@ -273,20 +283,27 @@ static int Board439fXmodemSendOneBlock(
 				{
 					if (dwr < sizeof(byTempBuf) - 1)
 						byTempBuf[dwr] = 0;
-					const BYTE lastB = (BYTE)byTempBuf[dwr - 1];
-					if (lastB == XMODEM_ACK)
+					const BYTE firstB = (BYTE)byTempBuf[0];
+					// 439F board: ACK at [0] + "Successful" banner (legacy Z4671 / HyperTerminal 1K Xmodem).
+					if (firstB == XMODEM_ACK)
 					{
-						const bool gotBanner = (dwr > 1 && strstr(byTempBuf, "Successful") != nullptr);
+						const bool gotBanner = Board439fEotResponseHasSuccessfulBanner(byTempBuf, dwr);
 						cmd.TraceInfo(
 							kFwBoardTag,
-							_T("XMODEM EOT ACK at pass %d/40 (rx_len=%lu, banner=%d): %s"),
+							_T("XMODEM EOT ACK at pass %d/40 (rx_len=%lu, banner=%d, first-byte ACK): %s"),
 							eotPass + 1,
 							(unsigned long)dwr,
 							(int)gotBanner,
 							Board439fBytesToPrintable((const BYTE*)byTempBuf, dwr, 64).GetString());
-						return XMODEM_DOWNLOAD_SUCCESS;
+						if (gotBanner)
+							return XMODEM_DOWNLOAD_SUCCESS;
+						cmd.TraceError(
+							kFwBoardTag,
+							_T("XMODEM EOT ACK without Successful banner at pass %d/40."),
+							eotPass + 1);
+						return XMODEM_DOWNLOAD_FAIL;
 					}
-					if (lastB == XMODEM_NAK)
+					if (firstB == XMODEM_NAK)
 					{
 						eotNakResends++;
 						cmd.TraceInfo(
@@ -306,7 +323,7 @@ static int Board439fXmodemSendOneBlock(
 						}
 						break;
 					}
-					if (lastB == XMODEM_CAN)
+					if (firstB == XMODEM_CAN)
 					{
 						cmd.TraceError(
 							kFwBoardTag,
@@ -316,6 +333,13 @@ static int Board439fXmodemSendOneBlock(
 							Board439fBytesToPrintable((const BYTE*)byTempBuf, dwr, 32).GetString());
 						return XMODEM_COMMUNICATION_FAIL;
 					}
+					cmd.TraceInfo(
+						kFwBoardTag,
+						_T("XMODEM EOT pass %d/40 unexpected (first=0x%02X), rx_len=%lu head=%s"),
+						eotPass + 1,
+						(unsigned)firstB,
+						(unsigned long)dwr,
+						Board439fBytesToPrintable((const BYTE*)byTempBuf, dwr, 32).GetString());
 				}
 			}
 			if (nEotTo >= 210)
