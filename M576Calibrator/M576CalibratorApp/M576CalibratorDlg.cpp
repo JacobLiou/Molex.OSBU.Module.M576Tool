@@ -22,14 +22,15 @@
 #include <algorithm>
 #include <array>
 #include <exception>
-// M576CalibratorDlg.cpp：M576 定标主界面。单 COM 经 429F 发 RECAL、经 trans/$$ 跑 Z4671；后台线程跑路径/读备份，UI 仅收消息刷日志与进度。
+// M576CalibratorDlg.cpp：M576 定标主界面。单 COM 经 439F 发 RECAL、经 trans/$$ 跑 Z4671；
+// 后台线程执行 Read Bin / Run Path / Burn / Diagnosis，UI 线程仅收 WM_M576_* 消息刷日志与进度。
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
 namespace {
-// 本文件内静态工具：COM 口枚举/排序、通信错类型、通信日志路径、波长解析等（不属 CM576CalibratorDlg 成员）。
+// ---------- 文件内静态工具：COM 枚举、通信日志、UTF-8/ACP 窄串、路径 outcome 构造、RECAL 超时估算 ----------
 
 static const TCHAR* kM576FixedBackupBinRel = _T("output\\backup.bin");
 static const TCHAR* kM576FixedOutBinRel = _T("output\\standard.bin");
@@ -356,6 +357,7 @@ static BOOL M576Try439fInfoTest(Z4671Command& comm, CString& outResponseOneLine,
 	return TRUE;
 }
 
+// 工作线程 -> UI 线程：日志批量刷新、进度条、各后台任务完成通知（禁止在工作线程直接改控件）。
 constexpr UINT WM_M576_PATH_LOG_FLUSH = WM_APP + 100;
 constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
 constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
@@ -770,6 +772,7 @@ void M576AppendPmRangeRejectLog(
 	dlg->SafeAppendLog(_T("  => discard this path step (no LUT update)."));
 }
 
+// ---------- RECAL 3/5 一维扫频 + 寻峰重试（平坦/贴边 recenter，供 PM/PD 双轴交叉峰） ----------
 BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	BOOL isPm,
 	int pmRangeIndex,
@@ -1491,6 +1494,7 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 		p->EnableWindow(m_diagRunning.load());
 }
 
+// ---------- UI 线程：处理工作线程 Post 的日志/进度/完成消息 ----------
 LRESULT CM576CalibratorDlg::OnPathLogFlush(WPARAM, LPARAM)
 {
 	CString batch;
@@ -1790,6 +1794,8 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		::PostMessage(m_hWnd, WM_M576_READ_BACKUP_FINISHED, 0, 0);
 }
 
+// --- 读四路 SN 后台线程：透传读各 trans 设备序列号 ---
+
 void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 {
 	try
@@ -1827,6 +1833,8 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_READ_SN_FINISHED, 0, 0);
 }
+
+// --- 烧录 Flash 后台线程：McsFwUploadBinEx 按勾选 mask 上载各 trans 分 bin ---
 
 void CM576CalibratorDlg::BurnFlashWorkerEntry(
 	CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask)
@@ -1873,6 +1881,8 @@ void CM576CalibratorDlg::BurnFlashWorkerEntry(
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_BURN_FLASH_FINISHED, 0, 0);
 }
+
+// --- 从备份恢复烧录后台线程：Recover 对话框选定路径与 mask ---
 
 void CM576CalibratorDlg::RecoverFlashWorkerEntry(
 	std::array<CString, M576_BURN_FILE_COUNT> filePaths,
@@ -5727,6 +5737,8 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 		_T("Write BIN completed.\n\nAll per-trans .bin files were written successfully."),
 		MB_OK | MB_ICONINFORMATION);
 }
+
+// --- Make Bin：读 standardAll1310DAC.csv 合并进 backup 生成 standard 分 trans 文件 ---
 
 void CM576CalibratorDlg::OnBnClickedMakeBin()
 {

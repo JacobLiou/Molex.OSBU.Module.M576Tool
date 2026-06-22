@@ -1,6 +1,7 @@
 ﻿#include "stdafx.h"
 #include "Board439fFwBurnTransport.h"
 #include "CalibConstants.h"
+// Board439fFwBurnTransport.cpp：439F 控制板本机 XMODEM 固件烧录（不经 trans 隧道）。
 #include <vector>
 #include <cstring>
 

@@ -1,5 +1,6 @@
 #include "Peak1DSweepRecenter.h"
 #include "M576Peak1DConstants.h"
+// Peak1DSweepRecenter.cpp：RECAL 3/5 一维扫频失败后的重试策略（平坦扩 offset、单调平移 base、贴边 recenter）。
 
 #include <algorithm>
 #include <cmath>
@@ -359,8 +360,9 @@ namespace M576
 		else
 			out.trend = SweepTrend::NonMono;
 		return out;
-	}
+	} // namespace
 
+	// ---------- 平坦/单调扫频失败判定与扩 offset ----------
 	bool IsFlatSweepFailure(Peak1DValidateCode code, const SweepProfile& profile)
 	{
 		if (profile.trend != SweepTrend::Flat)
@@ -676,6 +678,7 @@ namespace M576
 		}
 	}
 
+	// ---------- Y 交叉轴重扫与重试计划 ----------
 	bool PlanRecalYCrossResweep(
 		Peak1DValidateCode crossCode,
 		const std::vector<double>& powY,
@@ -932,6 +935,7 @@ namespace M576
 		return ClampRecenterDeltaDac(IndexShiftToDeltaDac(deltaIndex, sampleCount, dacRange), dacRange);
 	}
 
+	// ---------- 根据扫频轮廓建议新 base DAC（产线 recenter 核心） ----------
 	int SuggestSweepRecenterNewBase(
 		double centerDac,
 		const SweepProfile& profile,

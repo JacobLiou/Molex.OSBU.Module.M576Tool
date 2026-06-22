@@ -1,9 +1,11 @@
 #include "CalibPathOutcome.h"
 #include "Peak1DSweepRecenter.h"
+// CalibPathOutcome.cpp：Run Path 单步失败分类、汇总统计与摘要文本（供汇总对话框/导出）。
 
 #include <cstdio>
 #include <cstring>
 
+// ---------- 失败类别与结果标签 ----------
 const char* CalibPathFailCategoryLabelA(CalibPathFailCategory c)
 {
 	switch (c)
@@ -47,6 +49,7 @@ const char* CalibPathStepResultLabelA(CalibPathStepResult r)
 	return (r == CalibPathStepResult::Skipped) ? "skipped" : "failed";
 }
 
+// ---------- 扫频轮廓与 Run Path 汇总 ----------
 void TruncatePathOutcomeDetail(std::string& s, size_t maxLen)
 {
 	if (s.size() > maxLen)

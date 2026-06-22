@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "CalibWavelengthPolicy.h"
-
+// CalibWavelengthPolicy.cpp：按波长选择 MCS/MEMS 主温区槽位（1310 低温 / 1550 常温+拷贝高温）。
 M576CalibBinWritePolicy PolicyFromWavelengthNm(int wavelengthNm)
 {
 	if (wavelengthNm == 1550)

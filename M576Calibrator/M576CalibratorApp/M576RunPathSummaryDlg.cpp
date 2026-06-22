@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576RunPathSummaryDlg.h"
+// M576RunPathSummaryDlg.cpp：Run Path 结束后展示失败/跳过汇总，支持导出 CSV 与双击详情。
 
 #include <commctrl.h>
 

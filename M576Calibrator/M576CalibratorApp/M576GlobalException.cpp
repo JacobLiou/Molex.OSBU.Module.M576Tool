@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "M576GlobalException.h"
+// M576GlobalException.cpp：进程级未捕获异常/SEH 钩子，落盘 output/m576_fatal.log。
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

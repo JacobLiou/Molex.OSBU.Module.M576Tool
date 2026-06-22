@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "TransLutRoute.h"
-// PM/PD 的 target 与 439F trans 槽 0~3 的固定映射，以及分 CSV 文件槽过滤（供 RunPath* 分文件跑）。
+// TransLutRoute.cpp：PM/PD target 与 439F trans 槽 0~3 映射；分 CSV 文件槽过滤。
 
 // PM：Z4744 target 1/2/3/4/5/6 → 四个 trans 槽位（2#1x64 两阶段、MCS 两路再映射到 1#1x64/2#1x64 等，见下 switch）。
 int TransSlotFromPmTarget(int targetSwitchIndex)

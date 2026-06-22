@@ -1,12 +1,13 @@
 ﻿#include "stdafx.h"
 #include "CalibWriteMeta.h"
 #include "CalibConstants.h"
+// CalibWriteMeta.cpp：定标统计行元数据——LUT/MEMS 结构体路径、bin 内字节偏移、RECAL 命令与峰位。
 #include <cstdio>
 #include <vector>
 
 namespace
 {
-// WORD on disk is int16 two's-complement (same for MCS wCalibPtrDAC and 1x64 sDAC*).
+// 匿名：DAC int16 与 bin 内 WORD 布局、MCS LUT / 1x64 MEMS 8K 偏移计算。
 static short DacU16ToSigned16(unsigned short w)
 {
 	return (short)w;
@@ -50,6 +51,7 @@ static BOOL Mems1x64OffsetsIn8k(int block, int inBlk, int calibSlot, SIZE_T& oX,
 }
 } // namespace
 
+// ---------- PM 定标统计行（MCS LUT / 1x64 MEMS） ----------
 BOOL CalibBuildStatRowPmLut(
 	const SPathStep& step,
 	int occT3,

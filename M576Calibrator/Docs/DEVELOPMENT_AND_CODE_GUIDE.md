@@ -264,6 +264,7 @@ flowchart TB
 
 ## 6. 维护与扩展建议
 
+- **M576CalibratorApp 源文件编码**：工程 `CharacterSet=MultiByte` 且编译选项 `/utf-8`；`.cpp` 以 **UTF-8（无 BOM）** 保存，中文仅写在 `//` 注释中。例外：`Board439fFwBurnTransport.cpp`、`CalibWriteMeta.cpp` 保留 **UTF-8 BOM**，编辑时不要去掉 BOM 以免整文件 diff。
 - **改通信超时/重试**：优先查 `CalibConstants.h` 与 `CommRetry.h`、以及 `CRecalSession` 中 `M576_COMM_RETRY_*` 的用法。  
 - **改 DAC 语义**：以 `LutPeakApply.cpp` 与 `CalibWriteMeta` 中 **WORD 的二补码解释** 为准，并与固件对拍。  
 - **新增 trans 或路径规则**：改 `TransLutRoute` + 常量表 + 对话框里文件 slot 规则，**避免在 UI 里写死**协议字符串。  

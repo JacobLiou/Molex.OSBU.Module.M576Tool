@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "LutPeakApply.h"
 #include "CalibConstants.h"
+// LutPeakApply.cpp：寻峰得到的 DAC 对写入 session LUT 或 1x64 MEMS 系数（int16 钳位与 Y/X 轴映射）。
 #include <algorithm>
 #include <cmath>
 // MCS -> Z4671 LUT; 1x64 -> 126S stMemsSwCoef (four 2K blocks, stChnDAC per temp slot).

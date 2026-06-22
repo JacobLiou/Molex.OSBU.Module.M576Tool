@@ -1,8 +1,9 @@
 #include "stdafx.h"
 #include "PathCsvDriver.h"
+// PathCsvDriver.cpp：定标路径 CSV 加载与单步校验（PM 五列 / PD 三列，Z4744 通道范围）。
 // 从文本 CSV 读 PM/PD 路径行（跳过表头、# 注释），再按 Z4744 校通道范围。
 
-// PM：每行 5 整数 target_index, c1..c4，逗号分隔；空行与表头行忽略。
+// ---------- PM 路径 CSV ----------
 BOOL LoadPathCsv(LPCTSTR szPath, CArray<SPathStep, SPathStep const&>& steps, CString& errMsg)
 {
 	steps.RemoveAll();
@@ -90,6 +91,7 @@ BOOL ValidatePathStep(const SPathStep& s, CString& errMsg)
 	return TRUE;
 }
 
+// ---------- PD 路径 CSV ----------
 // PD：三列 target, ch1, ch2，解析与 PM 同风格跳过表头。
 BOOL LoadPathCsvPd(LPCTSTR szPath, CArray<SPathStepPd, SPathStepPd const&>& steps, CString& errMsg)
 {

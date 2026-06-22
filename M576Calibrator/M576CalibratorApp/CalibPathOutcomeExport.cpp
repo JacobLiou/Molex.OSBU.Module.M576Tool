@@ -1,8 +1,10 @@
 #include "stdafx.h"
 #include "CalibPathOutcome.h"
+// CalibPathOutcomeExport.cpp：将 Run Path 失败/跳过行导出为 UTF-8 BOM CSV。
 
 #include <atlconv.h>
 
+// CSV 字段转义（含逗号/引号时加双引号）。
 static void AppendCsvFieldA(CStringA& line, LPCSTR s)
 {
 	if (s == NULL)
@@ -24,6 +26,7 @@ static void AppendCsvFieldA(CStringA& line, LPCSTR s)
 		line += s;
 }
 
+// 写出失败行 CSV（成功步省略）；列含 peak_code、base/offset、PM 挡位等。
 BOOL WriteRunPathFailureCsv(LPCTSTR path, const SRunPathSummary& summary, CString& err)
 {
 	if (path == NULL || path[0] == 0)

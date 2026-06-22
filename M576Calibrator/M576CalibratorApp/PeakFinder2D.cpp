@@ -4,7 +4,7 @@
 #include <utility>
 #include "PeakFinder2D.h"
 #include "M576Peak1DConstants.h"
-// 格点邻域/全局最大；RECAL3/5 一维：预处理对称窗 + 三阶 LSQ + 区间最大，连续峰位下标十字寻峰。
+// PeakFinder2D.cpp：RECAL 3/5 扫频后一维/二维寻峰、三阶拟合与单峰校验（CrossPeakTest 同源逻辑）。
 
 namespace M576
 {
@@ -558,7 +558,7 @@ namespace M576
 		}
 	} // namespace
 
-
+	// ---------- 二维格点邻域和 / 全局最大 ----------
 	static bool InRange(int rr, int cc, int rows, int cols)
 	{
 		return rr >= 0 && cc >= 0 && rr < rows && cc < cols;
@@ -770,6 +770,7 @@ namespace M576
 		return true;
 	}
 
+	// ---------- 一维单峰校验（span/边缘/孤立尖峰） ----------
 	bool ValidateUnimodal1DAtArgmax(const std::vector<double>& data, int ii, Peak1DValidateCode& f)
 	{
 		f = Peak1DValidateCode::Ok;

@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "M576Calibrator.h"
 #include "M576RecoverSelectDlg.h"
+// M576RecoverSelectDlg.cpp：从备份 bin 恢复/烧回 Flash 前选择分路与自定义路径。
 
 namespace {
 const UINT kRecoverCheckIds[M576_BURN_FILE_COUNT] = {
