@@ -951,6 +951,102 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
+	// prominence: global micro-flat (span < 0.3 dB) => ParabolaNotDownward
+	{
+		std::vector<double> micro(7, -10.0);
+		micro[3] = -9.85;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(micro, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: globalMicroFlat span=0.15 must be ParabolaNotDownward\n");
+			++fail;
+		}
+	}
+	// prominence: bilateral fail (left flank never reaches 0.3 dB drop)
+	{
+		std::vector<double> asym(9, -10.05);
+		asym[4] = -10.0;
+		for (int i = 5; i < 9; ++i)
+			asym[(size_t)i] = -10.0 - 0.5 * (double)(i - 5);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(asym, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: bilateralFail must be ParabolaNotDownward\n");
+			++fail;
+		}
+	}
+	// prominence: noise ripple (< 0.3 dB bump on flat)
+	{
+		std::vector<double> ripple(9, -10.0);
+		ripple[4] = -9.75;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(ripple, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: noiseRipple must be ParabolaNotDownward\n");
+			++fail;
+		}
+	}
+	// prominence: symmetric weak peak still Ok
+	{
+		std::vector<double> weak(7);
+		for (int i = 0; i < 7; ++i)
+			weak[(size_t)i] = -10.0 - 0.5 * (double)(i - 3) * (double)(i - 3);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(weak, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 3.0) > 0.15)
+		{
+			std::fprintf(stderr, "self-test: symmetricWeakPeak must Ok near t=3\n");
+			++fail;
+		}
+	}
+	// prominence: symmetric fit window half-width around argmax
+	{
+		std::vector<double> q(7);
+		for (int i = 0; i < 7; ++i)
+			q[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
+		M576::Peak1DFitTrace tr;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(q, t, c, &tr) || c != Peak1DValidateCode::Ok || tr.globalMaxIndex != 3)
+		{
+			std::fprintf(stderr, "self-test: symmetric fit window needs trace at idx 3\n");
+			++fail;
+		}
+		else
+		{
+			int fmin = tr.fitIndex[0], fmax = tr.fitIndex[0];
+			for (int fi : tr.fitIndex)
+			{
+				fmin = (std::min)(fmin, fi);
+				fmax = (std::max)(fmax, fi);
+			}
+			const int halfL = tr.globalMaxIndex - fmin;
+			const int halfR = fmax - tr.globalMaxIndex;
+			if (halfL != halfR)
+			{
+				std::fprintf(stderr, "self-test: symmetric fit window must be symmetric (L=%d R=%d)\n", halfL, halfR);
+				++fail;
+			}
+		}
+	}
+	// runtime prominence override
+	{
+		M576::Peak1DSetMinProminenceDb(1.0, false);
+		std::vector<double> shallow(7);
+		for (int i = 0; i < 7; ++i)
+			shallow[(size_t)i] = -10.0 - 0.15 * std::abs((double)(i - 3));
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(shallow, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: prominence 1.0 should reject shallow peak\n");
+			++fail;
+		}
+		M576::Peak1DResetMinProminenceDb();
+	}
 	return fail;
 }
 

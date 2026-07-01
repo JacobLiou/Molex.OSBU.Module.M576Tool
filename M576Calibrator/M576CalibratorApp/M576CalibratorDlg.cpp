@@ -17,6 +17,7 @@
 #include "LutPeakApply.h"
 #include "Pm1x64Mapping.h"
 #include "M576GlobalException.h"
+#include "M576AppConfig.h"
 #include "M576Version.h"
 #include <math.h>
 #include <cmath>
@@ -1265,6 +1266,11 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 		_T("BIN workspace is output\\latest\\; legacy bins in output\\ root are not used — re-read Flash or move files into latest\\."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
+	{
+		const CString cfgLine = M576GetAppConfigLogLine();
+		if (!cfgLine.IsEmpty())
+			AppendLog(cfgLine);
+	}
 	SyncExportStatsButton();
 	return TRUE;
 }

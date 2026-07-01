@@ -45,6 +45,16 @@ namespace M576
 	/// 固件 P 行中无效功率占位，仅二者之一。
 	bool IsRecal1DPowerInvalidValue(double v);
 
+	/// 当前生效的峰突出度门限 (dB)：运行时 INI 或 Peak1DSetMinProminenceDb 覆盖，否则 M576_PEAK1D_MIN_PROMINENCE_DB。
+	double Peak1DGetMinProminenceDb();
+	/// 产线/单测注入；非法值会被 clamp 到 [MIN, MAX]。fromIni=true 时 Get 带来源标记供日志。
+	void Peak1DSetMinProminenceDb(double db, bool fromIni = false);
+	void Peak1DResetMinProminenceDb();
+	bool Peak1DMinProminenceDbFromIni();
+
+	/// argmax 格点两侧（跳过无效功率）是否均达到 minPromDb 落差；供 recenter Flat 判定。
+	bool Peak1DArgmaxHasBilateralProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb);
+
 	/// 可选调试输出：全序列有效点全局 argmax（平局先出现者）与进入三阶拟合的格点样本。
 	struct Peak1DFitTrace
 	{

@@ -97,6 +97,7 @@ PM/PD Run Path 实际是：
 
 | ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
+| **ALG-P3-00** | PeakFinder 峰突出度 + 对称拟合窗 + INI 可配 `MinProminenceDb` | **已实施** | `M576_PEAK1D_MIN_PROMINENCE_DB`、`Peak1DGetMinProminenceDb`、`M576Calibrator.ini`；CrossPeakTest 回归全绿 |
 | **ALG-P3-01** | 弱峰通道：`M576_PEAK1D_MIN_SPAN_DB` / `FLAT_REL_SPAN_FRAC` | 讨论中 | 低 span 仍接受峰 → 可能增加 recenter；过低则误接受噪声峰 |
 | **ALG-P3-02** | 多峰 / 旁瓣：outlier 与 `MAX_STRICT_LOCAL_MAXIMA` | 讨论中 | `OUTLIER_MULT`、`OUTLIER_LOCAL_HALF` 等 |
 | **ALG-P3-03** | Recenter 激进度：`SWEEP_RECENTER_*_FRAC` 系列 | 讨论中 | `TSTAR_WEIGHT`、`STAGNATION_GAIN` 等对贴边通道的影响 |

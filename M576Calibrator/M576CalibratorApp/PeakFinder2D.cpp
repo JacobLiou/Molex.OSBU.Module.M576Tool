@@ -12,6 +12,93 @@ namespace M576
 
 	namespace
 	{
+		struct Peak1DRuntimeConfigState
+		{
+			double minProminenceDbOverride = -1.0;
+			bool fromIni = false;
+		};
+		static Peak1DRuntimeConfigState g_peak1dRuntime;
+
+		static double ClampProminenceDbLocal(double v)
+		{
+			const double lo = (double)M576_PEAK1D_MIN_PROMINENCE_DB_MIN;
+			const double hi = (double)M576_PEAK1D_MIN_PROMINENCE_DB_MAX;
+			if (!std::isfinite(v))
+				return (double)M576_PEAK1D_MIN_PROMINENCE_DB;
+			if (v < lo)
+				return lo;
+			if (v > hi)
+				return hi;
+			return v;
+		}
+	}
+
+	double Peak1DGetMinProminenceDb()
+	{
+		if (g_peak1dRuntime.minProminenceDbOverride > 0.0)
+			return g_peak1dRuntime.minProminenceDbOverride;
+		return (double)M576_PEAK1D_MIN_PROMINENCE_DB;
+	}
+
+	void Peak1DSetMinProminenceDb(double db, bool fromIni)
+	{
+		g_peak1dRuntime.minProminenceDbOverride = ClampProminenceDbLocal(db);
+		g_peak1dRuntime.fromIni = fromIni;
+	}
+
+	void Peak1DResetMinProminenceDb()
+	{
+		g_peak1dRuntime.minProminenceDbOverride = -1.0;
+		g_peak1dRuntime.fromIni = false;
+	}
+
+	bool Peak1DMinProminenceDbFromIni()
+	{
+		return g_peak1dRuntime.fromIni;
+	}
+
+	bool Peak1DArgmaxHasBilateralProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb)
+	{
+		if (argmaxIndex < 0 || argmaxIndex >= (int)powY.size())
+			return false;
+		if (IsRecal1DPowerInvalidValue(powY[(size_t)argmaxIndex]))
+			return false;
+		if (minPromDb <= 0.0 || !std::isfinite(minPromDb))
+			return false;
+		const int n = (int)powY.size();
+		const double peakY = powY[(size_t)argmaxIndex];
+		const double thrY = peakY - minPromDb;
+		bool leftOk = false;
+		bool rightOk = false;
+		for (int i = argmaxIndex - 1; i >= 0; --i)
+		{
+			if (IsRecal1DPowerInvalidValue(powY[(size_t)i]))
+				continue;
+			if (powY[(size_t)i] <= thrY)
+			{
+				leftOk = true;
+				break;
+			}
+		}
+		for (int j = argmaxIndex + 1; j < n; ++j)
+		{
+			if (IsRecal1DPowerInvalidValue(powY[(size_t)j]))
+				continue;
+			if (powY[(size_t)j] <= thrY)
+			{
+				rightOk = true;
+				break;
+			}
+		}
+		if (argmaxIndex <= 0)
+			return rightOk;
+		if (argmaxIndex >= n - 1)
+			return leftOk;
+		return leftOk && rightOk;
+	}
+
+	namespace
+	{
 		static const double kDetEps = 1e-18;
 		static const double kTRangeEps = 1e-9;
 		static const double kCubAbsWeak = 1e-17;
@@ -283,6 +370,85 @@ namespace M576
 			return IsStrictIncreasingSeq(ys, epsMono) || IsStrictDecreasingSeq(ys, epsMono);
 		}
 
+		/// 从峰顶 i0 向两侧找首个 y<=peakY-minPromDb 的格点；对称 halfW 拟合窗（端点峰仅校验有数据一侧）。
+		static bool FindProminenceSymmetricWindow(
+			const std::vector<double>& pFilled,
+			const std::vector<unsigned char>& useOk,
+			int i0,
+			double peakY,
+			double minPromDb,
+			int n,
+			int& outLeft,
+			int& outRight,
+			int& outHalfW)
+		{
+			outLeft = i0;
+			outRight = i0;
+			outHalfW = 0;
+			if (minPromDb <= 0.0 || !std::isfinite(minPromDb))
+				return false;
+			const double thrY = peakY - minPromDb;
+			bool leftOk = false;
+			bool rightOk = false;
+			int leftAtThr = i0;
+			int rightAtThr = i0;
+			for (int i = i0 - 1; i >= 0; --i)
+			{
+				if (!useOk[(size_t)i])
+					break;
+				if (pFilled[(size_t)i] <= thrY)
+				{
+					leftOk = true;
+					leftAtThr = i;
+					break;
+				}
+			}
+			for (int j = i0 + 1; j < n; ++j)
+			{
+				if (!useOk[(size_t)j])
+					break;
+				if (pFilled[(size_t)j] <= thrY)
+				{
+					rightOk = true;
+					rightAtThr = j;
+					break;
+				}
+			}
+			const bool atLeftEdge = (i0 <= 0);
+			const bool atRightEdge = (i0 >= n - 1);
+			if (!leftOk && !rightOk)
+				return false;
+			if (!leftOk && !atLeftEdge)
+				return false;
+			if (!rightOk && !atRightEdge)
+				return false;
+
+			if (leftOk && rightOk)
+			{
+				outHalfW = (std::min)(i0 - leftAtThr, rightAtThr - i0);
+				if (outHalfW < 1)
+					return false;
+				outLeft = i0 - outHalfW;
+				outRight = i0 + outHalfW;
+				return true;
+			}
+			if (rightOk)
+			{
+				outHalfW = rightAtThr - i0;
+				if (outHalfW < 1)
+					return false;
+				outLeft = i0;
+				outRight = i0 + outHalfW;
+				return true;
+			}
+			outHalfW = i0 - leftAtThr;
+			if (outHalfW < 1)
+				return false;
+			outLeft = i0 - outHalfW;
+			outRight = i0;
+			return true;
+		}
+
 		static bool Peak1DSamplesFromPreprocessed(
 			const std::vector<double>& p,
 			double& spanAllValid,
@@ -331,12 +497,13 @@ namespace M576
 			}
 
 			spanAllValid = vmax - vmin;
+			const double minPromDb = Peak1DGetMinProminenceDb();
 			{
 				const double maxAbs = (std::max)(std::abs(vmin), std::abs(vmax));
 				const bool relFlat = !relaxed
 					&& (maxAbs > 1e-6
 						&& spanAllValid / maxAbs < (double)M576_PEAK1D_FLAT_REL_SPAN_FRAC);
-				if (spanAllValid < (double)M576_PEAK1D_MIN_SPAN_DB || relFlat)
+				if (!relaxed && (spanAllValid < minPromDb || relFlat))
 				{
 					f = Peak1DValidateCode::ParabolaNotDownward;
 					return false;
@@ -410,27 +577,8 @@ namespace M576
 				return false;
 			}
 			const int i0 = bestI;
+			const double peakY = pFilled[(size_t)i0];
 
-			int leftBound = i0;
-			for (int i = i0 - 1; i >= 0; --i)
-			{
-				if (!useOk[(size_t)i])
-					break;
-				if (!(pFilled[(size_t)i] <= pFilled[(size_t)(i + 1)] + eps))
-					break;
-				leftBound = i;
-			}
-			int rightBound = i0;
-			for (int j = i0 + 1; j < n; ++j)
-			{
-				if (!useOk[(size_t)j])
-					break;
-				if (!(pFilled[(size_t)j] <= pFilled[(size_t)(j - 1)] + eps))
-					break;
-				rightBound = j;
-			}
-
-			const int halfW = (std::min)(i0 - leftBound, rightBound - i0);
 			auto collectWindow = [&](int lo, int hi)
 			{
 				xs.clear();
@@ -445,15 +593,147 @@ namespace M576
 					ys.push_back(pFilled[(size_t)i]);
 				}
 			};
-			collectWindow(i0 - halfW, i0 + halfW);
-			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES || halfW == 0)
-				collectWindow(leftBound, rightBound);
+
+			int promLeft = i0;
+			int promRight = i0;
+			int halfW = 0;
+			int leftAtThr = i0;
+			int rightAtThr = i0;
+			const bool promOk = FindProminenceSymmetricWindow(
+				pFilled, useOk, i0, peakY, minPromDb, n, promLeft, promRight, halfW);
+			if (promOk)
+			{
+				const double thrY = peakY - minPromDb;
+				for (int i = i0 - 1; i >= 0; --i)
+				{
+					if (!useOk[(size_t)i])
+						break;
+					if (pFilled[(size_t)i] <= thrY)
+					{
+						leftAtThr = i;
+						break;
+					}
+				}
+				for (int j = i0 + 1; j < n; ++j)
+				{
+					if (!useOk[(size_t)j])
+						break;
+					if (pFilled[(size_t)j] <= thrY)
+					{
+						rightAtThr = j;
+						break;
+					}
+				}
+				int leftExtent = i0;
+				for (int i = i0 - 1; i >= 0; --i)
+				{
+					if (!useOk[(size_t)i])
+						break;
+					leftExtent = i;
+				}
+				int rightExtent = i0;
+				for (int j = i0 + 1; j < n; ++j)
+				{
+					if (!useOk[(size_t)j])
+						break;
+					rightExtent = j;
+				}
+				const bool oneSidedRight = (promLeft == i0 && promRight > i0);
+				const bool oneSidedLeft = (promRight == i0 && promLeft < i0);
+				auto countWindow = [&](int lo, int hi) -> int
+				{
+					int cnt = 0;
+					for (int i = lo; i <= hi; ++i)
+					{
+						if (i < 0 || i >= n)
+							continue;
+						if (!useOk[(size_t)i] || !origValid[(size_t)i])
+							continue;
+						++cnt;
+					}
+					return cnt;
+				};
+				if (oneSidedRight)
+				{
+					int fitRight = promRight;
+					while (fitRight < rightExtent && countWindow(i0, fitRight) < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+						++fitRight;
+					collectWindow(i0, fitRight);
+				}
+				else if (oneSidedLeft)
+				{
+					int fitLeft = promLeft;
+					while (fitLeft > leftExtent && countWindow(fitLeft, i0) < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+						--fitLeft;
+					collectWindow(fitLeft, i0);
+				}
+				else
+				{
+					const int maxHalf = (std::min)(i0 - leftExtent, rightExtent - i0);
+					int fitHalf = halfW;
+					while (fitHalf < maxHalf && countWindow(i0 - fitHalf, i0 + fitHalf) < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+						++fitHalf;
+					collectWindow(i0 - fitHalf, i0 + fitHalf);
+				}
+			}
+			else if (!relaxed)
+			{
+				f = Peak1DValidateCode::ParabolaNotDownward;
+				return false;
+			}
+
+			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES && promOk)
+				collectWindow(leftAtThr, rightAtThr);
 			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
 			{
 				int halfFixed = (int)std::lround((double)(n - 1) * (double)M576_PEAK1D_FIT_HALF_FRAC);
 				halfFixed = (std::max)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MIN);
 				halfFixed = (std::min)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MAX);
-				collectWindow(i0 - halfFixed, i0 + halfFixed);
+				if (promOk)
+				{
+					int leftExtent = i0;
+					for (int i = i0 - 1; i >= 0; --i)
+					{
+						if (!useOk[(size_t)i])
+							break;
+						leftExtent = i;
+					}
+					int rightExtent = i0;
+					for (int j = i0 + 1; j < n; ++j)
+					{
+						if (!useOk[(size_t)j])
+							break;
+						rightExtent = j;
+					}
+					const int maxHalf = (std::min)(i0 - leftExtent, rightExtent - i0);
+					if (i0 > 1 && i0 < n - 2)
+						halfFixed = (std::min)(halfFixed, maxHalf);
+					collectWindow(i0 - halfFixed, i0 + halfFixed);
+				}
+				else
+					collectWindow(i0 - halfFixed, i0 + halfFixed);
+			}
+			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+			{
+				int leftBound = i0;
+				for (int i = i0 - 1; i >= 0; --i)
+				{
+					if (!useOk[(size_t)i])
+						break;
+					if (!(pFilled[(size_t)i] <= pFilled[(size_t)(i + 1)] + eps))
+						break;
+					leftBound = i;
+				}
+				int rightBound = i0;
+				for (int j = i0 + 1; j < n; ++j)
+				{
+					if (!useOk[(size_t)j])
+						break;
+					if (!(pFilled[(size_t)j] <= pFilled[(size_t)(j - 1)] + eps))
+						break;
+					rightBound = j;
+				}
+				collectWindow(leftBound, rightBound);
 			}
 			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
 			{
@@ -482,6 +762,23 @@ namespace M576
 			}
 			const double spanPts = hiPts - loPts;
 			const double epsMono = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB, spanPts * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
+
+			if (!relaxed && spanPts < Peak1DGetMinProminenceDb())
+			{
+				f = Peak1DValidateCode::ParabolaNotDownward;
+				xs.clear();
+				ys.clear();
+				return false;
+			}
+			if (!relaxed && promOk && spanAllValid > 500.0
+				&& spanPts < spanAllValid * (double)M576_PEAK1D_MIN_FIT_SPAN_FRAC
+				&& i0 > 1 && i0 < n - 2 && i0 < n / 4)
+			{
+				f = Peak1DValidateCode::ParabolaNotDownward;
+				xs.clear();
+				ys.clear();
+				return false;
+			}
 
 			if (!relaxed && FitsAreStrictMonotoneAlongIndex(xs, ys, epsMono))
 			{

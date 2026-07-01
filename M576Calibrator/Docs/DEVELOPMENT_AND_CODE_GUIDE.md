@@ -224,6 +224,12 @@ flowchart TB
 #### 4.3.9 `PeakFinder2D`（`PeakFinder2D.h` / `.cpp`）
 
 - 命名空间 `M576`：`PeakCross2D`、`PeakMax2D`、`PeakMax1D`、`PeakCrossFrom1DScans`（两次一维扫得到离散交叉峰索引）。
+- **峰突出度（prominence）**：Strict 预处理用 `Peak1DGetMinProminenceDb()`（默认 `M576_PEAK1D_MIN_PROMINENCE_DB`=0.3）；全序列 span 不足、argmax 双侧落差不足、或对称 prominence 窗内动态过小 → `ParabolaNotDownward`。拟合窗优先对称 prominence 半窗，样本不足时单调包络 / 固定半窗兜底（贴边 comm Step478 类仍走 `VertexOutOfRange`）。
+- **运行时配置**：exe 同目录 [`M576Calibrator.ini`](../M576CalibratorApp/M576Calibrator.ini) `[PeakFinder]` → `MinProminenceDb`；`M576AppConfig` 于 `InitInstance` 加载，**重启生效**；启动日志打印实际值。
+
+#### 4.3.9a `M576AppConfig`（`M576AppConfig.h` / `.cpp`）
+
+- 读取 `M576Calibrator.ini`，调用 `Peak1DSetMinProminenceDb`；非法值 clamp 至 `[MIN_PROMINENCE_DB_MIN, MAX]` 并回退默认。
 
 #### 4.3.10 `LutMerge1310`（`LutMerge1310.h` / `.cpp`）
 

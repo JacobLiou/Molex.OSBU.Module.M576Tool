@@ -1,9 +1,24 @@
 #pragma once
 // 仅含 1D 寻峰/预处理与三阶拟合门限宏，无 TCHAR/MFC。供 PeakFinder2D、CrossPeakTest 与 CalibConstants 共用。
 
-/// ValidateUnimodal1DAtArgmax：span=max-min 严格小于本值则 LowSpan。ParabolaVertexMax1D（三阶主路径）不据此早退。
+/// ValidateUnimodal1DAtArgmax / recenter Flat：全序列 span=max-min 严格小于本值则 LowSpan 或 trend=Flat。
 #ifndef M576_PEAK1D_MIN_SPAN_DB
 #define M576_PEAK1D_MIN_SPAN_DB 2.5
+#endif
+/// 峰突出度 (dB)：全局微平坦、argmax 双侧落差、对称拟合窗边界。运行时可由 M576Calibrator.ini 覆盖（见 Peak1DGetMinProminenceDb）。
+#ifndef M576_PEAK1D_MIN_PROMINENCE_DB
+#define M576_PEAK1D_MIN_PROMINENCE_DB 0.3
+#endif
+/// INI MinProminenceDb 合法范围（产线可调，重启生效）。
+#ifndef M576_PEAK1D_MIN_PROMINENCE_DB_MIN
+#define M576_PEAK1D_MIN_PROMINENCE_DB_MIN 0.05
+#endif
+#ifndef M576_PEAK1D_MIN_PROMINENCE_DB_MAX
+#define M576_PEAK1D_MIN_PROMINENCE_DB_MAX 2.0
+#endif
+/// 拟合窗 span / 全序列 span 低于本比例时视为 plateau 假峰（comm expand128 类）。
+#ifndef M576_PEAK1D_MIN_FIT_SPAN_FRAC
+#define M576_PEAK1D_MIN_FIT_SPAN_FRAC 0.05
 #endif
 #ifndef M576_PEAK1D_EPS_REL_OF_SPAN
 #define M576_PEAK1D_EPS_REL_OF_SPAN 1.0e-4
