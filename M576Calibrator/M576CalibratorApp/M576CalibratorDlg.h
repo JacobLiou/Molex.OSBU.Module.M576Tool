@@ -25,6 +25,7 @@
 #include "CalibWavelengthPolicy.h"
 #include "Peak1DSweepRecenter.h"
 #include "Board439fFwBurnTransport.h"
+#include "M576OutputArchive.h"
 
 namespace M576 { struct Peak1DFitTrace; }
 
@@ -72,6 +73,10 @@ private:
 	/// MCS trans1–2 SN+PN；1x64 trans3–4 每片四开关 SN+PN（写 bin 头 / 读备份用）。
 	M576TransSnPnInfo m_snInfo;
 	CString m_strCommLogPath;
+	/// Current archive session under output\archive\{id}\ (set on Read SN success).
+	CString m_archiveSessionDirAbs;
+	CString m_archiveSessionId;
+	std::vector<M576ArchiveStageEntry> m_archiveStages;
 
 	/// One port: 439F board (RECAL ASCII + MCS LUT transport via trans/$$).
 	// 单路 Z4671Command 绑定 429F 串口；CRecalSession 封装 RECAL 文本层。
@@ -261,6 +266,9 @@ private:
 	CString ResolveBinOutputDirAbs() const;
 	CString BuildSessionDacCsvPath(M576CalibBinWritePolicy policy, M576BinFileRole role) const;
 	BOOL ValidateSnBeforeBinOp(CString& errMsg) const;
+	void EnsureOutputDirTree();
+	void BeginArchiveSession();
+	void ArchiveCurrentBinSet(LPCTSTR subFolder, M576BinFileRole role, LPCTSTR stageTag, BOOL includeDacCsv);
 	static void LogBurnFilePaths(CM576CalibratorDlg* dlg, const std::array<CString, M576_BURN_FILE_COUNT>& paths, LPCTSTR roleLabel);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	// 进度回调节点，调用约定须与 McsFwProgressCb 一致（__cdecl）。

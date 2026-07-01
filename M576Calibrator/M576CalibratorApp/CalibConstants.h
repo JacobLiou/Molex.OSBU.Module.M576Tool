@@ -288,9 +288,16 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 #define M576_BOARD_FWDL_PRE_MS 5000u
 #endif
 
-/// Default directory for `{SN}_backup.bin` / `{SN}_standard.bin` (relative to exe).
+/// Working bin dir: `{SN}_backup.bin` / `{SN}_standard.bin` under `output\latest\`.
+#ifndef M576_BIN_LATEST_DIR_REL
+#define M576_BIN_LATEST_DIR_REL _T("output\\latest\\")
+#endif
+/// Immutable snapshots: `output\archive\{sessionId}\backup|standard|pre_burn`.
+#ifndef M576_BIN_ARCHIVE_DIR_REL
+#define M576_BIN_ARCHIVE_DIR_REL _T("output\\archive\\")
+#endif
 #ifndef M576_BIN_OUTPUT_DIR_REL
-#define M576_BIN_OUTPUT_DIR_REL _T("output\\")
+#define M576_BIN_OUTPUT_DIR_REL M576_BIN_LATEST_DIR_REL
 #endif
 
 #if defined(__cplusplus)

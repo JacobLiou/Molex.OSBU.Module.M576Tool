@@ -254,6 +254,17 @@ flowchart TB
 4. 生成时：`CLutBinWriter::Write` 写 MCS 分文件；`CMems1x64LutBinWriter` 写各开关 2208B；`LutMerge1310*` 在需要时与基线 bin 合。  
 5. 烧读：`McsFwUploadBinEx` / `McsReadLutBundleFromDevice` + 1x64 专用 `Switch1x64FwTransport`，均依赖此前 **`Board439fTransTunnel` 进 trans**。
 
+### 4.5 输出目录：`latest` 工作区与 `archive` 归档
+
+| 路径 | 用途 |
+|------|------|
+| `output\latest\` | 当前读写工作区：`{SN}_backup.bin` / `{SN}_standard.bin`、DAC CSV（`ResolveBinOutputDirAbs`） |
+| `output\archive\{YYYYMMDD_HHMMSS_MCS1SN}\` | Read SN 成功时创建；`backup/`、`standard/`、`pre_burn/` 为各阶段快照 |
+| `output\pm_*.csv` / `pd_*.csv` | 不变，仍在 `output\` 根目录 |
+| `output\comm_YYYY-MM-DD.log` | 不变；归档时复制到 `archive\...\logs\comm_*.log` |
+
+实现：[`M576OutputArchive.h/.cpp`](../M576CalibratorApp/M576OutputArchive.h)（`M576ArchiveCopyBinSet`、`M576WriteSessionMeta`）；挂钩在 `CM576CalibratorDlg::BeginArchiveSession` / `ArchiveCurrentBinSet`（Read SN、Read Flash、Write BIN、Burn 前）。归档失败仅 Warn 日志，不阻断主流程。
+
 ---
 
 ## 5. CrossPeakTest 工程

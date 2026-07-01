@@ -10,6 +10,7 @@
 #include "CalibWavelengthPolicy.h"
 #include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
+#include "M576OutputArchive.h"
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
 #include "PmRangeValidation.h"
@@ -531,8 +532,10 @@ void EnsureOutputFolderUnderExe(const CString& exeFolder)
 {
 	if (exeFolder.IsEmpty())
 		return;
-	CString outDir = exeFolder + _T("\\output");
-	(void)CreateDirectory(outDir, NULL);
+	CString err;
+	(void)M576EnsureDirTree(exeFolder + _T("\\output"), err);
+	(void)M576EnsureDirTree(M576ResolveLatestBinDirAbs(exeFolder), err);
+	(void)M576EnsureDirTree(M576ResolveArchiveRootAbs(exeFolder), err);
 }
 
 /// Convert an absolute path to a relative path from the exe folder.
@@ -1257,7 +1260,9 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
 	AppendLog(
-		_T("Backup BIN: Read Flash writes {SN}_backup.bin per board (10 files); run Read All SN first."));
+		_T("Backup BIN: Read Flash writes {SN}_backup.bin to output\\latest\\; archives under output\\archive\\; run Read All SN first."));
+	AppendLog(
+		_T("BIN workspace is output\\latest\\; legacy bins in output\\ root are not used — re-read Flash or move files into latest\\."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	SyncExportStatsButton();
@@ -1277,11 +1282,122 @@ void CM576CalibratorDlg::ApplyFixedBinBasePaths(BOOL syncUi)
 
 CString CM576CalibratorDlg::ResolveBinOutputDirAbs() const
 {
-	CString rel = m_strOutBin;
-	rel.Trim();
-	if (rel.IsEmpty())
-		rel = m_strBackupBin;
-	return M576NormalizeBinOutputDir(ResolveFilePath(rel));
+	return M576ResolveLatestBinDirAbs(GetExeFolder());
+}
+
+void CM576CalibratorDlg::EnsureOutputDirTree()
+{
+	EnsureOutputFolderUnderExe(GetExeFolder());
+}
+
+void CM576CalibratorDlg::BeginArchiveSession()
+{
+	EnsureOutputDirTree();
+	if (!m_archiveSessionDirAbs.IsEmpty())
+		AppendLog(_T("Archive session rotated (new Read SN)."));
+	m_archiveSessionId = M576BuildSessionFolderName(m_snInfo);
+	m_archiveSessionDirAbs = M576ResolveArchiveRootAbs(GetExeFolder()) + m_archiveSessionId;
+	m_archiveStages.clear();
+
+	CString err;
+	CString logsDir;
+	logsDir.Format(_T("%s\\logs"), m_archiveSessionDirAbs.GetString());
+	if (!M576EnsureDirTree(m_archiveSessionDirAbs, err))
+	{
+		CString m;
+		m.Format(_T("Archive session: mkdir failed: %s"), err.GetString());
+		AppendLog(m);
+		return;
+	}
+	(void)M576EnsureDirTree(logsDir, err);
+
+	M576ArchiveStageEntry st;
+	st.stageName = _T("read_sn");
+	st.utcIso = M576FormatUtcIso8601Z();
+	st.filesCopied = 0;
+	m_archiveStages.push_back(st);
+
+	CString metaErr;
+	if (!M576WriteSessionMeta(
+			m_archiveSessionDirAbs,
+			m_archiveSessionId,
+			m_snInfo,
+			GetComboCom(),
+			m_archiveStages,
+			metaErr))
+	{
+		CString m;
+		m.Format(_T("Archive session: meta.json failed: %s"), metaErr.GetString());
+		AppendLog(m);
+		return;
+	}
+	CString ok;
+	ok.Format(_T("Archive session started: %s"), m_archiveSessionDirAbs.GetString());
+	AppendLog(ok);
+}
+
+void CM576CalibratorDlg::ArchiveCurrentBinSet(
+	LPCTSTR subFolder,
+	M576BinFileRole role,
+	LPCTSTR stageTag,
+	BOOL includeDacCsv)
+{
+	if (m_archiveSessionDirAbs.IsEmpty())
+	{
+		AppendLog(_T("Archive skipped: no session (Read All SN first)."));
+		return;
+	}
+	if (subFolder == NULL || subFolder[0] == 0 || stageTag == NULL || stageTag[0] == 0)
+		return;
+
+	CString destSub;
+	destSub.Format(_T("%s\\%s"), m_archiveSessionDirAbs.GetString(), subFolder);
+	const CString latestDir = ResolveBinOutputDirAbs();
+	CString err;
+	int filesCopied = 0;
+	if (!M576ArchiveCopyBinSet(latestDir, destSub, m_snInfo, role, includeDacCsv, filesCopied, err))
+	{
+		CString m;
+		m.Format(_T("Archive warn (%s): %s"), stageTag, err.GetString());
+		AppendLog(m);
+		return;
+	}
+
+	CString logsDir;
+	logsDir.Format(_T("%s\\logs"), m_archiveSessionDirAbs.GetString());
+	const CString commAbs = ResolveFilePath(CommLogPathForCurrentDay(m_strCommLogPath));
+	CString copiedComm;
+	CString commErr;
+	if (!M576ArchiveCopyCommLogSnapshot(logsDir, commAbs, copiedComm, commErr))
+	{
+		CString m;
+		m.Format(_T("Archive warn (%s) comm snapshot: %s"), stageTag, commErr.GetString());
+		AppendLog(m);
+	}
+
+	M576ArchiveStageEntry st;
+	st.stageName = stageTag;
+	st.utcIso = M576FormatUtcIso8601Z();
+	st.filesCopied = filesCopied;
+	m_archiveStages.push_back(st);
+
+	CString metaErr;
+	if (!M576WriteSessionMeta(
+			m_archiveSessionDirAbs,
+			m_archiveSessionId,
+			m_snInfo,
+			GetComboCom(),
+			m_archiveStages,
+			metaErr))
+	{
+		CString m;
+		m.Format(_T("Archive warn (%s) meta.json: %s"), stageTag, metaErr.GetString());
+		AppendLog(m);
+	}
+
+	CString ok;
+	ok.Format(_T("Archive %s: %d file(s) -> %s"), stageTag, filesCopied, destSub.GetString());
+	AppendLog(ok);
 }
 
 BOOL CM576CalibratorDlg::ValidateSnBeforeBinOp(CString& errMsg) const
@@ -1641,7 +1757,10 @@ LRESULT CM576CalibratorDlg::OnReadBackupFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	UpdateData(FALSE);
 	if (m_readBackupLastOk)
+	{
+		ArchiveCurrentBinSet(_T("backup"), M576BinFileRole::Backup, _T("read_flash"), TRUE);
 		MessageBoxM576(m_readBackupLastMsg, MB_OK | MB_ICONINFORMATION);
+	}
 	else
 		MessageBoxM576(m_readBackupLastMsg, MB_OK | MB_ICONERROR);
 	return 0;
@@ -1657,6 +1776,7 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 	{
 		m_snInfo = m_readSnLastValues;
 		UpdateData(FALSE);
+		BeginArchiveSession();
 		AppendLog(
 			_T("Read SN: MCS trans1-2 = GetProductSN (0xA2); 1x64 trans3-4 = 4x mem (ADDR_SWITCHn_COEF+0x7E0, 16 B SN)."));
 		for (int m = 0; m < 2; ++m)
@@ -2317,13 +2437,13 @@ void CM576CalibratorDlg::OnBnClickedClosePort()
 void CM576CalibratorDlg::OnBnClickedBrowseBackup()
 {
 	ApplyFixedBinBasePaths(TRUE);
-	AppendLog(_T("BIN output directory is fixed to output\\ (selection disabled)."));
+	AppendLog(_T("BIN output directory is fixed to output\\latest\\ (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseOut()
 {
 	ApplyFixedBinBasePaths(TRUE);
-	AppendLog(_T("BIN output directory is fixed to output\\ (selection disabled)."));
+	AppendLog(_T("BIN output directory is fixed to output\\latest\\ (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
@@ -2366,7 +2486,7 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	AppendLog(_T("Read Flash: writes {SN}_backup.bin x10 under output\\ (MCS 0xC4; 1x64 MEM 4x2K per trans)."));
+	AppendLog(_T("Read Flash: writes {SN}_backup.bin x10 under output\\latest\\ (MCS 0xC4; 1x64 MEM 4x2K per trans)."));
 	m_readBackupThread = std::thread([this, absOutDir]() { ReadFlashBackupWorkerEntry(absOutDir); });
 }
 
@@ -5609,6 +5729,7 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 		MessageBoxM576(err, MB_OK | MB_ICONERROR);
 		return;
 	}
+	ArchiveCurrentBinSet(_T("standard"), M576BinFileRole::Standard, _T("write_bin"), TRUE);
 	AppendLog(_T("All {SN}_standard.bin files written."));
 	MessageBoxM576(
 		_T("Write BIN completed.\n\nAll {SN}_standard.bin files were written successfully."),
@@ -5673,6 +5794,7 @@ void CM576CalibratorDlg::OnBnClickedMakeBin()
 		MessageBoxM576(err, MB_OK | MB_ICONERROR);
 		return;
 	}
+	ArchiveCurrentBinSet(_T("standard"), M576BinFileRole::Standard, _T("make_bin"), TRUE);
 
 	AppendLog(_T("MakeBin: all {SN}_standard.bin files generated/overwritten successfully."));
 	MessageBoxM576(
@@ -5831,6 +5953,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		return;
 	}
 	LogBurnFilePaths(this, stdPaths, _T("standard (burn)"));
+	ArchiveCurrentBinSet(_T("pre_burn"), M576BinFileRole::Standard, _T("pre_burn"), TRUE);
 	m_burnFlashLastPartial = false;
 	for (bool b : burnMask) {
 		if (!b) {
