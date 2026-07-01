@@ -44,9 +44,10 @@ const UINT kRecoverBrowseIds[M576_BURN_FILE_COUNT] = {
 };
 } // namespace
 
-CM576RecoverSelectDlg::CM576RecoverSelectDlg(CWnd* pParent, LPCTSTR backupBasePathAbs)
+CM576RecoverSelectDlg::CM576RecoverSelectDlg(CWnd* pParent, LPCTSTR outDirAbs, const M576TransSnPnInfo& sn)
 	: CDialogEx(IDD_M576_RECOVER_SELECT, pParent)
-	, m_backupBasePathAbs(backupBasePathAbs ? backupBasePathAbs : _T(""))
+	, m_outDirAbs(outDirAbs ? outDirAbs : _T(""))
+	, m_snInfo(sn)
 {
 	m_maskHold.fill(true);
 	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
@@ -63,14 +64,25 @@ void CM576RecoverSelectDlg::DoDataExchange(CDataExchange* pDX)
 BOOL CM576RecoverSelectDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
-	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+	std::array<CString, M576_BURN_FILE_COUNT> defaults;
+	CString err;
+	if (M576BuildBurnFilePaths(m_outDirAbs, m_snInfo, M576BinFileRole::Backup, defaults, err))
 	{
-		CheckDlgButton(kRecoverCheckIds[i], BST_CHECKED);
-		const CString p = (i <= 1)
-			? M576TransBinPathForRead(m_backupBasePathAbs, i + 1)
-			: M576TransBinPathForSwitch(m_backupBasePathAbs, (i < 6) ? 3 : 4, (i < 6) ? (i - 2) : (i - 6));
-		m_pathEdits[i] = p;
+		for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+			m_pathEdits[i] = defaults[i];
 	}
+	else
+	{
+		const CString legacyBk = M576LegacyBackupBasePath(m_outDirAbs);
+		for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+		{
+			m_pathEdits[i] = (i <= 1)
+				? M576TransBinPathForRead(legacyBk, i + 1)
+				: M576TransBinPathForSwitch(legacyBk, (i < 6) ? 3 : 4, (i < 6) ? (i - 2) : (i - 6));
+		}
+	}
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+		CheckDlgButton(kRecoverCheckIds[i], BST_CHECKED);
 	UpdateData(FALSE);
 	return TRUE;
 }

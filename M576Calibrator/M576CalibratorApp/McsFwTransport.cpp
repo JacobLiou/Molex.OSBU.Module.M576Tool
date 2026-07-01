@@ -282,15 +282,241 @@ CString M576TransBinPathForSwitch(LPCTSTR szBasePath, int transChannel, int swId
 	return primary.Left(dot) + suf + primary.Mid(dot);
 }
 
+static LPCTSTR M576BinRoleSuffix(M576BinFileRole role)
+{
+	return (role == M576BinFileRole::Backup) ? _T("backup") : _T("standard");
+}
+
+static CString M576LegacyBinPathForBurnIndex(LPCTSTR legacyBasePath, int burnFileIndex)
+{
+	if (burnFileIndex <= 1)
+		return M576TransBinPathForRead(legacyBasePath, burnFileIndex + 1);
+	const int ch = (burnFileIndex < 6) ? 3 : 4;
+	const int sw = (burnFileIndex < 6) ? (burnFileIndex - 2) : (burnFileIndex - 6);
+	return M576TransBinPathForSwitch(legacyBasePath, ch, sw);
+}
+
+CString M576SanitizeSnForFilename(LPCTSTR sn)
+{
+	if (sn == NULL)
+		return CString();
+	CString s(sn);
+	s.Trim();
+	if (s.IsEmpty())
+		return CString();
+	CString out;
+	out.Preallocate(s.GetLength());
+	for (int i = 0; i < s.GetLength(); ++i)
+	{
+		const TCHAR c = s[i];
+		if (c == _T('\\') || c == _T('/') || c == _T(':') || c == _T('*') || c == _T('?')
+			|| c == _T('"') || c == _T('<') || c == _T('>') || c == _T('|'))
+			out += _T('_');
+		else
+			out += c;
+	}
+	out.Trim();
+	return out;
+}
+
+BOOL M576SnForBurnFileIndex(const M576TransSnPnInfo& sn, int burnFileIndex, CString& outSn, CString& err)
+{
+	err.Empty();
+	outSn.Empty();
+	if (burnFileIndex < 0 || burnFileIndex >= M576_BURN_FILE_COUNT)
+	{
+		err.Format(_T("Invalid burn file index %d."), burnFileIndex);
+		return FALSE;
+	}
+	if (burnFileIndex <= 1)
+		outSn = sn.mcsSn[burnFileIndex];
+	else if (burnFileIndex < 6)
+		outSn = sn.oneX64Sn[0][burnFileIndex - 2];
+	else
+		outSn = sn.oneX64Sn[1][burnFileIndex - 6];
+	outSn = M576SanitizeSnForFilename(outSn);
+	if (outSn.IsEmpty())
+	{
+		err.Format(
+			_T("SN empty for burn index %d (Read All SN first: MCS1, MCS2, 1x64_1 sw1-4, 1x64_2 sw1-4)."),
+			burnFileIndex);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+CString M576NormalizeBinOutputDir(LPCTSTR pathOrLegacyBase)
+{
+	CString p(pathOrLegacyBase ? pathOrLegacyBase : _T(""));
+	p.Trim();
+	if (p.IsEmpty())
+		return CString();
+	const int dot = p.ReverseFind(_T('.'));
+	const int slashBs = p.ReverseFind(_T('\\'));
+	const int slashFs = p.ReverseFind(_T('/'));
+	const int slash = (slashBs >= slashFs) ? slashBs : slashFs;
+	if (dot > slash && dot >= 0)
+		p = p.Left(dot);
+	while (!p.IsEmpty() && (p[p.GetLength() - 1] == _T('\\') || p[p.GetLength() - 1] == _T('/')))
+		p = p.Left(p.GetLength() - 1);
+	return p;
+}
+
+CString M576LegacyBackupBasePath(LPCTSTR outDirAbs)
+{
+	const CString dir = M576NormalizeBinOutputDir(outDirAbs);
+	if (dir.IsEmpty())
+		return CString(_T("backup.bin"));
+	return dir + _T("\\backup.bin");
+}
+
+CString M576LegacyStandardBasePath(LPCTSTR outDirAbs)
+{
+	const CString dir = M576NormalizeBinOutputDir(outDirAbs);
+	if (dir.IsEmpty())
+		return CString(_T("standard.bin"));
+	return dir + _T("\\standard.bin");
+}
+
+CString M576BinPathFromSn(LPCTSTR outDirAbs, LPCTSTR sn, M576BinFileRole role)
+{
+	const CString clean = M576SanitizeSnForFilename(sn);
+	if (clean.IsEmpty())
+		return CString();
+	CString dir = M576NormalizeBinOutputDir(outDirAbs);
+	if (dir.IsEmpty())
+		dir = _T(".");
+	CString path;
+	path.Format(_T("%s\\%s_%s.bin"), dir.GetString(), clean.GetString(), M576BinRoleSuffix(role));
+	return path;
+}
+
+BOOL M576BuildBurnFilePaths(
+	LPCTSTR outDirAbs,
+	const M576TransSnPnInfo& sn,
+	M576BinFileRole role,
+	std::array<CString, M576_BURN_FILE_COUNT>& outPaths,
+	CString& err)
+{
+	err.Empty();
+	const CString dir = M576NormalizeBinOutputDir(outDirAbs);
+	if (dir.IsEmpty())
+	{
+		err = _T("BIN output directory is empty.");
+		return FALSE;
+	}
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+	{
+		CString snOne;
+		if (!M576SnForBurnFileIndex(sn, i, snOne, err))
+			return FALSE;
+		outPaths[i] = M576BinPathFromSn(dir, snOne, role);
+	}
+	return TRUE;
+}
+
+CString M576ResolveBinPathForBurnIndex(
+	LPCTSTR outDirAbs,
+	LPCTSTR legacyBasePath,
+	const M576TransSnPnInfo& sn,
+	int burnFileIndex,
+	M576BinFileRole role)
+{
+	CString snOne;
+	CString err;
+	if (M576SnForBurnFileIndex(sn, burnFileIndex, snOne, err))
+	{
+		const CString snPath = M576BinPathFromSn(outDirAbs, snOne, role);
+		if (GetFileAttributes(snPath) != INVALID_FILE_ATTRIBUTES)
+			return snPath;
+	}
+	if (legacyBasePath != NULL && legacyBasePath[0] != 0)
+	{
+		const CString leg = M576LegacyBinPathForBurnIndex(legacyBasePath, burnFileIndex);
+		if (GetFileAttributes(leg) != INVALID_FILE_ATTRIBUTES)
+			return leg;
+		return leg;
+	}
+	if (!snOne.IsEmpty())
+		return M576BinPathFromSn(outDirAbs, snOne, role);
+	return CString();
+}
+
+BOOL M576ValidateSnInfoForBinOps(const M576TransSnPnInfo& sn, CString& err)
+{
+	err.Empty();
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+	{
+		CString snOne;
+		if (!M576SnForBurnFileIndex(sn, i, snOne, err))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+BOOL M576ValidateBurnSelectionByPaths(
+	const std::array<CString, M576_BURN_FILE_COUNT>& filePaths,
+	const bool* pBurnFile10,
+	CString& err)
+{
+	if (!pBurnFile10)
+		return TRUE;
+	err.Empty();
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+	{
+		if (!pBurnFile10[i])
+			continue;
+		const CString path = filePaths[i];
+		if (path.IsEmpty())
+		{
+			err.Format(_T("Burn selection: path is empty for index %d."), i);
+			return FALSE;
+		}
+		const HANDLE h = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		if (h == INVALID_HANDLE_VALUE)
+		{
+			err.Format(_T("Burn selection: file missing (required when checked): %s"), (LPCTSTR)path);
+			return FALSE;
+		}
+		const DWORD sz = GetFileSize(h, NULL);
+		CloseHandle(h);
+		if (i <= 1)
+		{
+			if (sz == 0)
+			{
+				err.Format(_T("Burn selection: file empty: %s"), (LPCTSTR)path);
+				return FALSE;
+			}
+		}
+		else if (sz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
+		{
+			err.Format(
+				_T("Burn selection: %s expected %u B, got %lu (when checked)."),
+				(LPCTSTR)path, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)sz);
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
 // 无进度回调的 MCS LUT 上载（内部转 McsFwUploadBinEx，全量烧录）。
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err)
 {
 	return McsFwUploadBinEx(cmd, szBinPath, err, NULL, NULL, NULL);
 }
 
+// Index 0–1: MCS1–2; 2–5: trans3 sw0–3; 6–9: trans4 sw0–3.
+static int M576BurnFileIndexMcs(int ch) { return ch - 1; }
+static int M576BurnFileIndex1x64(int ch, int sw)
+{
+	if (ch == 3) return 2 + sw;
+	if (ch == 4) return 6 + sw;
+	return -1;
+}
+
 // 按 g_m576FlashReadTransChannels 逐路 trans：MCS 用 0xC4+ReadLutBundle，1x64 用 MEM 8KB（见 Switch1x64）。
 BOOL McsReadLutBundleFromDevice(
-	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const M576TransSnPnInfo& snInfo)
+	Z4671Command& cmd, LPCTSTR szOutDirAbs, CString& err, McsFwProgressCb cb, void* user, const M576TransSnPnInfo& snInfo)
 {
 	err.Empty();
 	if (g_m576FlashReadTransChannelCount == 0)
@@ -298,6 +524,9 @@ BOOL McsReadLutBundleFromDevice(
 		err = _T("No read trans channels configured.");
 		return FALSE;
 	}
+	std::array<CString, M576_BURN_FILE_COUNT> backupPaths;
+	if (!M576BuildBurnFilePaths(szOutDirAbs, snInfo, M576BinFileRole::Backup, backupPaths, err))
+		return FALSE;
 	CString discard;
 	(void)Board439fTransTunnel::EndTrans(cmd, discard);
 
@@ -319,9 +548,6 @@ BOOL McsReadLutBundleFromDevice(
 	for (std::size_t i = 0; i < g_m576FlashReadTransChannelCount; ++i)
 	{
 		const int ch = g_m576FlashReadTransChannels[i];
-		CString path = M576TransBackupPathFromBase(szOutPathBase, ch);
-		cmd.TraceInfo(_T("FW"), _T("Read backup multi: trans=%d file=%s (%s)"),
-			ch, path.GetString(), IsMcsTransChannel(ch) ? _T("MCS 0xC4+LUT") : _T("1x64 MEM 4x2K"));
 		if (!Board439fTransTunnel::BeginTrans(cmd, ch, err))
 		{
 			err.Format(_T("trans %d: %s"), ch, err.GetString());
@@ -331,6 +557,9 @@ BOOL McsReadLutBundleFromDevice(
 		const int progressBase = progressAt;
 		if (IsMcsTransChannel(ch))
 		{
+			const CString path = backupPaths[(size_t)M576BurnFileIndexMcs(ch)];
+			cmd.TraceInfo(_T("FW"), _T("Read backup multi: trans=%d file=%s (MCS 0xC4+LUT)"),
+				ch, path.GetString());
 			if (!ReadLutBundleOnCurrentTunnel(
 					cmd, path, err, cb, user, progressBase, progressTotal, snInfo.mcsSn[ch - 1]))
 			{
@@ -350,8 +579,13 @@ BOOL McsReadLutBundleFromDevice(
 				return FALSE;
 			}
 			const int devIdx = (ch == 3) ? 0 : 1;
+			CString outPathPerSw[4];
+			for (int sw = 0; sw < 4; ++sw)
+				outPathPerSw[sw] = backupPaths[(size_t)M576BurnFileIndex1x64(ch, sw)];
+			cmd.TraceInfo(_T("FW"), _T("Read backup multi: trans=%d 1x64 MEM 4x2K -> %s ..."),
+				ch, outPathPerSw[0].GetString());
 			if (!M576Read1x64MemsBinOnCurrentTunnel(
-					cmd, szOutPathBase, ch, x64Base, err, cb, user, progressBase, progressTotal, snInfo.oneX64Sn[devIdx]))
+					cmd, outPathPerSw, ch, x64Base, err, cb, user, progressBase, progressTotal, snInfo.oneX64Sn[devIdx]))
 			{
 				err.Format(_T("trans %d: %s"), ch, err.GetString());
 				(void)Board439fTransTunnel::EndTrans(cmd, discard);
@@ -365,17 +599,10 @@ BOOL McsReadLutBundleFromDevice(
 			return FALSE;
 		}
 	}
-	cmd.TraceInfo(_T("FW"), _T("All read-backup channels done (base path=%s)."), szOutPathBase);
+	cmd.TraceInfo(_T("FW"), _T("All read-backup channels done (output dir=%s)."), szOutDirAbs);
 	return TRUE;
 }
 
-// Index 0–1: MCS1–2; 2–5: trans3 sw0–3; 6–9: trans4 sw0–3.
-static int M576BurnFileIndexMcs(int ch) { return ch - 1; }
-static int M576BurnFileIndex1x64(int ch, int sw) {
-	if (ch == 3) return 2 + sw;
-	if (ch == 4) return 6 + sw;
-	return -1;
-}
 static BOOL M576BurnPart(const bool* p, int burnIdx) {
 	if (!p) return TRUE;
 	if (burnIdx < 0 || burnIdx >= M576_BURN_FILE_COUNT) return TRUE;
@@ -429,51 +656,6 @@ static BOOL M576ValidateBurnSelection(LPCTSTR szBase, const bool* p, CString& er
 					(LPCTSTR)path, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)fsz);
 				return FALSE;
 			}
-		}
-	}
-	return TRUE;
-}
-
-static BOOL M576ValidateBurnSelectionByPaths(
-	const std::array<CString, M576_BURN_FILE_COUNT>& filePaths,
-	const bool* p,
-	CString& err)
-{
-	if (!p)
-		return TRUE;
-	err.Empty();
-	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
-	{
-		if (!p[i])
-			continue;
-		const CString path = filePaths[i];
-		if (path.IsEmpty())
-		{
-			err.Format(_T("Burn selection: path is empty for index %d."), i);
-			return FALSE;
-		}
-		const HANDLE h = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-		if (h == INVALID_HANDLE_VALUE)
-		{
-			err.Format(_T("Burn selection: file missing (required when checked): %s"), (LPCTSTR)path);
-			return FALSE;
-		}
-		const DWORD sz = GetFileSize(h, NULL);
-		CloseHandle(h);
-		if (i <= 1)
-		{
-			if (sz == 0)
-			{
-				err.Format(_T("Burn selection: file empty: %s"), (LPCTSTR)path);
-				return FALSE;
-			}
-		}
-		else if (sz != (DWORD)M576_1X64_MEMS_BIN_SIZE)
-		{
-			err.Format(
-				_T("Burn selection: %s expected %u B, got %lu (when checked)."),
-				(LPCTSTR)path, (unsigned)M576_1X64_MEMS_BIN_SIZE, (unsigned long)sz);
-			return FALSE;
 		}
 	}
 	return TRUE;

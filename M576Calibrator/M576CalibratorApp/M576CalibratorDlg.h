@@ -176,9 +176,11 @@ private:
 	BOOL IsSerialPortOpen() const;
 	// 后台：跑完整定标路径 / 只读 Flash 备份
 	void PathWorkerEntry();
-	void ReadFlashBackupWorkerEntry(CString absBackupBin);
+	void ReadFlashBackupWorkerEntry(CString absOutDir);
 	void ReadAllSnWorkerEntry();
-	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
+	void BurnFlashWorkerEntry(
+		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
+		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void BurnBoardWorkerEntry(CString absBinPath);
 	static void BurnBoardProgressThunk(int cur, int total, void* user);
 	void DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString outDir);
@@ -246,8 +248,8 @@ private:
 	/// Before Run path: COM, PM wavelength (if PM), built-in CSV files exist. MessageBox and return FALSE when invalid.
 	// 跑路径前：串口、（PM 时）波长、内置 CSV 等输入校验。
 	BOOL ValidateRunPathInputs(CString& errMsg);
-	/// MakeBin: standardAll1310DAC.csv + all backup bins must be present and readable.
-	BOOL ValidateMakeBinInputs(const CString& absBackupBin, const CString& absCsvPath, CString& errMsg);
+	/// MakeBin: `{MCS1_SN}_standardAll1310DAC.csv` + all backup bins must be present and readable.
+	BOOL ValidateMakeBinInputs(const CString& absOutDir, const CString& absCsvPath, CString& errMsg);
 	/// Parse low-temp 1310 DAC CSV into session structures used for bin generation.
 	BOOL ParseLowTemp1310DacCsv(
 		LPCTSTR csvPath,
@@ -255,12 +257,11 @@ private:
 		stM576OneX64MemsSwCoef memsOut[2][4],
 		CString& errMsg);
 	/// Reuse Write BIN merge/write core for both Write BIN and MakeBin.
-	BOOL GenerateStandardBinFiles(
-		const CString& absBackupBin,
-		const CString& absOutBase,
-		CString& errMsg,
-		BOOL preserveMcsMetaFromBackup);
-	CString BuildStandardAll1310DacCsvPath(const CString& absOutBase) const;
+	BOOL GenerateStandardBinFiles(const CString& absOutDir, CString& errMsg, BOOL preserveMcsMetaFromBackup);
+	CString ResolveBinOutputDirAbs() const;
+	CString BuildSessionDacCsvPath(M576CalibBinWritePolicy policy, M576BinFileRole role) const;
+	BOOL ValidateSnBeforeBinOp(CString& errMsg) const;
+	static void LogBurnFilePaths(CM576CalibratorDlg* dlg, const std::array<CString, M576_BURN_FILE_COUNT>& paths, LPCTSTR roleLabel);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	// 进度回调节点，调用约定须与 McsFwProgressCb 一致（__cdecl）。
 	static void ProgressThunk(int cur, int total, void* user);

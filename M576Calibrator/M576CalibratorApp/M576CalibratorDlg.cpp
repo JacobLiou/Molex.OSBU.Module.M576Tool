@@ -32,8 +32,8 @@
 namespace {
 // ---------- 文件内静态工具：COM 枚举、通信日志、UTF-8/ACP 窄串、路径 outcome 构造、RECAL 超时估算 ----------
 
-static const TCHAR* kM576FixedBackupBinRel = _T("output\\backup.bin");
-static const TCHAR* kM576FixedOutBinRel = _T("output\\standard.bin");
+static const TCHAR* kM576FixedBackupBinRel = M576_BIN_OUTPUT_DIR_REL;
+static const TCHAR* kM576FixedOutBinRel = M576_BIN_OUTPUT_DIR_REL;
 
 static int ComPortSortKey(const CString& s)
 {
@@ -1257,7 +1257,7 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
 	AppendLog(
-		_T("Backup BIN: Read Flash writes *_mcs1/2.bin (Z4671), *_1x64_*_sw1..4.bin (4x2K each); SN merged into headers."));
+		_T("Backup BIN: Read Flash writes {SN}_backup.bin per board (10 files); run Read All SN first."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
 	SyncExportStatsButton();
@@ -1272,6 +1272,51 @@ void CM576CalibratorDlg::ApplyFixedBinBasePaths(BOOL syncUi)
 	{
 		SetDlgItemText(IDC_EDIT_BACKUP_BIN, m_strBackupBin);
 		SetDlgItemText(IDC_EDIT_OUT_BIN, m_strOutBin);
+	}
+}
+
+CString CM576CalibratorDlg::ResolveBinOutputDirAbs() const
+{
+	CString rel = m_strOutBin;
+	rel.Trim();
+	if (rel.IsEmpty())
+		rel = m_strBackupBin;
+	return M576NormalizeBinOutputDir(ResolveFilePath(rel));
+}
+
+BOOL CM576CalibratorDlg::ValidateSnBeforeBinOp(CString& errMsg) const
+{
+	return M576ValidateSnInfoForBinOps(m_snInfo, errMsg);
+}
+
+CString CM576CalibratorDlg::BuildSessionDacCsvPath(M576CalibBinWritePolicy policy, M576BinFileRole role) const
+{
+	const CString outDir = ResolveBinOutputDirAbs();
+	CString sn = M576SanitizeSnForFilename(m_snInfo.mcsSn[0]);
+	if (sn.IsEmpty())
+		sn = _T("unknown");
+	LPCTSTR leaf = nullptr;
+	if (policy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+		leaf = (role == M576BinFileRole::Backup) ? _T("backupAll1550DAC.csv") : _T("standardAll1550DAC.csv");
+	else
+		leaf = (role == M576BinFileRole::Backup) ? _T("backupAll1310DAC.csv") : _T("standardAll1310DAC.csv");
+	CString path;
+	path.Format(_T("%s\\%s_%s"), outDir.GetString(), sn.GetString(), leaf);
+	return path;
+}
+
+void CM576CalibratorDlg::LogBurnFilePaths(
+	CM576CalibratorDlg* dlg,
+	const std::array<CString, M576_BURN_FILE_COUNT>& paths,
+	LPCTSTR roleLabel)
+{
+	if (!dlg)
+		return;
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+	{
+		CString line;
+		line.Format(_T("  [%d] %s: %s"), i, roleLabel, paths[i].GetString());
+		dlg->SafeAppendLog(line);
 	}
 }
 
@@ -1743,7 +1788,7 @@ void CM576CalibratorDlg::PathWorkerEntry()
 
 // --- 读 Flash 备份后台线程：McsReadLutBundleFromDevice，结果供 OnReadBackupFinished ---
 
-void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
+void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absOutDir)
 {
 	try
 	{
@@ -1751,7 +1796,7 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		SafeSetProgressPos(0);
 		CString err;
 		const M576TransSnPnInfo snSnap = m_snInfo;
-		if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this, snSnap))
+		if (!McsReadLutBundleFromDevice(m_dev429f, absOutDir, err, &CM576CalibratorDlg::ProgressThunk, this, snSnap))
 		{
 			m_readBackupLastOk = FALSE;
 			m_readBackupLastMsg.Format(_T("Read Flash backup failed:\n\n%s"), (LPCTSTR)err);
@@ -1762,15 +1807,19 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		else
 		{
 			m_readBackupLastOk = TRUE;
-			m_readBackupLastMsg.Format(
-				_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
-				_T("(MCS bundle SN from UI; 1x64 each 2K file uses per-switch SN from UI; MCS 0xC4 LUT; 1x64 MEM -> 4x2K.)"),
-				(LPCTSTR)absBackupBin);
+			std::array<CString, M576_BURN_FILE_COUNT> paths;
+			if (M576BuildBurnFilePaths(absOutDir, snSnap, M576BinFileRole::Backup, paths, err))
+			{
+				LogBurnFilePaths(this, paths, _T("backup"));
+				m_readBackupLastMsg.Format(
+					_T("Read Flash backup finished.\n\nOutput directory:\n%s\n\n10 files: {SN}_backup.bin (see log)."),
+					(LPCTSTR)absOutDir);
+			}
+			else
+				m_readBackupLastMsg.Format(_T("Read Flash backup finished (path list: %s)."), (LPCTSTR)err);
 			SafeSetProgressPos(100);
 			CString ok;
-			ok.Format(
-				_T("Flash backups saved: base=%s (pBundleSN from UI SN fields; 1x64 4x2K per trans)."),
-				(LPCTSTR)absBackupBin);
+			ok.Format(_T("Flash backups saved under %s ({SN}_backup.bin x10)."), (LPCTSTR)absOutDir);
 			SafeAppendLog(ok);
 		}
 	}
@@ -1837,16 +1886,16 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 // --- 烧录 Flash 后台线程：McsFwUploadBinEx 按勾选 mask 上载各 trans 分 bin ---
 
 void CM576CalibratorDlg::BurnFlashWorkerEntry(
-	CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask)
+	std::array<CString, M576_BURN_FILE_COUNT> filePaths, std::array<bool, M576_BURN_FILE_COUNT> burnMask)
 {
 	try
 	{
 		CString err;
 		SafeSetProgressRange(0, 100);
 		SafeSetProgressPos(0);
-		if (!McsFwUploadBinEx(
+		if (!McsFwUploadBinByPathsEx(
 				m_dev429f,
-				absOutBin,
+				filePaths,
 				err,
 				&CM576CalibratorDlg::ProgressThunk,
 				this,
@@ -2268,13 +2317,13 @@ void CM576CalibratorDlg::OnBnClickedClosePort()
 void CM576CalibratorDlg::OnBnClickedBrowseBackup()
 {
 	ApplyFixedBinBasePaths(TRUE);
-	AppendLog(_T("Old BIN base is fixed to output\\backup.bin (selection disabled)."));
+	AppendLog(_T("BIN output directory is fixed to output\\ (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseOut()
 {
 	ApplyFixedBinBasePaths(TRUE);
-	AppendLog(_T("Output BIN base is fixed to output\\standard.bin (selection disabled)."));
+	AppendLog(_T("BIN output directory is fixed to output\\ (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
@@ -2294,13 +2343,22 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	}
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
+	{
+		AppendLog(snErr);
+		MessageBoxM576(
+			snErr + _T("\n\nRun Read All SN first, then Read Flash backup."),
+			MB_OK | MB_ICONWARNING);
+		return;
+	}
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
 	{
 		if (!OpenPort())
 			return;
 	}
-	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
+	const CString absOutDir = ResolveBinOutputDirAbs();
 	if (m_readBackupThread.joinable())
 		m_readBackupThread.join();
 	m_readBackupRunning = true;
@@ -2308,9 +2366,8 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	AppendLog(
-		_T("Read Flash: per-trans bins; UI SN fields -> MCS bundle SN + 1x64 per-switch SN; MCS=0xC4; 1x64=MEM+4x2K."));
-	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
+	AppendLog(_T("Read Flash: writes {SN}_backup.bin x10 under output\\ (MCS 0xC4; 1x64 MEM 4x2K per trans)."));
+	m_readBackupThread = std::thread([this, absOutDir]() { ReadFlashBackupWorkerEntry(absOutDir); });
 }
 
 void CM576CalibratorDlg::OnBnClickedStop()
@@ -2965,20 +3022,6 @@ BOOL CM576CalibratorDlg::ValidateRunPathInputs(CString& errMsg)
 	return TRUE;
 }
 
-CString CM576CalibratorDlg::BuildStandardAll1310DacCsvPath(const CString& absOutBase) const
-{
-	CString outDir = absOutBase;
-	outDir.Trim();
-	const int slashBs = outDir.ReverseFind(_T('\\'));
-	const int slashFs = outDir.ReverseFind(_T('/'));
-	const int slash = (slashBs >= slashFs) ? slashBs : slashFs;
-	if (slash >= 0)
-		outDir = outDir.Left(slash);
-	else
-		outDir = GetExeFolder() + _T("\\output");
-	return outDir + _T("\\standardAll1310DAC.csv");
-}
-
 BOOL CM576CalibratorDlg::ParseLowTemp1310DacCsv(
 	LPCTSTR csvPath,
 	stLutSettingZ4671 lutOut[2],
@@ -3179,7 +3222,7 @@ BOOL CM576CalibratorDlg::ParseLowTemp1310DacCsv(
 	return TRUE;
 }
 
-BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absBackupBin, const CString& absCsvPath, CString& errMsg)
+BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absOutDir, const CString& absCsvPath, CString& errMsg)
 {
 	errMsg.Empty();
 	if (absCsvPath.IsEmpty() || GetFileAttributes(absCsvPath) == INVALID_FILE_ATTRIBUTES)
@@ -3198,10 +3241,11 @@ BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absBackupBin, cons
 		return FALSE;
 	}
 
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 	stLutSettingZ4671 tmpLut = {};
-	for (int ch = 1; ch <= 2; ++ch)
+	for (int burnIdx = 0; burnIdx < 2; ++burnIdx)
 	{
-		const CString p = M576TransBinPathForRead(absBackupBin, ch);
+		const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
 		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 		{
 			errMsg.Format(_T("MakeBin: required backup missing: %s"), p.GetString());
@@ -3215,174 +3259,160 @@ BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absBackupBin, cons
 	}
 
 	stM576OneX64MemsSwCoef tmpMems = {};
-	for (int ch = 3; ch <= 4; ++ch)
+	for (int burnIdx = 2; burnIdx < M576_BURN_FILE_COUNT; ++burnIdx)
 	{
-		for (int sw = 0; sw < 4; ++sw)
+		const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
+		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 		{
-			const CString p = M576TransBinPathForSwitch(absBackupBin, ch, sw);
-			if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
-			{
-				errMsg.Format(_T("MakeBin: required backup missing: %s"), p.GetString());
-				return FALSE;
-			}
-			if (!CMems1x64LutBinWriter::ReadMemsFromFile(p, &tmpMems))
-			{
-				errMsg.Format(_T("MakeBin: cannot read backup 1x64 bin: %s"), p.GetString());
-				return FALSE;
-			}
+			errMsg.Format(_T("MakeBin: required backup missing: %s"), p.GetString());
+			return FALSE;
+		}
+		if (!CMems1x64LutBinWriter::ReadMemsFromFile(p, &tmpMems))
+		{
+			errMsg.Format(_T("MakeBin: cannot read backup 1x64 bin: %s"), p.GetString());
+			return FALSE;
 		}
 	}
 	return TRUE;
 }
 
 BOOL CM576CalibratorDlg::GenerateStandardBinFiles(
-	const CString& absBackupBin,
-	const CString& absOutBase,
+	const CString& absOutDir,
 	CString& errMsg,
 	BOOL preserveMcsMetaFromBackup)
 {
 	errMsg.Empty();
-	for (int i = 0; i < 4; ++i)
-	{
-		if (i < 2)
-		{
-			stLutSettingZ4671 merged;
-			ZeroMemory(&merged, sizeof(merged));
-			BOOL haveBackup = FALSE;
-			CString mcsBundleSrcPath;
-			if (!m_strBackupBin.IsEmpty())
-			{
-				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
-				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = perTransBk;
-					}
-				}
-				if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = absBackupBin;
-						AppendLog(_T("Trans1: read legacy single backup file for merge."));
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				if (preserveMcsMetaFromBackup)
-				{
-					for (int sw = 0; sw < M576_MCS_LUT_SW_MERGE_COUNT; ++sw)
-					{
-						for (unsigned ch = 0; ch < M576_MCS_LUT_MERGE_CHN_COUNT; ++ch)
-						{
-							merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0];
-							merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1];
-						}
-					}
-				}
-				else
-					MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
-				CString m;
-				m.Format(
-					preserveMcsMetaFromBackup
-						? _T("Trans %d: merged CSV low-temp DAC into backup (preserved LUT temp/date meta).")
-						: _T("Trans %d: merged session LUT into per-trans backup."),
-					i + 1);
-				AppendLog(m);
-			}
-			else
-			{
-				memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
-				CString m;
-				m.Format(
-					_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."),
-					i + 1,
-					g_m576TransLutBinSuffix[i]);
-				AppendLog(m);
-			}
+	std::array<CString, M576_BURN_FILE_COUNT> stdPaths;
+	if (!M576BuildBurnFilePaths(absOutDir, m_snInfo, M576BinFileRole::Standard, stdPaths, errMsg))
+		return FALSE;
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 
-			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
-			SLutBinWriteParams p;
-			p.strOutputPath = absOutOne;
-			p.pLut = &merged;
+	for (int i = 0; i < 2; ++i)
+	{
+		stLutSettingZ4671 merged;
+		ZeroMemory(&merged, sizeof(merged));
+		BOOL haveBackup = FALSE;
+		CString mcsBundleSrcPath;
+		const CString perTransBk = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, i, M576BinFileRole::Backup);
+		if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
+		{
+			if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
 			{
-				CString sn = m_snInfo.mcsSn[i].Trim();
-				if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
-					(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
-				p.strBundleSN = sn;
+				haveBackup = TRUE;
+				mcsBundleSrcPath = perTransBk;
 			}
-			if (!CLutBinWriter::Write(p))
+		}
+		if (haveBackup)
+		{
+			if (preserveMcsMetaFromBackup)
 			{
-				errMsg.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
-				return FALSE;
+				for (int sw = 0; sw < M576_MCS_LUT_SW_MERGE_COUNT; ++sw)
+				{
+					for (unsigned ch = 0; ch < M576_MCS_LUT_MERGE_CHN_COUNT; ++ch)
+					{
+						merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0];
+						merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1];
+					}
+				}
 			}
-			memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
-			CString ok;
-			ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
-			AppendLog(ok);
+			else if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+				MergeLut1550RoomHighSlots(merged, m_lutByTrans[i]);
+			else
+				MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
+			CString m;
+			m.Format(
+				preserveMcsMetaFromBackup
+					? _T("Trans %d: merged CSV low-temp DAC into backup (preserved LUT temp/date meta).")
+					: (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+						? _T("Trans %d: merged 1550 room+high LUT into backup.")
+						: _T("Trans %d: merged session LUT into per-trans backup."),
+				i + 1);
+			AppendLog(m);
 		}
 		else
 		{
-			stM576OneX64MemsSwCoef merged4[4];
-			ZeroMemory(merged4, sizeof(merged4));
-			BOOL haveBackup = FALSE;
-			if (!m_strBackupBin.IsEmpty())
+			memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
+			CString m;
+			m.Format(_T("Trans %d: no backup bin; writing in-memory LUT only."), i + 1);
+			AppendLog(m);
+		}
+
+		SLutBinWriteParams p;
+		p.strOutputPath = stdPaths[i];
+		p.pLut = &merged;
+		{
+			CString sn = m_snInfo.mcsSn[i].Trim();
+			if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
+				(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
+			p.strBundleSN = sn;
+		}
+		if (!CLutBinWriter::Write(p))
+		{
+			errMsg.Format(_T("Write BIN failed (trans %d): %s"), i + 1, stdPaths[i].GetString());
+			return FALSE;
+		}
+		memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
+		CString ok;
+		ok.Format(_T("Trans %d: wrote %s"), i + 1, stdPaths[i].GetString());
+		AppendLog(ok);
+	}
+
+	for (int li = 2; li < 4; ++li)
+	{
+		const int dev = li - 2;
+		stM576OneX64MemsSwCoef merged4[4];
+		ZeroMemory(merged4, sizeof(merged4));
+		BOOL haveBackup = FALSE;
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+			const CString perSwBk = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
+			if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
 			{
-				for (int sw = 0; sw < 4; ++sw)
-				{
-					const CString perSwBk = M576TransBinPathForSwitch(absBackupBin, i + 1, sw);
-					if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
-					{
-						if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
-							haveBackup = TRUE;
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				MergeMems1310LowTempSlot(merged4, m_mems1x64[i - 2]);
-				CString m;
-				m.Format(
-					_T("Trans %d: merged 1310 Mems session (4x2K) into per-trans backup (1x64 *._sw*)."),
-					i + 1);
-				AppendLog(m);
-			}
-			else
-			{
-				memcpy(merged4, m_mems1x64[i - 2], sizeof(merged4));
-				CString m;
-				m.Format(
-					_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."),
-					i + 1);
-				AppendLog(m);
-			}
-			for (int sw = 0; sw < 4; ++sw)
-			{
-				M576OneX64ApplyStandardTempMeta(merged4[sw]);
-				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
-				if (sn.IsEmpty())
-					sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
-				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
-				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
-				{
-					errMsg.Format(_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"),
-						i + 1, sw + 1, absOutSw.GetString());
-					return FALSE;
-				}
-			}
-			memcpy(m_mems1x64[i - 2], merged4, sizeof(m_mems1x64[i - 2]));
-			{
-				const CString baseTag = M576TransBackupPathFromBase(absOutBase, i + 1);
-				CString ok;
-				ok.Format(_T("Trans %d: wrote 1x64 4x2K from base %s (*_sw1..4)"), i + 1, baseTag.GetString());
-				AppendLog(ok);
+				if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
+					haveBackup = TRUE;
 			}
 		}
+		if (haveBackup)
+		{
+			if (preserveMcsMetaFromBackup)
+				MergeMems1310LowTempSlot(merged4, m_mems1x64[dev]);
+			else if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+				MergeMems1550RoomHighSlots(merged4, m_mems1x64[dev]);
+			else
+				MergeMems1310LowTempSlot(merged4, m_mems1x64[dev]);
+			CString m;
+			m.Format(_T("Trans %d: merged Mems session (4x2K) into backup."), li + 1);
+			AppendLog(m);
+		}
+		else
+		{
+			memcpy(merged4, m_mems1x64[dev], sizeof(merged4));
+			CString m;
+			m.Format(_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."), li + 1);
+			AppendLog(m);
+		}
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+			M576OneX64ApplyStandardTempMeta(merged4[sw]);
+			CString sn = m_snInfo.oneX64Sn[dev][sw].Trim();
+			if (sn.IsEmpty())
+				sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
+			const CString absOutSw = stdPaths[burnIdx];
+			if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
+			{
+				errMsg.Format(_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"),
+					li + 1, sw + 1, absOutSw.GetString());
+				return FALSE;
+			}
+		}
+		memcpy(m_mems1x64[dev], merged4, sizeof(m_mems1x64[dev]));
+		CString ok;
+		ok.Format(_T("Trans %d: wrote 1x64 4x2K ({SN}_standard.bin x4)"), li + 1);
+		AppendLog(ok);
 	}
+	LogBurnFilePaths(this, stdPaths, _T("standard"));
 	return TRUE;
 }
 
@@ -3409,6 +3439,15 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	if (!ValidateRunPathInputs(valErr))
 	{
 		MessageBoxM576(valErr, MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
+	{
+		AppendLog(snErr);
+		MessageBoxM576(
+			snErr + _T("\n\nRun Read All SN first, then Run Path."),
+			MB_OK | MB_ICONWARNING);
 		return;
 	}
 	m_bStop = FALSE;
@@ -3567,16 +3606,15 @@ void CM576CalibratorDlg::OnDestroy()
 
 void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 {
-	CString base = m_strBackupBin;
-	base.Trim();
-	if (base.IsEmpty())
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
 		return;
-	const CString absBk = ResolveFilePath(base);
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 	for (int li = 0; li < 4; ++li)
 	{
 		if (li < 2)
 		{
-			const CString p = M576TransBinPathForRead(absBk, li + 1);
+			const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, li, M576BinFileRole::Backup);
 			if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 				continue;
 			if (CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
@@ -3594,31 +3632,27 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 		}
 		else
 		{
-			// 1x64: Read Flash only writes *_1x64_*_swN.bin (no aggregate *_1x64_1.bin). Do not gate on PathForRead.
-			const CString p = M576TransBinPathForRead(absBk, li + 1);
+			const int dev = li - 2;
 			BOOL anySw = FALSE;
 			for (int sw = 0; sw < 4; ++sw)
 			{
-				const CString ps = M576TransBinPathForSwitch(absBk, li + 1, sw);
+				const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+				const CString ps = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
 				if (GetFileAttributes(ps) == INVALID_FILE_ATTRIBUTES)
 					continue;
-				if (CMems1x64LutBinWriter::ReadMemsFromFile(ps, &m_mems1x64[li - 2][sw]))
+				if (CMems1x64LutBinWriter::ReadMemsFromFile(ps, &m_mems1x64[dev][sw]))
 					anySw = TRUE;
 			}
 			if (anySw)
 			{
 				CString m;
-				m.Format(
-					_T("Run path: preloaded 1x64 trans %d (per-switch 2K Mems) from %s_sw*"),
-					li + 1, p.GetString());
+				m.Format(_T("Run path: preloaded 1x64 trans %d (per-switch 2K Mems, SN paths)."), li + 1);
 				SafeAppendLog(m);
 			}
 			else
 			{
 				CString m;
-				m.Format(
-					_T("Run path: no 1x64 per-switch Mems backup for trans %d (expected %s_sw1..4)"),
-					li + 1, p.GetString());
+				m.Format(_T("Run path: no 1x64 per-switch Mems backup for trans %d."), li + 1);
 				SafeAppendLog(m);
 			}
 		}
@@ -3628,18 +3662,17 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 BOOL CM576CalibratorDlg::PreloadRunPathBackupOrFail(CString& errMsg)
 {
 	errMsg.Empty();
-	CString base = m_strBackupBin;
-	base.Trim();
-	if (base.IsEmpty())
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
 	{
-		errMsg = _T("Run Path: Backup BIN base path is empty.");
+		errMsg = _T("Run Path: BIN output directory is empty.");
 		return FALSE;
 	}
-	const CString absBk = ResolveFilePath(base);
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 
 	for (int li = 0; li < 2; ++li)
 	{
-		const CString p = M576TransBinPathForRead(absBk, li + 1);
+		const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, li, M576BinFileRole::Backup);
 		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 		{
 			errMsg.Format(_T("Run Path preload failed: MCS backup missing:\n%s"), p.GetString());
@@ -3660,7 +3693,8 @@ BOOL CM576CalibratorDlg::PreloadRunPathBackupOrFail(CString& errMsg)
 		const int dev = li - 2;
 		for (int sw = 0; sw < 4; ++sw)
 		{
-			const CString ps = M576TransBinPathForSwitch(absBk, li + 1, sw);
+			const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+			const CString ps = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
 			if (GetFileAttributes(ps) == INVALID_FILE_ATTRIBUTES)
 			{
 				errMsg.Format(_T("Run Path preload failed: 1x64 backup missing:\n%s"), ps.GetString());
@@ -3672,12 +3706,8 @@ BOOL CM576CalibratorDlg::PreloadRunPathBackupOrFail(CString& errMsg)
 				return FALSE;
 			}
 		}
-		const CString p = M576TransBinPathForRead(absBk, li + 1);
 		CString m;
-		m.Format(
-			_T("Run path: preloaded 1x64 trans %d (4x per-switch Mems) from %s_sw*"),
-			li + 1,
-			p.GetString());
+		m.Format(_T("Run path: preloaded 1x64 trans %d (4x per-switch Mems, SN paths)."), li + 1);
 		SafeAppendLog(m);
 	}
 	return TRUE;
@@ -3740,18 +3770,11 @@ void CM576CalibratorDlg::ExportSessionDacCsv(M576CalibBinWritePolicy policy, LPC
 	if (logPreamble == NULL)
 		logPreamble = _T("");
 
-	CString absOut = ResolveFilePath(m_strOutBin);
-	absOut.Trim();
-	CString outDir;
-	const int slashBs = absOut.ReverseFind(_T('\\'));
-	const int slashFs = absOut.ReverseFind(_T('/'));
-	const int slash = (slashBs >= slashFs) ? slashBs : slashFs;
-	if (slash >= 0)
-		outDir = absOut.Left(slash);
-	else
-		outDir = GetExeFolder() + _T("\\output");
+	CString absOut = ResolveBinOutputDirAbs();
+	if (absOut.IsEmpty())
+		absOut = GetExeFolder() + _T("\\output");
 
-	const CString fullPath = outDir + _T("\\") + CString(csvLeafName);
+	const CString fullPath = absOut + _T("\\") + CString(csvLeafName);
 
 	CFile f;
 	if (!f.Open(fullPath, CFile::modeCreate | CFile::modeWrite | CFile::typeBinary))
@@ -3857,13 +3880,11 @@ void CM576CalibratorDlg::ExportSessionDacCsv(M576CalibBinWritePolicy policy, LPC
 
 void CM576CalibratorDlg::ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet()
 {
-	CString base = m_strBackupBin;
-	base.Trim();
-	if (base.IsEmpty())
+	if (ResolveBinOutputDirAbs().IsEmpty())
 		return;
-	const LPCTSTR leaf = (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-		? _T("backupAll1550DAC.csv")
-		: _T("backupAll1310DAC.csv");
+	const CString fullPath = BuildSessionDacCsvPath(m_sessionCalibPolicy, M576BinFileRole::Backup);
+	const int slash = fullPath.ReverseFind(_T('\\'));
+	const CString leaf = (slash >= 0) ? fullPath.Mid(slash + 1) : fullPath;
 	ExportSessionDacCsv(m_sessionCalibPolicy, leaf, _T("Run path"));
 }
 
@@ -5550,191 +5571,47 @@ void CM576CalibratorDlg::OnBnClickedGenBin()
 {
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);
-	if (m_strOutBin.IsEmpty())
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
 	{
-		AppendLog(_T("Set output BIN base path (writes <base>_mcs1/2.bin, <base>*_1x64_*_sw1..4.bin)."));
+		AppendLog(snErr);
 		MessageBoxM576(
-			_T("Set output BIN base path first (writes MCS Z4671 bins and 1x64 4x2K per trans)."),
+			snErr + _T("\n\nRun Read All SN first, then Write BIN."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
-	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
-	const CString absOutBase = ResolveFilePath(m_strOutBin);
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
+	{
+		MessageBoxM576(_T("BIN output directory is empty."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	EnsureOutputFolderUnderExe(GetExeFolder());
 
 	if (M576SessionLutMemsAllZero(m_lutByTrans, m_mems1x64))
 	{
-		AppendLog(_T("Write BIN: session LUT/Mems empty; preloading from local backup base (if present)."));
+		AppendLog(_T("Write BIN: session LUT/Mems empty; preloading from {SN}_backup.bin (if present)."));
 		TryPreloadLutFromPerTransBackup();
 	}
 
 	WarnIfUiWavelengthDiffersFromSession();
-	const LPCTSTR standardDacLeaf =
-		(m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-		? _T("standardAll1550DAC.csv")
-		: _T("standardAll1310DAC.csv");
-	ExportSessionDacCsv(m_sessionCalibPolicy, standardDacLeaf, _T("Write BIN"));
-
-	for (int i = 0; i < 4; ++i)
 	{
-		if (i < 2)
-		{
-			stLutSettingZ4671 merged;
-			ZeroMemory(&merged, sizeof(merged));
-			BOOL haveBackup = FALSE;
-			CString mcsBundleSrcPath;
-			if (!m_strBackupBin.IsEmpty())
-			{
-				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
-				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = perTransBk;
-					}
-				}
-				if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = absBackupBin;
-						AppendLog(_T("Trans1: read legacy single backup file for merge."));
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-				{
-					MergeLut1550RoomHighSlots(merged, m_lutByTrans[i]);
-					CString m;
-					m.Format(_T("Trans %d: merged 1550 room+high LUT into per-trans backup."), i + 1);
-					AppendLog(m);
-				}
-				else
-				{
-					MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
-					CString m;
-					m.Format(_T("Trans %d: merged 1310 low-temp LUT into per-trans backup."), i + 1);
-					AppendLog(m);
-				}
-			}
-			else
-			{
-				memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
-				CString m;
-				m.Format(
-					_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."),
-					i + 1,
-					g_m576TransLutBinSuffix[i]);
-				AppendLog(m);
-			}
-
-			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
-			SLutBinWriteParams p;
-			p.strOutputPath = absOutOne;
-			p.pLut = &merged;
-			{
-				CString sn = m_snInfo.mcsSn[i].Trim();
-				if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
-					(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
-				p.strBundleSN = sn;
-			}
-			if (!CLutBinWriter::Write(p))
-			{
-				CString m;
-				m.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
-				AppendLog(m);
-				CString box;
-				box.Format(_T("Write BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
-			CString ok;
-			ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
-			AppendLog(ok);
-		}
-		else
-		{
-			stM576OneX64MemsSwCoef merged4[4];
-			ZeroMemory(merged4, sizeof(merged4));
-			BOOL haveBackup = FALSE;
-			if (!m_strBackupBin.IsEmpty())
-			{
-				for (int sw = 0; sw < 4; ++sw)
-				{
-					const CString perSwBk = M576TransBinPathForSwitch(absBackupBin, i + 1, sw);
-					if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
-					{
-						if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
-							haveBackup = TRUE;
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-				{
-					MergeMems1550RoomHighSlots(merged4, m_mems1x64[i - 2]);
-					CString m;
-					m.Format(
-						_T("Trans %d: merged 1550 room+high Mems (4x2K) into per-trans backup (1x64 *._sw*)."),
-						i + 1);
-					AppendLog(m);
-				}
-				else
-				{
-					MergeMems1310LowTempSlot(merged4, m_mems1x64[i - 2]);
-					CString m;
-					m.Format(
-						_T("Trans %d: merged 1310 low-temp Mems session (4x2K) into per-trans backup (1x64 *._sw*)."),
-						i + 1);
-					AppendLog(m);
-				}
-			}
-			else
-			{
-				memcpy(merged4, m_mems1x64[i - 2], sizeof(merged4));
-				CString m;
-				m.Format(
-					_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."),
-					i + 1);
-				AppendLog(m);
-			}
-			for (int sw = 0; sw < 4; ++sw)
-			{
-				M576OneX64ApplyStandardTempMeta(merged4[sw]);
-				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
-				if (sn.IsEmpty())
-					sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
-				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
-				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
-				{
-					CString m;
-					m.Format(
-						_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"), i + 1, sw + 1, absOutSw.GetString());
-					AppendLog(m);
-					CString box;
-					box.Format(
-						_T("Write 1x64 Mems BIN failed (trans %d sw %d):\n\n%s"), i + 1, sw + 1, absOutSw.GetString());
-					MessageBoxM576(box, MB_OK | MB_ICONERROR);
-					return;
-				}
-			}
-			memcpy(m_mems1x64[i - 2], merged4, sizeof(m_mems1x64[i - 2]));
-			{
-				const CString baseTag = M576TransBackupPathFromBase(absOutBase, i + 1);
-				CString ok;
-				ok.Format(_T("Trans %d: wrote 1x64 4x2K from base %s (*_sw1..4)"), i + 1, baseTag.GetString());
-				AppendLog(ok);
-			}
-		}
+		const CString fullCsv = BuildSessionDacCsvPath(m_sessionCalibPolicy, M576BinFileRole::Standard);
+		const int slash = fullCsv.ReverseFind(_T('\\'));
+		const CString leaf = (slash >= 0) ? fullCsv.Mid(slash + 1) : fullCsv;
+		ExportSessionDacCsv(m_sessionCalibPolicy, leaf, _T("Write BIN"));
 	}
-	AppendLog(_T("All trans BIN files written."));
+
+	CString err;
+	if (!GenerateStandardBinFiles(absOutDir, err, FALSE))
+	{
+		AppendLog(err);
+		MessageBoxM576(err, MB_OK | MB_ICONERROR);
+		return;
+	}
+	AppendLog(_T("All {SN}_standard.bin files written."));
 	MessageBoxM576(
-		_T("Write BIN completed.\n\nAll per-trans .bin files were written successfully."),
+		_T("Write BIN completed.\n\nAll {SN}_standard.bin files were written successfully."),
 		MB_OK | MB_ICONINFORMATION);
 }
 
@@ -5745,18 +5622,24 @@ void CM576CalibratorDlg::OnBnClickedMakeBin()
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);
 
-	if (m_strOutBin.IsEmpty())
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
 	{
-		MessageBoxM576(_T("MakeBin: output BIN base path is empty."), MB_OK | MB_ICONWARNING);
+		MessageBoxM576(snErr + _T("\n\nRun Read All SN first."), MB_OK | MB_ICONWARNING);
 		return;
 	}
 
-	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
-	const CString absOutBase = ResolveFilePath(m_strOutBin);
-	const CString absCsvPath = BuildStandardAll1310DacCsvPath(absOutBase);
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
+	{
+		MessageBoxM576(_T("MakeBin: BIN output directory is empty."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	const CString absCsvPath = BuildSessionDacCsvPath(M576CalibBinWritePolicy::Slot1310Low, M576BinFileRole::Standard);
 
 	CString err;
-	if (!ValidateMakeBinInputs(absBackupBin, absCsvPath, err))
+	if (!ValidateMakeBinInputs(absOutDir, absCsvPath, err))
 	{
 		AppendLog(err);
 		MessageBoxM576(err, MB_OK | MB_ICONERROR);
@@ -5778,18 +5661,22 @@ void CM576CalibratorDlg::OnBnClickedMakeBin()
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	memcpy(&m_lutByTrans[0], &csvLut[0], sizeof(csvLut));
 	memcpy(&m_mems1x64[0][0], &csvMems[0][0], sizeof(csvMems));
-	AppendLog(_T("MakeBin: loaded low-temp DAC values from output\\standardAll1310DAC.csv."));
+	{
+		CString msg;
+		msg.Format(_T("MakeBin: loaded low-temp DAC values from %s."), absCsvPath.GetString());
+		AppendLog(msg);
+	}
 
-	if (!GenerateStandardBinFiles(absBackupBin, absOutBase, err, TRUE))
+	if (!GenerateStandardBinFiles(absOutDir, err, TRUE))
 	{
 		AppendLog(err);
 		MessageBoxM576(err, MB_OK | MB_ICONERROR);
 		return;
 	}
 
-	AppendLog(_T("MakeBin: all standard BIN files generated/overwritten successfully."));
+	AppendLog(_T("MakeBin: all {SN}_standard.bin files generated/overwritten successfully."));
 	MessageBoxM576(
-		_T("MakeBin completed.\n\nLoaded standardAll1310DAC.csv and regenerated all standard BIN files."),
+		_T("MakeBin completed.\n\nLoaded standard DAC CSV and regenerated all {SN}_standard.bin files."),
 		MB_OK | MB_ICONINFORMATION);
 }
 
@@ -5859,60 +5746,45 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("Read Flash backup in progress; wait before burning flash."));
 		return;
 	}
-	if (m_strOutBin.IsEmpty())
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
 	{
-		AppendLog(_T("Set output BIN base; burn: MCS (trans1-2) FW stream, 1x64 (trans3-4) 4xfwdl+XMODEM per *_1x64_*_sw1..4.bin."));
+		AppendLog(snErr);
 		MessageBoxM576(
-			_T("Set output BIN base first (burn uses <base>_mcs*.bin and <base>*_1x64_*_swN.bin)."),
+			snErr + _T("\n\nRun Read All SN first, then Write BIN."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
-	const CString absOutBin = ResolveFilePath(m_strOutBin);
-	BOOL anyBin = FALSE;
-	for (int ti = 1; ti <= 4; ++ti)
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	std::array<CString, M576_BURN_FILE_COUNT> stdPaths;
+	CString pathErr;
+	if (!M576BuildBurnFilePaths(absOutDir, m_snInfo, M576BinFileRole::Standard, stdPaths, pathErr))
 	{
-		if (ti <= 2)
+		AppendLog(pathErr);
+		MessageBoxM576(pathErr, MB_OK | MB_ICONWARNING);
+		return;
+	}
+	BOOL anyBin = FALSE;
+	for (const CString& p : stdPaths)
+	{
+		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+			continue;
+		HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		if (h == INVALID_HANDLE_VALUE)
+			continue;
+		const DWORD sz = GetFileSize(h, NULL);
+		CloseHandle(h);
+		if (sz > 0)
 		{
-			const CString p = M576TransBinPathForRead(absOutBin, ti);
-			if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
-			{
-				HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-				if (h != INVALID_HANDLE_VALUE)
-				{
-					const DWORD sz = GetFileSize(h, NULL);
-					CloseHandle(h);
-					if (sz > 0)
-						anyBin = TRUE;
-				}
-			}
-		}
-		else
-		{
-			for (int sw = 0; sw < 4; ++sw)
-			{
-				const CString p = M576TransBinPathForSwitch(absOutBin, ti, sw);
-				if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
-				{
-					HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-					if (h != INVALID_HANDLE_VALUE)
-					{
-						const DWORD sz = GetFileSize(h, NULL);
-						CloseHandle(h);
-						if (sz > 0)
-						{
-							anyBin = TRUE;
-							break;
-						}
-					}
-				}
-			}
+			anyBin = TRUE;
+			break;
 		}
 	}
 	if (!anyBin)
 	{
-		AppendLog(_T("No non-empty per-trans .bin (*_mcs* or *_1x64_*_swN) for this base; run Write BIN or place backups first."));
+		AppendLog(_T("No non-empty {SN}_standard.bin files; run Write BIN first."));
 		MessageBoxM576(
-			_T("Cannot burn: no non-empty per-trans .bin for this base.\n\nRun Write BIN or copy backup files first."),
+			_T("Cannot burn: no non-empty {SN}_standard.bin files.\n\nRun Write BIN or copy standard files first."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -5925,7 +5797,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	if (MessageBoxM576(
 			_T("Warning: Burn Flash will program the device on the current 439F tunnel(s):\n\n")
 			_T("Trans 1-2: MCS firmware stream\n")
-			_T("Trans 3-4: 1x64 XMODEM 4x per trans (*_1x64_*_sw1..4.bin)\n\n")
+			_T("Trans 3-4: 1x64 XMODEM 4x per trans ({SN}_standard.bin)\n\n")
 			_T("Continue?"),
 			MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)
 		!= IDYES)
@@ -5933,7 +5805,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("Burn Flash cancelled by user."));
 		return;
 	}
-	CM576BurnSelectDlg burnDlg(this, absOutBin);
+	CM576BurnSelectDlg burnDlg(this, absOutDir);
 	if (burnDlg.DoModal() != IDOK)
 	{
 		AppendLog(_T("Burn Flash cancelled (file selection)."));
@@ -5951,6 +5823,14 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		MessageBoxM576(_T("No part selected for burn."), MB_OK | MB_ICONWARNING);
 		return;
 	}
+	CString validateErr;
+	if (!M576ValidateBurnSelectionByPaths(stdPaths, burnMask.data(), validateErr))
+	{
+		AppendLog(validateErr);
+		MessageBoxM576(validateErr, MB_OK | MB_ICONERROR);
+		return;
+	}
+	LogBurnFilePaths(this, stdPaths, _T("standard (burn)"));
 	m_burnFlashLastPartial = false;
 	for (bool b : burnMask) {
 		if (!b) {
@@ -5965,7 +5845,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	SetPathActionButtonsEnabled(FALSE);
 	AppendLog(_T("Burn Flash started in background..."));
 	m_burnFlashThread = std::thread(
-		[this, absOutBin, burnMask]() { BurnFlashWorkerEntry(absOutBin, burnMask); });
+		[this, stdPaths, burnMask]() { BurnFlashWorkerEntry(stdPaths, burnMask); });
 }
 
 void CM576CalibratorDlg::OnBnClickedRecoverFlash()
@@ -5996,8 +5876,8 @@ void CM576CalibratorDlg::OnBnClickedRecoverFlash()
 		SyncSerialPortUi();
 	}
 
-	const CString absBackupBase = ResolveFilePath(m_strBackupBin);
-	CM576RecoverSelectDlg dlg(this, absBackupBase);
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	CM576RecoverSelectDlg dlg(this, absOutDir, m_snInfo);
 	if (dlg.DoModal() != IDOK)
 	{
 		AppendLog(_T("Recover Flash cancelled (file selection)."));

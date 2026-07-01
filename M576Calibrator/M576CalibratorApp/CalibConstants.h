@@ -276,9 +276,21 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 #ifndef M576_1X64_FWDL_PRE_MS
 #define M576_1X64_FWDL_PRE_MS 5000u
 #endif
+/// 1x64 `fwdl\r` rejected (e.g. Invalid command): max attempts before abort (Burn/Recover trans 3/4).
+#ifndef M576_1X64_FWDL_RETRY_MAX
+#define M576_1X64_FWDL_RETRY_MAX 10
+#endif
+#ifndef M576_1X64_FWDL_RETRY_DELAY_MS
+#define M576_1X64_FWDL_RETRY_DELAY_MS 200u
+#endif
 /// After `fwdl\\r` on 439F main board (direct, no trans) before first XMODEM block.
 #ifndef M576_BOARD_FWDL_PRE_MS
 #define M576_BOARD_FWDL_PRE_MS 5000u
+#endif
+
+/// Default directory for `{SN}_backup.bin` / `{SN}_standard.bin` (relative to exe).
+#ifndef M576_BIN_OUTPUT_DIR_REL
+#define M576_BIN_OUTPUT_DIR_REL _T("output\\")
 #endif
 
 #if defined(__cplusplus)

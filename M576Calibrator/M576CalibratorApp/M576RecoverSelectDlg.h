@@ -7,7 +7,7 @@
 class CM576RecoverSelectDlg : public CDialogEx
 {
 public:
-	CM576RecoverSelectDlg(CWnd* pParent, LPCTSTR backupBasePathAbs);
+	CM576RecoverSelectDlg(CWnd* pParent, LPCTSTR outDirAbs, const M576TransSnPnInfo& sn);
 	enum
 	{
 		IDD = IDD_M576_RECOVER_SELECT
@@ -24,7 +24,8 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 private:
-	CString m_backupBasePathAbs;
+	CString m_outDirAbs;
+	M576TransSnPnInfo m_snInfo;
 	std::array<CString, M576_BURN_FILE_COUNT> m_pathEdits;
 	std::array<bool, M576_BURN_FILE_COUNT> m_maskHold;
 };
