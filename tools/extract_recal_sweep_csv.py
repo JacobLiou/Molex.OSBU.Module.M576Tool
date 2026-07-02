@@ -3,6 +3,10 @@
 """
 Extract firmware RECAL sweep payloads from M576Calibrator comm logs into CSV.
 
+Note: current M576Calibrator writes `output\\comm_YYYY-MM-DD_recal_sweeps.csv` in real time
+during Run Path (all retry attempts, path column). Use this script for **legacy comm logs**
+only, or when you need to regenerate sweeps from archived comm snapshots.
+
 Scope: lines between "Run Path Started" and "Path run finished (PM all slots)." or
 "Path run finished (PD all slots).".
 

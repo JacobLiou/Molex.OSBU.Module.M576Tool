@@ -11,6 +11,8 @@ rem   package_m576.bat nobuild nopkill  - either order for two flags
 set "SCRIPT_DIR=%~dp0"
 set "SLN=%SCRIPT_DIR%M576Calibrator.sln"
 set "APP_REL=%SCRIPT_DIR%M576CalibratorApp\Release\M576CalibratorApp.exe"
+set "INI_REL=%SCRIPT_DIR%M576CalibratorApp\Release\M576Calibrator.ini"
+set "INI_SRC=%SCRIPT_DIR%M576CalibratorApp\M576Calibrator.ini"
 set "OUT_SRC=%SCRIPT_DIR%M576CalibratorApp\Release\output"
 set "CSV_SRC=%SCRIPT_DIR%output"
 set "DIST=%SCRIPT_DIR%dist\M576Calibrator"
@@ -74,6 +76,21 @@ copy /Y "%APP_REL%" "%DIST%\" >nul
 if errorlevel 1 (
   echo ERROR: Copy exe failed.
   exit /b 1
+)
+
+set "INI_OK=0"
+if exist "%INI_REL%" (
+  copy /Y "%INI_REL%" "%DIST%\M576Calibrator.ini" >nul
+  if not errorlevel 1 set "INI_OK=1"
+)
+if "!INI_OK!"=="0" if exist "%INI_SRC%" (
+  copy /Y "%INI_SRC%" "%DIST%\M576Calibrator.ini" >nul
+  if not errorlevel 1 set "INI_OK=1"
+)
+if "!INI_OK!"=="0" (
+  echo WARNING: M576Calibrator.ini not found in Release or M576CalibratorApp\; PeakFinder MinProminenceDb will use built-in default.
+) else (
+  echo Copied: M576Calibrator.ini ^(exe-side config; restart app after edit^).
 )
 
 set "CSV_OK=0"
@@ -188,6 +205,8 @@ if exist "!VCREDIST!" (
   echo.
   echo CRT/MFC DLLs are VC143 redistributables copied next to the exe when packaging on a machine with VS.
   echo If a PC still reports missing DLLs, install: redist\vc_redist.x86.exe
+  echo.
+  echo Config: M576Calibrator.ini next to the exe ^([PeakFinder] MinProminenceDb etc.; restart after edit^).
   echo.
   echo Default path CSVs - per trans, under .\output\ :
   echo   PM: pm_mcs1.csv, pm_mcs2.csv, pm_1x64_1.csv, pm_1x64_2.csv

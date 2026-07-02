@@ -157,6 +157,7 @@
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576BurnSelectDlg.h" />
     <ClInclude Include="M576OutputArchive.h" />
+    <ClInclude Include="M576RecalSweepCsv.h" />
     <ClInclude Include="M576RecoverSelectDlg.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
     <ClInclude Include="McsFwTransport.h" />
@@ -192,6 +193,7 @@
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576BurnSelectDlg.cpp" />
     <ClCompile Include="M576OutputArchive.cpp" />
+    <ClCompile Include="M576RecalSweepCsv.cpp" />
     <ClCompile Include="M576RecoverSelectDlg.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />

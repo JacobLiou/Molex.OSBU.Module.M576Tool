@@ -268,8 +268,9 @@ flowchart TB
 | `output\archive\{YYYYMMDD_HHMMSS_MCS1SN}\` | Read SN 成功时创建；`backup/`、`standard/`、`pre_burn/` 为各阶段快照 |
 | `output\pm_*.csv` / `pd_*.csv` | 不变，仍在 `output\` 根目录 |
 | `output\comm_YYYY-MM-DD.log` | 不变；归档时复制到 `archive\...\logs\comm_*.log` |
+| `output\comm_YYYY-MM-DD_recal_sweeps.csv` | Run Path 实时追加：每次 RECAL 3/5 扫频（含 retry）；列 `path,cmd,attempt,peak_ok,code,c0..cN`；归档时复制到 `archive\...\logs\` |
 
-实现：[`M576OutputArchive.h/.cpp`](../M576CalibratorApp/M576OutputArchive.h)（`M576ArchiveCopyBinSet`、`M576WriteSessionMeta`）；挂钩在 `CM576CalibratorDlg::BeginArchiveSession` / `ArchiveCurrentBinSet`（Read SN、Read Flash、Write BIN、Burn 前）。归档失败仅 Warn 日志，不阻断主流程。
+实现：[`M576OutputArchive.h/.cpp`](../M576CalibratorApp/M576OutputArchive.h)（`M576ArchiveCopyBinSet`、`M576ArchiveCopyRunPathLogs`、`M576WriteSessionMeta`）；Run Path 扫频 CSV 由 [`M576RecalSweepCsv.h/.cpp`](../M576CalibratorApp/M576RecalSweepCsv.h) 在 Path worker 内写入；挂钩在 `CM576CalibratorDlg::BeginArchiveSession` / `ArchiveCurrentBinSet`（Read SN、Read Flash、Write BIN、Burn 前）。归档失败仅 Warn 日志，不阻断主流程。
 
 ---
 

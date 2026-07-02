@@ -31,6 +31,13 @@ BOOL M576ArchiveCopyBinSet(
 	BOOL includeDacCsv,
 	int& outFilesCopied,
 	CString& err);
+BOOL M576ArchiveCopyRunPathLogs(
+	LPCTSTR sessionLogsDirAbs,
+	LPCTSTR commLogAbs,
+	LPCTSTR recalSweepCsvAbs,
+	CString& outCopiedCommPath,
+	CString& outCopiedSweepPath,
+	CString& err);
 BOOL M576ArchiveCopyCommLogSnapshot(
 	LPCTSTR sessionLogsDirAbs,
 	LPCTSTR commLogAbs,

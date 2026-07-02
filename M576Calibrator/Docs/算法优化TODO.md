@@ -56,7 +56,7 @@ PM/PD Run Path 实际是：
 | ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
 | **ALG-P0-01** | 坏通道自动分型报告 | 讨论中 | 扩展 `analyze_il_channels.py`：按步输出 `validate_code`、`trend`、`Y-span`、峰位贴边、retry 次数、最终 base/offset，并与 IL 关联 |
-| **ALG-P0-02** | comm ? CrossPeakTest 回放闭环 | 讨论中 | 从 comm 提取 RECAL 3/5 功率行导出 CSV，`CrossPeakTest --mock-sweeps` 离线 A/B 算法变体 |
+| **ALG-P0-02** | comm → CrossPeakTest 回放闭环 | 部分完成 | 上位机 Run Path 已实时写 `comm_*_recal_sweeps.csv`（含全部 retry）；`tools/extract_recal_sweep_csv.py` 仍用于**旧 comm 日志**回放；`CrossPeakTest --export-peak-csv` / `--mock-sweeps` 兼容新 `path` 列 |
 | **ALG-P0-03** | 难通道清单维护 | 讨论中 | 产线维护「高发 step / slot / MCS 块」表，作为后续配置驱动与验收的输入 |
 
 **讨论点**：分型维度是否足够？是否需要按 `(fileSlot, sw, ch)` 而不仅是 path step index？

@@ -63,6 +63,23 @@ int M576CopyDacCsvIfPresent(LPCTSTR latestDir, LPCTSTR destDir, LPCTSTR mcsSnSan
 
 } // namespace
 
+static CString M576JoinExeRelativePath(LPCTSTR exeFolderAbs, LPCTSTR relFromExe)
+{
+	if (exeFolderAbs == NULL || exeFolderAbs[0] == 0)
+		return CString();
+	CString base = exeFolderAbs;
+	while (!base.IsEmpty() && (base[base.GetLength() - 1] == _T('\\') || base[base.GetLength() - 1] == _T('/')))
+		base = base.Left(base.GetLength() - 1);
+	CString rel = relFromExe;
+	while (!rel.IsEmpty() && (rel[0] == _T('\\') || rel[0] == _T('/')))
+		rel = rel.Mid(1);
+	if (base.IsEmpty())
+		return rel;
+	if (rel.IsEmpty())
+		return base;
+	return base + _T("\\") + rel;
+}
+
 CString M576FormatUtcIso8601Z()
 {
 	SYSTEMTIME st = {};
@@ -81,22 +98,12 @@ CString M576FormatUtcIso8601Z()
 
 CString M576ResolveLatestBinDirAbs(LPCTSTR exeFolderAbs)
 {
-	if (exeFolderAbs == NULL || exeFolderAbs[0] == 0)
-		return CString();
-	CString p = exeFolderAbs;
-	while (!p.IsEmpty() && (p[p.GetLength() - 1] == _T('\\') || p[p.GetLength() - 1] == _T('/')))
-		p = p.Left(p.GetLength() - 1);
-	return p + CString(M576_BIN_LATEST_DIR_REL);
+	return M576JoinExeRelativePath(exeFolderAbs, M576_BIN_LATEST_DIR_REL);
 }
 
 CString M576ResolveArchiveRootAbs(LPCTSTR exeFolderAbs)
 {
-	if (exeFolderAbs == NULL || exeFolderAbs[0] == 0)
-		return CString();
-	CString p = exeFolderAbs;
-	while (!p.IsEmpty() && (p[p.GetLength() - 1] == _T('\\') || p[p.GetLength() - 1] == _T('/')))
-		p = p.Left(p.GetLength() - 1);
-	return p + CString(M576_BIN_ARCHIVE_DIR_REL);
+	return M576JoinExeRelativePath(exeFolderAbs, M576_BIN_ARCHIVE_DIR_REL);
 }
 
 CString M576BuildSessionFolderName(const M576TransSnPnInfo& sn)
@@ -298,38 +305,87 @@ BOOL M576ArchiveCopyBinSet(
 	return TRUE;
 }
 
+BOOL M576ArchiveCopyRunPathLogs(
+	LPCTSTR sessionLogsDirAbs,
+	LPCTSTR commLogAbs,
+	LPCTSTR recalSweepCsvAbs,
+	CString& outCopiedCommPath,
+	CString& outCopiedSweepPath,
+	CString& err)
+{
+	err.Empty();
+	outCopiedCommPath.Empty();
+	outCopiedSweepPath.Empty();
+	if (sessionLogsDirAbs == NULL || sessionLogsDirAbs[0] == 0)
+	{
+		err = _T("Session logs directory is empty.");
+		return FALSE;
+	}
+	if (!M576EnsureDirTree(sessionLogsDirAbs, err))
+		return FALSE;
+
+	SYSTEMTIME st = {};
+	GetLocalTime(&st);
+	BOOL ok = TRUE;
+
+	if (commLogAbs != NULL && commLogAbs[0] != 0 && GetFileAttributes(commLogAbs) != INVALID_FILE_ATTRIBUTES)
+	{
+		CString dst;
+		dst.Format(
+			_T("%s\\comm_%04d%02d%02d_%02d%02d%02d.log"),
+			sessionLogsDirAbs,
+			(int)st.wYear,
+			(int)st.wMonth,
+			(int)st.wDay,
+			(int)st.wHour,
+			(int)st.wMinute,
+			(int)st.wSecond);
+		CString copyErr;
+		if (!M576CopyOneFile(commLogAbs, dst, copyErr))
+		{
+			err = copyErr;
+			ok = FALSE;
+		}
+		else
+			outCopiedCommPath = dst;
+	}
+
+	if (recalSweepCsvAbs != NULL && recalSweepCsvAbs[0] != 0
+		&& GetFileAttributes(recalSweepCsvAbs) != INVALID_FILE_ATTRIBUTES)
+	{
+		const CString sweepSrc(recalSweepCsvAbs);
+		int slash = sweepSrc.ReverseFind(_T('\\'));
+		if (slash < 0)
+			slash = sweepSrc.ReverseFind(_T('/'));
+		const CString fname = (slash >= 0) ? sweepSrc.Mid(slash + 1) : sweepSrc;
+		CString dst;
+		dst.Format(_T("%s\\%s"), sessionLogsDirAbs, fname.GetString());
+		CString copyErr;
+		if (!M576CopyOneFile(recalSweepCsvAbs, dst, copyErr))
+		{
+			if (!err.IsEmpty())
+				err += _T("; ");
+			err += copyErr;
+			ok = FALSE;
+		}
+		else
+			outCopiedSweepPath = dst;
+	}
+	return ok;
+}
+
 BOOL M576ArchiveCopyCommLogSnapshot(
 	LPCTSTR sessionLogsDirAbs,
 	LPCTSTR commLogAbs,
 	CString& outCopiedPath,
 	CString& err)
 {
-	err.Empty();
-	outCopiedPath.Empty();
-	if (sessionLogsDirAbs == NULL || sessionLogsDirAbs[0] == 0)
-	{
-		err = _T("Session logs directory is empty.");
-		return FALSE;
-	}
-	if (commLogAbs == NULL || commLogAbs[0] == 0 || GetFileAttributes(commLogAbs) == INVALID_FILE_ATTRIBUTES)
-		return TRUE;
-	if (!M576EnsureDirTree(sessionLogsDirAbs, err))
-		return FALSE;
-
-	SYSTEMTIME st = {};
-	GetLocalTime(&st);
-	CString dst;
-	dst.Format(
-		_T("%s\\comm_%04d%02d%02d_%02d%02d%02d.log"),
+	CString unusedSweep;
+	return M576ArchiveCopyRunPathLogs(
 		sessionLogsDirAbs,
-		(int)st.wYear,
-		(int)st.wMonth,
-		(int)st.wDay,
-		(int)st.wHour,
-		(int)st.wMinute,
-		(int)st.wSecond);
-	if (!M576CopyOneFile(commLogAbs, dst, err))
-		return FALSE;
-	outCopiedPath = dst;
-	return TRUE;
+		commLogAbs,
+		NULL,
+		outCopiedPath,
+		unusedSweep,
+		err);
 }

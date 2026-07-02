@@ -11,6 +11,7 @@
 #include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
 #include "M576OutputArchive.h"
+#include "M576RecalSweepCsv.h"
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
 #include "PmRangeValidation.h"
@@ -215,6 +216,91 @@ static std::string M576PathBasenameUtf8(LPCTSTR path)
 	if (slash >= 0)
 		base = base.Mid(slash + 1);
 	return M576CStringToUtf8(base);
+}
+
+static std::string M576CsvStemUtf8(const std::string& basenameUtf8)
+{
+	const size_t dot = basenameUtf8.rfind('.');
+	if (dot != std::string::npos && dot > 0)
+		return basenameUtf8.substr(0, dot);
+	return basenameUtf8;
+}
+
+static CString M576FormatRecalSweepPathColumn(
+	BOOL isPm,
+	const std::string& csvStem,
+	int fileSlot,
+	int stepIndex1,
+	int stepTotal,
+	LPCSTR recalWire,
+	const std::string& routeLabel)
+{
+	char buf[512];
+	const int n = std::snprintf(
+		buf,
+		sizeof(buf),
+		"%s_%s|slot=%d|step=%d/%d|%s|%s",
+		isPm ? "pm" : "pd",
+		csvStem.c_str(),
+		fileSlot + 1,
+		stepIndex1,
+		stepTotal,
+		(recalWire != nullptr) ? recalWire : "",
+		routeLabel.c_str());
+	if (n < 0 || n >= (int)sizeof(buf))
+		return CString();
+#ifdef _UNICODE
+	return CString(CA2W(buf, CP_UTF8));
+#else
+	return CString(buf);
+#endif
+}
+
+static void M576AppendRecalCrossAxisSweepCsvRow(
+	BOOL isPm,
+	int sweepMode,
+	int baseX,
+	int baseY,
+	int offsetDac,
+	double col0,
+	const std::vector<double>& powers,
+	int attempt1Based,
+	const M576::SweepRecenterSessionState& xRetryState,
+	int attemptDacRangeX,
+	int uiFineRangeX,
+	int stepDac,
+	int delayMs)
+{
+	if (powers.empty())
+		return;
+	int peakIdx = 0;
+	M576::Peak1DValidateCode code = M576::Peak1DValidateCode::Empty;
+	double tPeak = 0.0;
+	M576::Peak1DFitTrace trace;
+	const M576::Peak1DFitPolicy policy =
+		M576::Peak1DFitPolicyForCrossAxis(xRetryState, attemptDacRangeX, uiFineRangeX);
+	const BOOL peakOk =
+		M576::FindUnimodalPeak1DIndex(powers, peakIdx, code, &tPeak, &trace, policy);
+	CStringA wireA;
+	if (isPm)
+		wireA.Format(
+			"RECAL 3 %d %d %d %d %d %d",
+			sweepMode,
+			baseX,
+			baseY,
+			offsetDac,
+			stepDac,
+			delayMs);
+	else
+		wireA.Format(
+			"RECAL 5 %d %d %d %d %d %d",
+			sweepMode,
+			baseX,
+			baseY,
+			offsetDac,
+			stepDac,
+			delayMs);
+	M576RecalSweepCsvAppendRow(CString(wireA), col0, powers, attempt1Based, peakOk, code);
 }
 
 static void M576FillPeakCodeFields(SCalibPathStepOutcome& o, M576::Peak1DValidateCode code)
@@ -852,7 +938,36 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 		const M576::Peak1DFitPolicy fitPolicy = M576::IsFineRefineSweepAttempt(retryState)
 			? M576::Peak1DFitPolicy::FineRefineRelaxed
 			: M576::Peak1DFitPolicy::Strict;
-		if (M576::FindUnimodalPeak1DIndex(outPow, outPeakIdx, outCode, &outTPeak, &outTrace, fitPolicy))
+		const BOOL peakFindOk = M576::FindUnimodalPeak1DIndex(outPow, outPeakIdx, outCode, &outTPeak, &outTrace, fitPolicy);
+		{
+			CStringA wireA;
+			if (isPm)
+				wireA.Format(
+					"RECAL 3 %d %d %d %d %d %d",
+					sweepMode,
+					baseX,
+					baseY,
+					attemptDacRange,
+					m_dacStep,
+					m_delayMs);
+			else
+				wireA.Format(
+					"RECAL 5 %d %d %d %d %d %d",
+					sweepMode,
+					baseX,
+					baseY,
+					attemptDacRange,
+					m_dacStep,
+					m_delayMs);
+			M576RecalSweepCsvAppendRow(
+				CString(wireA),
+				outCol0,
+				outPow,
+				attempt + 1,
+				peakFindOk,
+				outCode);
+		}
+		if (peakFindOk)
 		{
 			if (outTrace.usedArgmaxFallback)
 			{
@@ -1372,9 +1487,11 @@ void CM576CalibratorDlg::ArchiveCurrentBinSet(
 	CString logsDir;
 	logsDir.Format(_T("%s\\logs"), m_archiveSessionDirAbs.GetString());
 	const CString commAbs = ResolveFilePath(CommLogPathForCurrentDay(m_strCommLogPath));
+	const CString sweepAbs = ResolveFilePath(M576RecalSweepCsvRelPathForCurrentDay(m_strCommLogPath));
 	CString copiedComm;
+	CString copiedSweep;
 	CString commErr;
-	if (!M576ArchiveCopyCommLogSnapshot(logsDir, commAbs, copiedComm, commErr))
+	if (!M576ArchiveCopyRunPathLogs(logsDir, commAbs, sweepAbs, copiedComm, copiedSweep, commErr))
 	{
 		CString m;
 		m.Format(_T("Archive warn (%s) comm snapshot: %s"), stageTag, commErr.GetString());
@@ -1889,6 +2006,9 @@ LRESULT CM576CalibratorDlg::OnBurnBoardFinished(WPARAM, LPARAM)
 
 void CM576CalibratorDlg::PathWorkerEntry()
 {
+	const CString sweepRel = M576RecalSweepCsvRelPathForCurrentDay(m_strCommLogPath);
+	const CString sweepAbs = ResolveFilePath(sweepRel);
+	(void)M576RecalSweepCsvBeginRun(sweepAbs, m_nCalMode == 0);
 	try
 	{
 		if (m_nCalMode == 0)
@@ -1908,6 +2028,7 @@ void CM576CalibratorDlg::PathWorkerEntry()
 		SafeAppendLog(_T("Path worker: unknown C++ exception (see output\\m576_fatal.log)."));
 		M576AppendFatalLogUtf8("[Path worker] unknown C++ exception");
 	}
+	M576RecalSweepCsvEndRun();
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_PATH_FINISHED, 0, 0);
 }
@@ -4407,6 +4528,24 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				SafeAppendLog(msg);
 			}
 		}
+		{
+			CStringA recal1Wire;
+			recal1Wire.Format(
+				"RECAL 1 %d %d %d %d %d",
+				st.targetSwitchIndex,
+				st.c1,
+				st.c2,
+				st.c3,
+				st.c4);
+			M576RecalSweepCsvSetStepContext(M576FormatRecalSweepPathColumn(
+				TRUE,
+				M576CsvStemUtf8(csvBasename),
+				fileSlot,
+				i + 1,
+				total,
+				recal1Wire.GetString(),
+				M576FormatPathStepRouteLabelPm(st)));
+		}
 
 		double xFixedDac = 0.0;
 		std::vector<double> powY;
@@ -4617,6 +4756,20 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					}
 					break;
 				}
+				M576AppendRecalCrossAxisSweepCsvRow(
+					TRUE,
+					1,
+					movingX,
+					fixedY,
+					attemptDacRangeX,
+					sweep1LineCol0,
+					powX,
+					xAttempt + 1,
+					xRetryState,
+					attemptDacRangeX,
+					uiFineRangeX,
+					m_dacStep,
+					m_delayMs);
 				{
 					CString msg;
 					msg.Format(
@@ -5218,6 +5371,18 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				SafeAppendLog(msg);
 			}
 		}
+		{
+			CStringA recal2Wire;
+			recal2Wire.Format("RECAL 2 %d %d %d", st.targetSwitchIndex, st.ch1, st.ch2);
+			M576RecalSweepCsvSetStepContext(M576FormatRecalSweepPathColumn(
+				FALSE,
+				M576CsvStemUtf8(csvBasename),
+				fileSlot,
+				i + 1,
+				total,
+				recal2Wire.GetString(),
+				M576FormatPathStepRouteLabelPd(st)));
+		}
 
 		double xFixedDacPd = 0.0;
 		std::vector<double> powY;
@@ -5362,6 +5527,20 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					pdSkipStep = TRUE;
 					break;
 				}
+				M576AppendRecalCrossAxisSweepCsvRow(
+					FALSE,
+					1,
+					movingXPd,
+					fixedYPd,
+					attemptDacRangeXPd,
+					sweep1LineCol0Pd,
+					powX,
+					xAttempt + 1,
+					xRetryStatePd,
+					attemptDacRangeXPd,
+					uiFineRangeXPd,
+					m_dacStep,
+					m_delayMs);
 				{
 					CString msg;
 					msg.Format(

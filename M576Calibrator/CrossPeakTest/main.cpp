@@ -351,16 +351,85 @@ static bool ParseRecalSweepCmd(const std::string& cmd, RecalSweepCmdFields& out)
 	return false;
 }
 
+static bool SplitCsvFieldsSimple(const std::string& line, std::vector<std::string>& fields)
+{
+	fields.clear();
+	std::string cur;
+	bool inQuote = false;
+	for (size_t i = 0; i < line.size(); ++i)
+	{
+		const char c = line[i];
+		if (inQuote)
+		{
+			if (c == '"')
+			{
+				if (i + 1 < line.size() && line[i + 1] == '"')
+				{
+					cur += '"';
+					++i;
+				}
+				else
+					inQuote = false;
+			}
+			else
+				cur += c;
+		}
+		else if (c == '"')
+			inQuote = true;
+		else if (c == ',')
+		{
+			fields.push_back(cur);
+			cur.clear();
+		}
+		else
+			cur += c;
+	}
+	fields.push_back(cur);
+	return !fields.empty();
+}
+
 static bool SplitSweepCsvRow(const std::string& line, std::string& cmd, std::vector<double>& nums)
 {
 	cmd.clear();
 	nums.clear();
-	const size_t comma = line.find(',');
-	if (comma == std::string::npos)
+	std::vector<std::string> fields;
+	if (!SplitCsvFieldsSimple(line, fields))
 		return false;
-	cmd = line.substr(0, comma);
+	for (std::string& f : fields)
+		TrimInPlace(f);
+	if (fields.empty())
+		return false;
+
+	size_t cmdIdx = 0;
+	const std::string& first = fields[0];
+	if (first.find("|slot=") != std::string::npos
+		|| (first.rfind("RECAL", 0) != 0 && fields.size() >= 2))
+		cmdIdx = 1;
+	if (cmdIdx >= fields.size())
+		return false;
+	cmd = fields[cmdIdx];
 	TrimInPlace(cmd);
-	return ParseNumberLine(line.substr(comma + 1), nums) && !cmd.empty();
+	if (cmd.empty())
+		return false;
+
+	size_t numStart = cmdIdx + 1;
+	if (cmdIdx == 1 && fields.size() >= cmdIdx + 4)
+		numStart = cmdIdx + 4;
+
+	for (size_t i = numStart; i < fields.size(); ++i)
+	{
+		if (fields[i].empty())
+			continue;
+		try
+		{
+			nums.push_back(std::stod(fields[i]));
+		}
+		catch (...)
+		{
+			return false;
+		}
+	}
+	return !nums.empty();
 }
 
 static std::string EscapeCsvField(const std::string& s)
@@ -501,7 +570,7 @@ static int RunExportPeakCsv(const char* inPath, const char* outPath, bool utf8Bo
 			for (char& c : lower)
 				if (c >= 'A' && c <= 'Z')
 					c = (char)(c - 'A' + 'a');
-			if (lower.find("cmd") != std::string::npos)
+			if (lower.find("cmd") != std::string::npos || lower.find("path") != std::string::npos)
 				continue;
 		}
 
@@ -1899,6 +1968,45 @@ static int RunSweepRecenterSelfTests()
 	return fail;
 }
 
+/// Assert SplitSweepCsvRow accepts legacy cmd-first rows and new path,cmd,attempt,peak_ok,code rows.
+static int RunSweepCsvSplitSelfTests()
+{
+	int fail = 0;
+	auto check = [&](const char* label, const char* line, const char* expectCmdPrefix, size_t minNums)
+	{
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums))
+		{
+			std::fprintf(stderr, "self-test sweep-csv: %s parse failed\n", label);
+			++fail;
+			return;
+		}
+		if (cmd.rfind(expectCmdPrefix, 0) != 0 || nums.size() < minNums)
+		{
+			std::fprintf(stderr,
+				"self-test sweep-csv: %s mismatch cmd=%s nums=%zu\n",
+				label,
+				cmd.c_str(),
+				nums.size());
+			++fail;
+		}
+	};
+
+	check(
+		"legacy",
+		"RECAL 3 0 9999 64 4 80,-2322,-2311,-2300",
+		"RECAL 3",
+		3);
+	check(
+		"path-ext",
+		"pm_pm_mcs1|slot=1|step=1/128|RECAL 1 4 13 1 1 45|tgt=4 c1=13,"
+		"RECAL 3 0 9999 9999 64 4 80,2,0,ParabolaNotDownward,-2322,-2311,-2300",
+		"RECAL 3",
+		3);
+	return fail;
+}
+
 /// Assert RECAL 3/5 six-parameter command strings match CRecalSession::SendRecal3/5 format (INV-18).
 static int RunRecalCmdFormatSelfTests()
 {
@@ -2153,6 +2261,8 @@ int main(int argc, char* argv[])
 		return 9;
 	if (RunRecalCmdFormatSelfTests() != 0)
 		return 12;
+	if (RunSweepCsvSplitSelfTests() != 0)
+		return 15;
 	if (RunPmRangeSelfTests() != 0)
 		return 11;
 	if (RunSweepRecenterSelfTests() != 0)
