@@ -2,6 +2,7 @@
 // 二维/一维简单寻峰，用于 RECAL 3/5 两向扫频后的交叉峰（与 M576 定标流程配合）。
 
 #include <vector>
+#include "PmRangeValidation.h"
 
 namespace M576
 {
@@ -34,7 +35,7 @@ namespace M576
 		PmRangeMismatch,        ///< 全局有效极大值 dBm 不在界面 PM 挡位内（RECAL 3）
 	};
 
-	/// Strict：粗扫 / jump-max / mono shift 全部门限。FineRefineRelaxed：粗扫 OK 后的 uiFineRange 精扫（跳过 relFlat 等；三阶失败可 argmax 回退）。
+	/// Strict：粗扫 / jump-max / mono shift 全部门限。FineRefineRelaxed：粗扫 OK 后的 uiFineRange 精扫（跳过平坦门控；三阶失败可 argmax 回退）。
 	enum class Peak1DFitPolicy
 	{
 		Strict,
@@ -45,8 +46,19 @@ namespace M576
 	/// 固件 P 行中无效功率占位，仅二者之一。
 	bool IsRecal1DPowerInvalidValue(double v);
 
-	/// 当前生效的峰突出度门限 (dB)：运行时 INI 或 Peak1DSetMinProminenceDb 覆盖，否则 M576_PEAK1D_MIN_PROMINENCE_DB。
+	/// dB 门限 → 固件 raw 功率差（INV-16：dBm = raw/10000）；算法内 span/肩点比较一律用本函数。
+	inline double Peak1DDbToRawDelta(double db)
+	{
+		return db * M576_RECAL_RAW_TO_DBM_SCALE;
+	}
+
+	/// 当前生效的平坦/突出度门限 (dB)：离群剔除后 useOk 点 span 下限；INI MinProminenceDb 或默认 M576_PEAK1D_MIN_PROMINENCE_DB。
 	double Peak1DGetMinProminenceDb();
+	/// 平坦门限 raw 功率差（Peak1DDbToRawDelta(Peak1DGetMinProminenceDb())）。
+	inline double Peak1DMinFlatSpanRaw()
+	{
+		return Peak1DDbToRawDelta(Peak1DGetMinProminenceDb());
+	}
 	/// 产线/单测注入；非法值会被 clamp 到 [MIN, MAX]。fromIni=true 时 Get 带来源标记供日志。
 	void Peak1DSetMinProminenceDb(double db, bool fromIni = false);
 	void Peak1DResetMinProminenceDb();
@@ -54,6 +66,12 @@ namespace M576
 
 	/// argmax 格点两侧（跳过无效功率）是否均达到 minPromDb 落差；供 recenter Flat 判定。
 	bool Peak1DArgmaxHasBilateralProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb);
+
+	/// argmax 左侧是否达到 minPromDb 落差（跳过无效功率）。
+	bool Peak1DArgmaxHasLeftProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb);
+
+	/// argmax 右侧是否达到 minPromDb 落差（跳过无效功率）。
+	bool Peak1DArgmaxHasRightProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb);
 
 	/// 可选调试输出：全序列有效点全局 argmax（平局先出现者）与进入三阶拟合的格点样本。
 	struct Peak1DFitTrace

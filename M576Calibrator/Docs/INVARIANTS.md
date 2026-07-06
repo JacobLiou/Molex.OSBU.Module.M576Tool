@@ -1,4 +1,4 @@
-# M576 ���겻������INVARIANTS��
+﻿# M576 ���겻������INVARIANTS��
 
 ���ĵ��г�**���������ƻ�**��Լ�������ڴ���������̼�/���߶Ա����Լ� Cursor AI ����ǰ�Լ졣ϸ���±�� [`LUT_INDEXING.md`](LUT_INDEXING.md)��
 
@@ -34,16 +34,16 @@
 
 | ID | ������ |
 |----|--------|
-| **INV-10** | **Flat 扫频**（`profile.trend == Flat` + `ParabolaNotDownward` 等）：**一步跳到** `M576_MAX_DAC_RANGE`（`SuggestJumpMaxDacRange`，非 ×2 阶梯），base 不变；已在 max 仍失败则 **FlatAtMaxShift**（`AdjustProfileForFlatAtMaxShift` + `SuggestSweepRecenterNewBase`，保持 offset=200）。粗扫 cubic OK 或 coarse hint 后须 **FineRefine** 回 UI `m_dacRange`（`NeedsFineRefineAfterSuccess`）。FineRefine 扫频使用 `Peak1DFitPolicy::FineRefineRelaxed`（`IsFineRefineSweepAttempt` / `Peak1DFitPolicyForSweepResult`：跳过 relFlat/全序列单调/贴边导数；三阶失败可 argmax 回退）；**交叉寻峰**对已在 uiFineRange 的 Y/X 数据同样用 Relaxed（`Peak1DFitPolicyForSweepResult` / `Peak1DFitPolicyForCrossAxis`）。`IsRetryablePeakFailure` 对纯 Flat 仍返回 false；Flat@max 平移为产线特例。最大 attempt = `M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS`（12）。**寻峰 prominence（2026-06）**：Strict 路径下全序列 `span < MinProminenceDb`（默认 0.3 dB，exe 旁 `M576Calibrator.ini` 可配）或 argmax 双侧未达该落差 → `ParabolaNotDownward`；对称 prominence 窗拟合，窄 plateau 假峰另用 `MIN_FIT_SPAN_FRAC` 拒判。 |
-| **INV-11** | `StrictInc` / `StrictDec` 及贴边 NonMono + `ParabolaNotDownward` / `NotEnoughValidSamples`：**首步 MonoCoarseShift**（`IsMonotoneSweepFailure` → offset=`M576_PEAK1D_COARSE_DAC_RANGE`（200）**且同一步** `SuggestSweepRecenterNewBase` 平移 base）；粗扫阶段后续失败走 **ShiftOnly**（保持 coarse range）。粗扫 OK 或 `IsCoarsePeakHint`（内峰 NonMono / 有限 t*）→ **FineRefine** 至 UI range（精扫同上 FineRefineRelaxed）。贴边 NonMono：argmax index ≤1 或 ≥ n-2。 |
-| **INV-12** | Ѱ�� recenter ʧ��ʱ�������ٳ���һ�� `SuggestSweepRecenterNewBase` �ٷ������᣻����δ����ֱ�� skip ��һ��ɨ��ͨ��ʧ�ܳ��⣩�� |
+| **INV-10** | **拼接式扫频 pipeline**（`Peak1DSweepPipeline` / `RunRecal1DSweepWithPeakRecenterRetry`）：**Phase1** `offset=uiFineRange`（UI `m_dacRange`，通常 64）`Strict` — Ok 则**直接返回**，不再精扫；Fail → **Phase2** `offset=M576_MAX_DAC_RANGE`（200）`Strict` — Ok → **Phase3 精扫** `offset=uiFineRange/2`（64→32）`FineRefineRelaxed`；Fail → **Phase4 拼接**：以首次@200 的 `movingBase` 为 `anchorBase`，左右交替最多 `M576_PEAK1D_STITCH_MAX_RETRIES`（3）次，位移 `k×M576_PEAK1D_STITCH_UNIT_DAC`（k=1 左 −200、k=2 右 +400、k=3 左 −600）；每段 append 后 **DAC 坐标合并**（重叠取平均）再寻峰（Relaxed + argmax 回退），**合成有峰即停** → 精扫半宽；拼接耗尽仍无峰 → **整轴 FATAL**（见 INV-15）。硬顶扫频 `M576_PEAK1D_PIPELINE_MAX_SWEEPS`（9）。`PlanNextRecal1DSweepAttempt` 等旧 planner **仅 CrossPeakTest 遗留自测**，产线路径不再调用。**平坦门限**统一为 INI `MinProminenceDb`（默认 0.3 dB）：离群剔除后 `useOk` 点 `max−min`（`Peak1DMinFlatSpanRaw`）；已移除 2.5 dB / `relFlat` 第二套判据。 |
+| **INV-11** | pipeline **粗扫@200** 与 **精扫半宽** 分工：粗扫定位用 `Strict`；精扫用 `FineRefineRelaxed`（`Peak1DFitPolicyForSweepResult`：offset≤uiFine/2 视为精扫）。粗/合成峰 DAC 由 `PeakBaseFromCoarseHint` 定心。交叉寻峰对已采集 Y/X 用 `Peak1DFitPolicyForSweepResult(attemptRange, m_dacRange)`。 |
+| **INV-12** | pipeline 业务早退仅 **`PmRangeMismatch`**（INV-16）与 **整轴算法耗尽**（FATAL）；通信/解析/串口失败由 Dlg 另判（`CommSweep` / `CommSerialBreak`），**不落** peak-pipeline FATAL。Y/X 预扫与 cross 重扫共用同一 `Recal1DSweepPipelineState` 引擎。 |
 | **INV-13** | ���� `newBase` �� `SuggestSweepRecenterNewBase` ǯλ�� int16 ��Χ��**����**����ֵĨΪ 0�� |
 | **INV-14** | �̼���Ч����ռλ���� `M576_RECAL_POW_INVALID_1` (-999999.0) �� `M576_RECAL_POW_INVALID_2` (-999900.0)�����ǰ�޳��� |
-| **INV-15** | ���경��ʧ������ɻ��� `Peak1DValidateCode`���� trend/col0/attempts �ȣ�����ֹ����������־�гɰܡ� |
+| **INV-15** | 单轴寻峰失败须结构化 `Peak1DValidateCode`、phase（`fine64`/`coarse200`/`stitch_kN`/`fineHalf`）、trend/col0/attempts 等，禁止仅靠 `LogInfo` 判成败。**pipeline 整轴耗尽**须 UI `[FATAL][peak-pipeline]` + `M576AppendFatalLogUtf8`（`output/m576_fatal.log`），`PushPathFailureOutcome` 用 `failStage=peak-pipeline-exhausted` / `CalibPathFailCategory::PeakPipelineExhausted`。 |
 | **INV-16** | **PM / RECAL 3 only**����Ч����ȫ�ּ���ֵ `dBm = raw/10000` ���ڽ��� `pm_range` 0..3 ��Ӧ�����ڣ�`pm_range==4`��auto��������ʧ���� `PmRangeMismatch`��**������** recenter�������� path ����PD��RECAL 5��������λУ�顣 |
 | **INV-17** | **PM Run Path only**��`RECAL 0` �ɹ����뷢 `opm 4 1` �� `opm 5 1`��Ӧ���Ϊ�������� 0..4������·������һ�£��������/RECAL 0 �� `pm_range` һ�£�`pm_range==4` auto ����¼���ء����ȶԣ�����һ�»�ͨ��/����ʧ�ܣ�**��־ + ���� + ����ֹͣ**���� Run Path��������·�� CSV�� |
 | **INV-18** | **RECAL 3 / RECAL 5 ɨƵ**�� **6 ����**��`{mode} {baseX} {baseY} {offset} {step} {delay}`��mode **0**���� X ɨ Y����`baseX=9999` ���䣬��ɨ `baseY=9999`������ֻ�� `baseY`��mode **1**���� Y ɨ X����`baseY=Y@peak` ȫ�̲��䣬��ɨ `baseX=9999`������ֻ�� `baseX`��`RECAL 5` �� `RECAL 3` ͬ������ 5 �����̼�/��־���ټ��ݡ� |
-| **INV-19** | **Y 预扫通过但 cross Y 失败**：`PeakCrossFrom1DScans` 在 Y 轴 `Peak1DValidateCode != Ok` 时触发 **重炉 RECAL 3/5 mode 0** 重扫 Y；各 round 由 `PlanRecalYCrossResweep`（内部 `PlanNextRecal1DSweepAttempt`）规划，与 Y 预扫重试 **同一 planner**（INV-10/11 粗扫/细扫两轨）；成功后再以 `Y@peak` 扫 X；X cross 失败时只重扫 X，不重炉 Y。 |
+| **INV-19** | **Y 预扫通过但 cross Y 失败**：`PeakCrossFrom1DScans` 在 Y 轴 `Peak1DValidateCode != Ok` 时触发 **重炉 RECAL 3/5 mode 0** 重扫 Y；`PlanRecalYCrossResweep` → `PlanRecalYCrossResweepPipeline` 用 `PeakBaseFromCoarseHint` 平移 `baseY`，**offset 保持 UI `m_dacRange`**，再跑完整 **拼接式 pipeline**（与 Y 预扫同一引擎）；成功后再以 `Y@peak` 扫 X；**X cross 失败**时 `PlanRecalYCrossResweepPipeline` 只重扫 X，不重炉 Y。 |
 
 ---
 

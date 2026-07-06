@@ -1,13 +1,17 @@
 #pragma once
 // 仅含 1D 寻峰/预处理与三阶拟合门限宏，无 TCHAR/MFC。供 PeakFinder2D、CrossPeakTest 与 CalibConstants 共用。
 
-/// ValidateUnimodal1DAtArgmax / recenter Flat：全序列 span=max-min 严格小于本值则 LowSpan 或 trend=Flat。
-#ifndef M576_PEAK1D_MIN_SPAN_DB
-#define M576_PEAK1D_MIN_SPAN_DB 2.5
-#endif
-/// 峰突出度 (dB)：全局微平坦、argmax 双侧落差、对称拟合窗边界。运行时可由 M576Calibrator.ini 覆盖（见 Peak1DGetMinProminenceDb）。
+/// ValidateUnimodal1DAtArgmax / recenter Flat：全序列 span=max-min 严格小于 MinProminenceDb 则 LowSpan 或 trend=Flat（见 Peak1DMinFlatSpanRaw）。
 #ifndef M576_PEAK1D_MIN_PROMINENCE_DB
 #define M576_PEAK1D_MIN_PROMINENCE_DB 0.3
+#endif
+/// @deprecated 平坦门限请用 Peak1DGetMinProminenceDb / Peak1DMinFlatSpanRaw（与 MIN_PROMINENCE_DB 同义）。
+#ifndef M576_PEAK1D_MIN_SPAN_DB
+#define M576_PEAK1D_MIN_SPAN_DB M576_PEAK1D_MIN_PROMINENCE_DB
+#endif
+/// JumpFlatMax@coarse 后 planner 认峰：全序列 span 下限 (dB)，低于此仍走 FlatAtMaxShift。
+#ifndef M576_PEAK1D_COARSE_MIN_SPAN_DB
+#define M576_PEAK1D_COARSE_MIN_SPAN_DB 0.5
 #endif
 /// INI MinProminenceDb 合法范围（产线可调，重启生效）。
 #ifndef M576_PEAK1D_MIN_PROMINENCE_DB_MIN
@@ -73,6 +77,17 @@
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS
 #define M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS 12
 #endif
+/// 拼接式 pipeline：相对锚点第 k 次平移 = k * UNIT_DAC（k=1..STITCH_MAX_RETRIES）。
+#ifndef M576_PEAK1D_STITCH_UNIT_DAC
+#define M576_PEAK1D_STITCH_UNIT_DAC 200
+#endif
+#ifndef M576_PEAK1D_STITCH_MAX_RETRIES
+#define M576_PEAK1D_STITCH_MAX_RETRIES 3
+#endif
+/// 单轴 pipeline 硬件扫频硬顶：64+200+3*stitch+1*fine。
+#ifndef M576_PEAK1D_PIPELINE_MAX_SWEEPS
+#define M576_PEAK1D_PIPELINE_MAX_SWEEPS 9
+#endif
 #ifndef M576_PEAK1D_COARSE_DAC_RANGE
 #define M576_PEAK1D_COARSE_DAC_RANGE M576_MAX_DAC_RANGE
 #endif
@@ -109,6 +124,10 @@
 /// Same edge argmax as prior attempt: extra |shift| multiplier.
 #ifndef M576_PEAK1D_SWEEP_RECENTER_STAGNATION_GAIN
 #define M576_PEAK1D_SWEEP_RECENTER_STAGNATION_GAIN 0.18
+#endif
+/// Flat@max FlatAtMaxShift ping-pong: min |base delta| to count as oscillation leg (~20% of coarse 200).
+#ifndef M576_PEAK1D_FLAT_OSC_MIN_DAC
+#define M576_PEAK1D_FLAT_OSC_MIN_DAC 40
 #endif
 #ifndef M576_PEAK1D_FLAT_REL_SPAN_FRAC
 #define M576_PEAK1D_FLAT_REL_SPAN_FRAC 0.002

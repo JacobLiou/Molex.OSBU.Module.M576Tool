@@ -27,7 +27,7 @@
 #include "Board439fFwBurnTransport.h"
 #include "M576OutputArchive.h"
 
-namespace M576 { struct Peak1DFitTrace; }
+namespace M576 { struct Peak1DFitTrace; struct PeakPipelineFailureReport; }
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
@@ -59,6 +59,13 @@ private:
 		double peakDbm,
 		double loDbm,
 		double hiDbm);
+	friend void M576LogPeakPipelineFatal(
+		CM576CalibratorDlg* dlg,
+		const M576::PeakPipelineFailureReport& report,
+		LPCTSTR axisTag,
+		LPCTSTR recalStageLabel,
+		int pathLine1Based,
+		int fileSlot);
 	// --- UI 与路径字符串 ---
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;
@@ -226,7 +233,9 @@ private:
 		double& outTPeak,
 		int& outAttemptCount,
 		int& outDacRangeUsed,
-		CString& err);
+		CString& err,
+		int pathLine1Based = 0,
+		int fileSlot = 0);
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();

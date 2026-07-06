@@ -166,6 +166,7 @@
     <ClInclude Include="Pm1x64Mapping.h" />
     <ClInclude Include="PeakFinder2D.h" />
     <ClInclude Include="Peak1DSweepRecenter.h" />
+    <ClInclude Include="Peak1DSweepPipeline.h" />
     <ClInclude Include="PmRangeValidation.h" />
     <ClInclude Include="RecalSession.h" />
     <ClInclude Include="resource.h" />
@@ -207,6 +208,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Peak1DSweepRecenter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="Peak1DSweepPipeline.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="RecalSession.cpp" />

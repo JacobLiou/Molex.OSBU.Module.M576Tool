@@ -10,6 +10,7 @@
 |------|------|
 | [`INVARIANTS.md`](INVARIANTS.md) | 不可违反的 INV-xx 条文（SN33/34、CH19–32、重试、Read） |
 | [`LUT_INDEXING.md`](LUT_INDEXING.md) | SN / sw / ch / MCS 块号对照表 |
+| [`PeakFinder.md`](PeakFinder.md) | 两轴交叉寻峰算法、Y 预扫重试与 planner 策略说明 |
 
 ---
 
@@ -224,7 +225,7 @@ flowchart TB
 #### 4.3.9 `PeakFinder2D`（`PeakFinder2D.h` / `.cpp`）
 
 - 命名空间 `M576`：`PeakCross2D`、`PeakMax2D`、`PeakMax1D`、`PeakCrossFrom1DScans`（两次一维扫得到离散交叉峰索引）。
-- **峰突出度（prominence）**：Strict 预处理用 `Peak1DGetMinProminenceDb()`（默认 `M576_PEAK1D_MIN_PROMINENCE_DB`=0.3）；全序列 span 不足、argmax 双侧落差不足、或对称 prominence 窗内动态过小 → `ParabolaNotDownward`。拟合窗优先对称 prominence 半窗，样本不足时单调包络 / 固定半窗兜底（贴边 comm Step478 类仍走 `VertexOutOfRange`）。
+- **峰突出度（prominence）**：Strict 预处理用 `Peak1DGetMinProminenceDb()`（默认 `M576_PEAK1D_MIN_PROMINENCE_DB`=0.3 dB）；流水线为无效剔除 → 对称去非对称尾巴 → **仅对称窗内** span≥门限（`Peak1DDbToRawDelta` 换算固件 raw）→ 三阶拟合；全序列 span 不足、argmax 双侧肩点不足、或对称窗内动态过小 → `ParabolaNotDownward`。**dB 门限仅用于配置与日志，算法内一律转 raw**（`M576_RECAL_RAW_TO_DBM_SCALE`=10000）。拟合窗优先对称 prominence 半窗（`halfW≥2`），样本不足时单调包络 / 固定半窗兜底（贴边 comm Step478 类仍走 `VertexOutOfRange`）。
 - **运行时配置**：exe 同目录 [`M576Calibrator.ini`](../M576CalibratorApp/M576Calibrator.ini) `[PeakFinder]` → `MinProminenceDb`；`M576AppConfig` 于 `InitInstance` 加载，**重启生效**；启动日志打印实际值。
 
 #### 4.3.9a `M576AppConfig`（`M576AppConfig.h` / `.cpp`）

@@ -20,6 +20,7 @@ const char* CalibPathFailCategoryLabelA(CalibPathFailCategory c)
 	case CalibPathFailCategory::XCrossPeak: return "cross X peak";
 	case CalibPathFailCategory::PmRangeMismatch: return "PM range mismatch";
 	case CalibPathFailCategory::SweepDataMismatch: return "Y/X data mismatch";
+	case CalibPathFailCategory::PeakPipelineExhausted: return "peak pipeline exhausted";
 	case CalibPathFailCategory::UserStop: return "user stop";
 	default: return "unknown";
 	}
@@ -39,6 +40,7 @@ const wchar_t* CalibPathFailCategoryLabelW(CalibPathFailCategory c)
 	case CalibPathFailCategory::XCrossPeak: return L"cross X peak";
 	case CalibPathFailCategory::PmRangeMismatch: return L"PM range mismatch";
 	case CalibPathFailCategory::SweepDataMismatch: return L"Y/X data mismatch";
+	case CalibPathFailCategory::PeakPipelineExhausted: return L"peak pipeline exhausted";
 	case CalibPathFailCategory::UserStop: return L"user stop";
 	default: return L"unknown";
 	}

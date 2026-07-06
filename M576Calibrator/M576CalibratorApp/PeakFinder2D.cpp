@@ -57,7 +57,27 @@ namespace M576
 		return g_peak1dRuntime.fromIni;
 	}
 
-	bool Peak1DArgmaxHasBilateralProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb)
+	bool Peak1DArgmaxHasLeftProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb)
+	{
+		if (argmaxIndex < 0 || argmaxIndex >= (int)powY.size())
+			return false;
+		if (IsRecal1DPowerInvalidValue(powY[(size_t)argmaxIndex]))
+			return false;
+		if (minPromDb <= 0.0 || !std::isfinite(minPromDb))
+			return false;
+		const double peakY = powY[(size_t)argmaxIndex];
+		const double thrY = peakY - Peak1DDbToRawDelta(minPromDb);
+		for (int i = argmaxIndex - 1; i >= 0; --i)
+		{
+			if (IsRecal1DPowerInvalidValue(powY[(size_t)i]))
+				continue;
+			if (powY[(size_t)i] <= thrY)
+				return true;
+		}
+		return argmaxIndex <= 0;
+	}
+
+	bool Peak1DArgmaxHasRightProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb)
 	{
 		if (argmaxIndex < 0 || argmaxIndex >= (int)powY.size())
 			return false;
@@ -67,29 +87,28 @@ namespace M576
 			return false;
 		const int n = (int)powY.size();
 		const double peakY = powY[(size_t)argmaxIndex];
-		const double thrY = peakY - minPromDb;
-		bool leftOk = false;
-		bool rightOk = false;
-		for (int i = argmaxIndex - 1; i >= 0; --i)
-		{
-			if (IsRecal1DPowerInvalidValue(powY[(size_t)i]))
-				continue;
-			if (powY[(size_t)i] <= thrY)
-			{
-				leftOk = true;
-				break;
-			}
-		}
+		const double thrY = peakY - Peak1DDbToRawDelta(minPromDb);
 		for (int j = argmaxIndex + 1; j < n; ++j)
 		{
 			if (IsRecal1DPowerInvalidValue(powY[(size_t)j]))
 				continue;
 			if (powY[(size_t)j] <= thrY)
-			{
-				rightOk = true;
-				break;
-			}
+				return true;
 		}
+		return argmaxIndex >= n - 1;
+	}
+
+	bool Peak1DArgmaxHasBilateralProminence(const std::vector<double>& powY, int argmaxIndex, double minPromDb)
+	{
+		if (argmaxIndex < 0 || argmaxIndex >= (int)powY.size())
+			return false;
+		if (IsRecal1DPowerInvalidValue(powY[(size_t)argmaxIndex]))
+			return false;
+		if (minPromDb <= 0.0 || !std::isfinite(minPromDb))
+			return false;
+		const int n = (int)powY.size();
+		const bool leftOk = Peak1DArgmaxHasLeftProminence(powY, argmaxIndex, minPromDb);
+		const bool rightOk = Peak1DArgmaxHasRightProminence(powY, argmaxIndex, minPromDb);
 		if (argmaxIndex <= 0)
 			return rightOk;
 		if (argmaxIndex >= n - 1)
@@ -363,7 +382,7 @@ namespace M576
 				hi = (std::max)(hi, ys[k]);
 			}
 			const double span = hi - lo;
-			if (span < (double)M576_PEAK1D_MIN_SPAN_DB)
+			if (span < Peak1DMinFlatSpanRaw())
 				return false;
 			const double epsMono = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB,
 				span * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
@@ -387,7 +406,7 @@ namespace M576
 			outHalfW = 0;
 			if (minPromDb <= 0.0 || !std::isfinite(minPromDb))
 				return false;
-			const double thrY = peakY - minPromDb;
+			const double thrY = peakY - Peak1DDbToRawDelta(minPromDb);
 			bool leftOk = false;
 			bool rightOk = false;
 			int leftAtThr = i0;
@@ -426,7 +445,7 @@ namespace M576
 			if (leftOk && rightOk)
 			{
 				outHalfW = (std::min)(i0 - leftAtThr, rightAtThr - i0);
-				if (outHalfW < 1)
+				if (outHalfW < 2)
 					return false;
 				outLeft = i0 - outHalfW;
 				outRight = i0 + outHalfW;
@@ -446,6 +465,39 @@ namespace M576
 				return false;
 			outLeft = i0 - outHalfW;
 			outRight = i0;
+			return true;
+		}
+
+		/// useOk 格点上的 max−min（离群剔除后平坦门控用）。
+		static bool SpanMinMaxOnUseOk(
+			const std::vector<double>& p,
+			const std::vector<unsigned char>& useOk,
+			double& outSpan)
+		{
+			outSpan = 0.0;
+			double vmin = 0.0;
+			double vmax = 0.0;
+			bool any = false;
+			const int n = (int)p.size();
+			for (int i = 0; i < n; ++i)
+			{
+				if (!useOk[(size_t)i])
+					continue;
+				const double v = p[(size_t)i];
+				if (!any)
+				{
+					vmin = vmax = v;
+					any = true;
+				}
+				else
+				{
+					vmin = (std::min)(vmin, v);
+					vmax = (std::max)(vmax, v);
+				}
+			}
+			if (!any)
+				return false;
+			outSpan = vmax - vmin;
 			return true;
 		}
 
@@ -496,22 +548,10 @@ namespace M576
 				return false;
 			}
 
-			spanAllValid = vmax - vmin;
-			const double minPromDb = Peak1DGetMinProminenceDb();
-			{
-				const double maxAbs = (std::max)(std::abs(vmin), std::abs(vmax));
-				const bool relFlat = !relaxed
-					&& (maxAbs > 1e-6
-						&& spanAllValid / maxAbs < (double)M576_PEAK1D_FLAT_REL_SPAN_FRAC);
-				if (!relaxed && (spanAllValid < minPromDb || relFlat))
-				{
-					f = Peak1DValidateCode::ParabolaNotDownward;
-					return false;
-				}
-			}
+			const double spanForOutlier = vmax - vmin;
 			const double eps = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB,
-				spanAllValid * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
-			const double outlierThrRel = spanAllValid * (double)M576_PEAK1D_OUTLIER_MIN_SPAN_FRAC;
+				spanForOutlier * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
+			const double outlierThrRel = spanForOutlier * (double)M576_PEAK1D_OUTLIER_MIN_SPAN_FRAC;
 			const double outlierThr = (std::max)((double)M576_PEAK1D_OUTLIER_MULT * eps, outlierThrRel);
 
 			std::vector<unsigned char> baseOk((size_t)n, 0);
@@ -576,6 +616,17 @@ namespace M576
 				f = Peak1DValidateCode::Empty;
 				return false;
 			}
+			if (!SpanMinMaxOnUseOk(pFilled, useOk, spanAllValid))
+			{
+				f = Peak1DValidateCode::Empty;
+				return false;
+			}
+			if (!relaxed && spanAllValid < Peak1DMinFlatSpanRaw())
+			{
+				f = Peak1DValidateCode::ParabolaNotDownward;
+				return false;
+			}
+			const double minPromDb = Peak1DGetMinProminenceDb();
 			const int i0 = bestI;
 			const double peakY = pFilled[(size_t)i0];
 
@@ -603,7 +654,7 @@ namespace M576
 				pFilled, useOk, i0, peakY, minPromDb, n, promLeft, promRight, halfW);
 			if (promOk)
 			{
-				const double thrY = peakY - minPromDb;
+				const double thrY = peakY - Peak1DDbToRawDelta(minPromDb);
 				for (int i = i0 - 1; i >= 0; --i)
 				{
 					if (!useOk[(size_t)i])
@@ -675,11 +726,6 @@ namespace M576
 						++fitHalf;
 					collectWindow(i0 - fitHalf, i0 + fitHalf);
 				}
-			}
-			else if (!relaxed)
-			{
-				f = Peak1DValidateCode::ParabolaNotDownward;
-				return false;
 			}
 
 			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES && promOk)
@@ -763,13 +809,6 @@ namespace M576
 			const double spanPts = hiPts - loPts;
 			const double epsMono = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB, spanPts * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
 
-			if (!relaxed && spanPts < Peak1DGetMinProminenceDb())
-			{
-				f = Peak1DValidateCode::ParabolaNotDownward;
-				xs.clear();
-				ys.clear();
-				return false;
-			}
 			if (!relaxed && promOk && spanAllValid > 500.0
 				&& spanPts < spanAllValid * (double)M576_PEAK1D_MIN_FIT_SPAN_FRAC
 				&& i0 > 1 && i0 < n - 2 && i0 < n / 4)
@@ -797,7 +836,7 @@ namespace M576
 			double& outT,
 			Peak1DValidateCode& f)
 		{
-			if (spanAll < (double)M576_PEAK1D_MIN_SPAN_DB)
+			if (spanAll < Peak1DMinFlatSpanRaw())
 				return false;
 			const int n = (int)p.size();
 			if (n < 1)
@@ -1084,7 +1123,7 @@ namespace M576
 			return false;
 		}
 		const double span = hi - lo;
-		if (span < (double)M576_PEAK1D_MIN_SPAN_DB)
+		if (span < Peak1DMinFlatSpanRaw())
 		{
 			f = Peak1DValidateCode::LowSpan;
 			return false;

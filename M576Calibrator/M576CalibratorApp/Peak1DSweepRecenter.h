@@ -52,6 +52,10 @@ namespace M576
 		bool inCoarsePhase = false;
 		bool fineConsumed = false;
 		int prevArgmax = -1;
+		int lastBase = 0;
+		int prevDeltaSign = 0;
+		int flatShiftCount = 0;
+		bool oscillationDetected = false;
 	};
 
 	struct SweepRetryPlan
@@ -88,6 +92,13 @@ namespace M576
 		int sampleCount,
 		const SweepRecenterFailureInfo* failure);
 
+	/// JumpFlatMax@coarse 后：内峰 + 左肩充分 + 右肩被窗截断 → planner 直接 FineRefine。
+	bool IsCoarseExpandedInteriorPeak(
+		const SweepRecenterSessionState& state,
+		const SweepProfile& profile,
+		const std::vector<double>& powSamples,
+		int sampleCount);
+
 	bool NeedsFineRefineAfterSuccess(int attemptRange, int uiFineRange);
 
 	/// After ApplySweepRetryPlan(FineRefine): next sweep uses relaxed peak validation.
@@ -113,6 +124,24 @@ namespace M576
 
 	SweepProfile AdjustProfileForFlatAtMaxShift(const SweepProfile& profile, int sampleCount);
 
+	/// Flat@max + FlatAtMaxShift 闸门：内峰 argmax 或内峰 t*。
+	bool IsInteriorPeakHint(
+		const SweepProfile& profile,
+		int sampleCount,
+		const SweepRecenterFailureInfo& failure);
+
+	/// FlatAtMaxShift 下一 base：内峰用 PeakBaseFromCoarseHint，贴边保留启发式。
+	int SuggestFlatAtMaxShiftBase(
+		double sweepCenterDac,
+		const SweepProfile& profile,
+		int sampleCount,
+		int dacRange,
+		int attemptIndex,
+		const SweepRecenterFailureInfo& failure);
+
+	/// 仅 Flat@max 链路：连续反向 FlatAtMaxShift 后应强制 FineRefine。
+	bool DetectSweepRecenterOscillation(const SweepRecenterSessionState& state);
+
 	SweepRetryPlan PlanNextRecal1DSweepAttempt(
 		const SweepRecenterSessionState& state,
 		Peak1DValidateCode code,
@@ -132,11 +161,12 @@ namespace M576
 
 	void ApplySweepRetryPlan(SweepRecenterSessionState& state, const SweepRetryPlan& plan);
 
-	/// After Y cross fit fails, plan next RECAL 3/5 mode-0 re-sweep (expand offset and/or shift baseY).
+	/// After Y cross fit fails, plan next RECAL 3/5 mode-0 re-sweep (recenter baseY; pipeline restarts @ ioDacRange).
 	bool PlanRecalYCrossResweep(
 		Peak1DValidateCode crossCode,
 		const std::vector<double>& powY,
-		double sweepCenterDac,
+		double sweepCol0,
+		int sweepHalfRange,
 		int roundIndex,
 		int& ioMovingBase,
 		int& ioDacRange,
