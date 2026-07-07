@@ -83,6 +83,25 @@ namespace M576
 		bool usedArgmaxFallback = false;
 	};
 
+	/// merged 平台型双拐点定峰 trace（stitch merge 路径）。
+	struct Peak1DPlateauTrace
+	{
+		int kneeLeftIdx = -1;
+		int kneeRightIdx = -1;
+		int argmaxIdx = -1;
+		bool usedDualKnee = false;
+	};
+
+	/// merged 曲线是否为平台峰（mesa）：NonMono + 内峰 + 平顶宽度；保守判定，避免尖峰误判。
+	bool IsMergedMesaProfile(const std::vector<double>& merged);
+
+	/// merged mesa 曲线：上升/下降沿最大斜率膝点中点为 t*（非 Strict 单段尖峰路径）。
+	bool FindPlateauDualKneePeak1D(
+		const std::vector<double>& p,
+		double& outT,
+		Peak1DValidateCode& outCode,
+		Peak1DPlateauTrace* trace = nullptr);
+
 	/// 失败时 f 非 Ok；成功时 outT 为连续峰位下标（相对整条扫频，含间隙格点下标）。
 	/// trace 非空时：入口即填全局最大；预处理成功后追加拟合点（即使后续拟合失败亦保留，便于追溯）。
 	bool ParabolaVertexMax1D(

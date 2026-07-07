@@ -1167,6 +1167,257 @@ namespace M576
 		return false;
 	}
 
+	bool IsMergedMesaProfile(const std::vector<double>& merged)
+	{
+		const int n = (int)merged.size();
+		if (n < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+			return false;
+
+		int iPeak = -1;
+		double vmin = 0.0;
+		double vmax = 0.0;
+		bool any = false;
+		for (int i = 0; i < n; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(merged[(size_t)i]))
+				continue;
+			const double v = merged[(size_t)i];
+			if (!any)
+			{
+				vmin = vmax = v;
+				iPeak = i;
+				any = true;
+			}
+			else
+			{
+				vmin = (std::min)(vmin, v);
+				if (v > vmax)
+				{
+					vmax = v;
+					iPeak = i;
+				}
+			}
+		}
+		if (!any || iPeak < 0)
+			return false;
+
+		const double span = vmax - vmin;
+		if (span < Peak1DMinFlatSpanRaw())
+			return false;
+
+		const int edge = (std::max)(1, n / 10);
+		if (iPeak < edge || iPeak >= n - edge)
+			return false;
+
+		int iL = 0;
+		double bestPosSlope = -(1e300);
+		bool haveLeft = false;
+		for (int i = 1; i <= iPeak; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(merged[(size_t)i])
+				|| IsRecal1DPowerInvalidValue(merged[(size_t)(i - 1)]))
+				continue;
+			const double d = merged[(size_t)i] - merged[(size_t)(i - 1)];
+			if (d > bestPosSlope || (d == bestPosSlope && i > iL))
+			{
+				bestPosSlope = d;
+				iL = i;
+				haveLeft = true;
+			}
+		}
+		if (!haveLeft)
+			iL = 0;
+
+		int iR = n - 1;
+		double bestNegSlope = 1e300;
+		bool haveRight = false;
+		for (int i = iPeak + 1; i < n; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(merged[(size_t)i])
+				|| IsRecal1DPowerInvalidValue(merged[(size_t)(i - 1)]))
+				continue;
+			const double d = merged[(size_t)i] - merged[(size_t)(i - 1)];
+			if (d < bestNegSlope || (d == bestNegSlope && i < iR))
+			{
+				bestNegSlope = d;
+				iR = i;
+				haveRight = true;
+			}
+		}
+		if (!haveRight)
+			iR = n - 1;
+
+		if (iL >= iR)
+			return false;
+
+		const int minPlateau = (std::max)(5, (n * 12 + 99) / 100);
+		if (iR - iL + 1 < minPlateau)
+			return false;
+
+		double topLo = vmax;
+		double topHi = vmin;
+		for (int i = iL; i <= iR; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(merged[(size_t)i]))
+				continue;
+			const double v = merged[(size_t)i];
+			topLo = (std::min)(topLo, v);
+			topHi = (std::max)(topHi, v);
+		}
+		if (topHi - topLo > span * 0.12)
+			return false;
+
+		const double epsMono = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB,
+			span * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
+		bool strictInc = true;
+		bool strictDec = true;
+		bool havePrev = false;
+		double prevY = 0.0;
+		for (int i = 0; i < n; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(merged[(size_t)i]))
+				continue;
+			const double y = merged[(size_t)i];
+			if (havePrev)
+			{
+				if (y <= prevY + epsMono)
+					strictInc = false;
+				if (y >= prevY - epsMono)
+					strictDec = false;
+			}
+			prevY = y;
+			havePrev = true;
+		}
+		return havePrev && !strictInc && !strictDec;
+	}
+
+	bool FindPlateauDualKneePeak1D(
+		const std::vector<double>& p,
+		double& outT,
+		Peak1DValidateCode& outCode,
+		Peak1DPlateauTrace* trace)
+	{
+		outCode = Peak1DValidateCode::Ok;
+		outT = 0.0;
+		if (trace != nullptr)
+		{
+			trace->kneeLeftIdx = -1;
+			trace->kneeRightIdx = -1;
+			trace->argmaxIdx = -1;
+			trace->usedDualKnee = false;
+		}
+
+		const int n = (int)p.size();
+		if (n < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+		{
+			outCode = Peak1DValidateCode::NotEnoughSamples;
+			return false;
+		}
+
+		int iPeak = -1;
+		double vmin = 0.0;
+		double vmax = 0.0;
+		bool any = false;
+		for (int i = 0; i < n; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(p[(size_t)i]))
+				continue;
+			const double v = p[(size_t)i];
+			if (!any)
+			{
+				vmin = vmax = v;
+				iPeak = i;
+				any = true;
+			}
+			else
+			{
+				vmin = (std::min)(vmin, v);
+				vmax = (std::max)(vmax, v);
+				if (v > p[(size_t)iPeak])
+					iPeak = i;
+			}
+		}
+		if (!any || iPeak < 0)
+		{
+			outCode = Peak1DValidateCode::Empty;
+			return false;
+		}
+		const double span = vmax - vmin;
+		if (span < Peak1DMinFlatSpanRaw())
+		{
+			outCode = Peak1DValidateCode::LowSpan;
+			return false;
+		}
+
+		int iL = 0;
+		double bestPosSlope = -(1e300);
+		bool haveLeft = false;
+		for (int i = 1; i <= iPeak; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(p[(size_t)i]) || IsRecal1DPowerInvalidValue(p[(size_t)(i - 1)]))
+				continue;
+			const double d = p[(size_t)i] - p[(size_t)(i - 1)];
+			if (d > bestPosSlope || (d == bestPosSlope && i > iL))
+			{
+				bestPosSlope = d;
+				iL = i;
+				haveLeft = true;
+			}
+		}
+		if (!haveLeft)
+			iL = 0;
+
+		int iR = n - 1;
+		double bestNegSlope = 1e300;
+		bool haveRight = false;
+		for (int i = iPeak + 1; i < n; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(p[(size_t)i]) || IsRecal1DPowerInvalidValue(p[(size_t)(i - 1)]))
+				continue;
+			const double d = p[(size_t)i] - p[(size_t)(i - 1)];
+			if (d < bestNegSlope || (d == bestNegSlope && i < iR))
+			{
+				bestNegSlope = d;
+				iR = i;
+				haveRight = true;
+			}
+		}
+		if (!haveRight)
+			iR = n - 1;
+
+		if (iL >= iR)
+		{
+			outCode = Peak1DValidateCode::ParabolaNotDownward;
+			return false;
+		}
+		if (iR - iL + 1 < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+		{
+			outCode = Peak1DValidateCode::NotEnoughValidSamples;
+			return false;
+		}
+		if (iL == 0 && iR == n - 1 && !haveLeft && !haveRight)
+		{
+			outCode = Peak1DValidateCode::ParabolaNotDownward;
+			return false;
+		}
+
+		outT = ((double)iL + (double)iR) * 0.5;
+		if (outT < 0.0)
+			outT = 0.0;
+		if (outT > (double)(n - 1))
+			outT = (double)(n - 1);
+
+		if (trace != nullptr)
+		{
+			trace->kneeLeftIdx = iL;
+			trace->kneeRightIdx = iR;
+			trace->argmaxIdx = iPeak;
+			trace->usedDualKnee = true;
+		}
+		outCode = Peak1DValidateCode::Ok;
+		return true;
+	}
+
 	bool FindUnimodalPeak1DIndex(
 		const std::vector<double>& data,
 		int& outIdx,

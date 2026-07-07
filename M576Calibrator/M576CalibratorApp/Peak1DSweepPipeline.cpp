@@ -76,16 +76,49 @@ namespace M576
 			state.phase = Recal1DPipelinePhase::FineRefine;
 			state.failedPhaseTag = "fineRefine";
 		}
+
+		static bool SegmentsHaveStitchK(const std::vector<Recal1DSweepSegment>& segments, int k)
+		{
+			for (const Recal1DSweepSegment& seg : segments)
+			{
+				if (seg.stitchK == k)
+					return true;
+			}
+			return false;
+		}
+
+		static bool SegmentsHaveSymmetricTrio(const std::vector<Recal1DSweepSegment>& segments)
+		{
+			return SegmentsHaveStitchK(segments, 0)
+				&& SegmentsHaveStitchK(segments, 1)
+				&& SegmentsHaveStitchK(segments, 2);
+		}
+
+		static bool SegmentsHaveExploreSweep(const std::vector<Recal1DSweepSegment>& segments)
+		{
+			for (const Recal1DSweepSegment& seg : segments)
+			{
+				if (seg.stitchK >= 3)
+					return true;
+			}
+			return false;
+		}
 	}
 
 	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK)
 	{
 		if (stitchK < 1)
 			return anchorBase;
-		const int delta = stitchK * (int)M576_PEAK1D_STITCH_UNIT_DAC;
-		if (stitchK % 2 == 1)
-			return ClampRecalBase(anchorBase - delta);
-		return ClampRecalBase(anchorBase + delta);
+		const int unit = (int)M576_PEAK1D_STITCH_UNIT_DAC;
+		if (stitchK == 1)
+			return ClampRecalBase(anchorBase - unit);
+		if (stitchK == 2)
+			return ClampRecalBase(anchorBase + unit);
+		if (stitchK == 3)
+			return ClampRecalBase(anchorBase - 2 * unit);
+		if (stitchK == 4)
+			return ClampRecalBase(anchorBase + 2 * unit);
+		return anchorBase;
 	}
 
 	int StitchAnchorCol0FromCoarseSweep(double col0)
@@ -175,30 +208,71 @@ namespace M576
 	bool FindPeakDacOnMerged(
 		const std::vector<Recal1DSweepSegment>& segments,
 		int dacStep,
-		Peak1DFitPolicy policy,
 		double& outPeakDac,
 		double& outTPeak,
 		int& outPeakIdx,
 		Peak1DValidateCode& outCode,
 		Peak1DFitTrace* trace,
-		double& outMergedSpanRaw)
+		double& outMergedSpanRaw,
+		Peak1DPlateauTrace* plateauTrace)
 	{
 		outMergedSpanRaw = 0.0;
 		outPeakDac = 0.0;
 		outTPeak = 0.0;
 		outPeakIdx = 0;
 		outCode = Peak1DValidateCode::Empty;
+		if (plateauTrace != nullptr)
+			*plateauTrace = Peak1DPlateauTrace();
 
 		double col0 = 0.0;
 		std::vector<double> merged;
 		if (!MergeRecal1DSweepSegments(segments, dacStep, col0, merged))
 			return false;
 		(void)SegmentSpanRaw(merged, outMergedSpanRaw);
-		Peak1DFitTrace localTrace = {};
-		Peak1DFitTrace* tr = trace ? trace : &localTrace;
-		if (!FindPeakOnPow(merged, policy, outPeakIdx, outTPeak, outCode, tr))
+		if (outMergedSpanRaw < Peak1DMinFlatSpanRaw())
+		{
+			outCode = Peak1DValidateCode::LowSpan;
 			return false;
+		}
+
+		Peak1DPlateauTrace localPlateau = {};
+		Peak1DPlateauTrace* pt = plateauTrace ? plateauTrace : &localPlateau;
+		double tMerged = 0.0;
+		const bool forceRelaxed = SegmentsHaveExploreSweep(segments);
+		const bool symmetricTrio = SegmentsHaveSymmetricTrio(segments);
+		const bool useDualKnee = !forceRelaxed && symmetricTrio && IsMergedMesaProfile(merged);
+
+		if (useDualKnee)
+		{
+			if (!FindPlateauDualKneePeak1D(merged, tMerged, outCode, pt)
+				|| outCode != Peak1DValidateCode::Ok)
+			{
+				return false;
+			}
+		}
+		else
+		{
+			pt->usedDualKnee = false;
+			if (!FindPeakOnPow(
+					merged,
+					Peak1DFitPolicy::FineRefineRelaxed,
+					outPeakIdx,
+					tMerged,
+					outCode,
+					trace)
+				|| outCode != Peak1DValidateCode::Ok)
+			{
+				return false;
+			}
+		}
+
+		outTPeak = tMerged;
+		outPeakIdx = (int)std::lround(tMerged);
 		const int n = (int)merged.size();
+		if (outPeakIdx < 0)
+			outPeakIdx = 0;
+		if (outPeakIdx >= n)
+			outPeakIdx = n - 1;
 		const int half = segments.empty() ? M576_MAX_DAC_RANGE : segments.back().halfRange;
 		outPeakDac = DacAtSampleIndex(col0, outPeakIdx, n, half);
 		if (std::isfinite(outTPeak))
@@ -254,7 +328,10 @@ namespace M576
 			outCmd.movingBase = StitchMovingBaseFromAnchor(state.anchorBase, k);
 			outCmd.halfRange = state.coarseRange;
 			outCmd.fitPolicy = Peak1DFitPolicy::Strict;
-			outCmd.phaseLogTag = IsStitchLeft(k) ? "stitch left" : "stitch right";
+			if (k <= (int)M576_PEAK1D_STITCH_SYMMETRIC_RETRIES)
+				outCmd.phaseLogTag = IsStitchLeft(k) ? "stitch left" : "stitch right";
+			else
+				outCmd.phaseLogTag = IsStitchLeft(k) ? "stitch explore left" : "stitch explore right";
 			return true;
 		}
 		case Recal1DPipelinePhase::FineRefine:
@@ -312,24 +389,36 @@ namespace M576
 			AppendSegment(state, col0, state.coarseRange, state.movingBase, state.stitchK, pow);
 			state.lastStitchK = state.stitchK;
 			state.failedPhaseTag = "stitch_k";
+
+			if (state.stitchK < (int)M576_PEAK1D_STITCH_SYMMETRIC_RETRIES)
+			{
+				state.stitchK++;
+				return false;
+			}
+
 			double peakDac = 0.0;
 			double tMerged = 0.0;
 			int idxMerged = 0;
 			Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
 			double spanRaw = 0.0;
+			Peak1DPlateauTrace plateauTrace = {};
 			if (FindPeakDacOnMerged(
 					state.segments,
 					dacStep,
-					Peak1DFitPolicy::FineRefineRelaxed,
 					peakDac,
 					tMerged,
 					idxMerged,
 					mergeCode,
 					nullptr,
-					spanRaw))
+					spanRaw,
+					&plateauTrace))
 			{
 				state.mergedSpanRaw = spanRaw;
 				state.lastCode = Peak1DValidateCode::Ok;
+				state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
+				state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
+				state.lastMergeTPeak = tMerged;
+				state.hasLastMergePlateau = plateauTrace.usedDualKnee;
 				double mCol0 = 0.0;
 				std::vector<double> merged;
 				if (MergeRecal1DSweepSegments(state.segments, dacStep, mCol0, merged))
@@ -347,10 +436,14 @@ namespace M576
 			}
 			state.mergedSpanRaw = spanRaw;
 			state.lastCode = mergeCode;
+			state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
+			state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
+			state.lastMergeTPeak = tMerged;
+			state.hasLastMergePlateau = plateauTrace.usedDualKnee;
 			if (state.stitchK >= (int)M576_PEAK1D_STITCH_MAX_RETRIES)
 			{
 				state.phase = Recal1DPipelinePhase::Failed;
-				state.failedPhaseTag = "stitch_k3";
+				state.failedPhaseTag = "stitch_k4";
 				return true;
 			}
 			state.stitchK++;
@@ -381,6 +474,9 @@ namespace M576
 		r.failedPhase = state.failedPhaseTag;
 		r.lastStitchK = state.lastStitchK;
 		r.mergedSpanRaw = state.mergedSpanRaw;
+		r.mergeKneeLeft = state.lastMergeKneeLeft;
+		r.mergeKneeRight = state.lastMergeKneeRight;
+		r.mergeTPeak = state.lastMergeTPeak;
 		r.segments = state.segments;
 		return r;
 	}

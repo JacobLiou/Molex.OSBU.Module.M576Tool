@@ -1604,6 +1604,23 @@ static std::vector<double> MakeBellPow(int n, int peakIdx, double floorVal, doub
 	return p;
 }
 
+static std::vector<double> MakeMesaPow(int n, int riseEnd, int fallStart, double floorVal, double peakVal)
+{
+	std::vector<double> p((size_t)n, floorVal);
+	if (n <= 0 || riseEnd < 1 || fallStart >= n || fallStart <= riseEnd)
+		return p;
+	for (int i = 0; i < riseEnd; ++i)
+		p[(size_t)i] = floorVal + (peakVal - floorVal) * ((double)i / (double)riseEnd);
+	for (int i = riseEnd; i < fallStart; ++i)
+		p[(size_t)i] = peakVal;
+	for (int i = fallStart; i < n; ++i)
+	{
+		const double t = (double)(i - fallStart) / (double)(n - 1 - fallStart);
+		p[(size_t)i] = peakVal + (floorVal - peakVal) * t;
+	}
+	return p;
+}
+
 static double Col0FromMovingBase(int movingBase, int halfRange)
 {
 	return (double)movingBase - (double)halfRange;
@@ -1636,10 +1653,9 @@ static int RunSweepPipelineSelfTests()
 	const int col0AnchorKnown = (int)Col0FromMovingBase(movingBaseKnown, 200);
 
 	if (StitchMovingBaseFromAnchor(-70, 1) != -270
-		|| StitchMovingBaseFromAnchor(-70, 2) != 330
-		|| StitchMovingBaseFromAnchor(-70, 3) != -670)
+		|| StitchMovingBaseFromAnchor(-70, 2) != 130)
 	{
-		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=-70 k1..3\n");
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=-70 k1/k2 symmetric\n");
 		++fail;
 	}
 	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 1) != 600)
@@ -1647,19 +1663,24 @@ static int RunSweepPipelineSelfTests()
 		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=1 left\n");
 		++fail;
 	}
-	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 2) != col0AnchorKnown + 400)
+	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 2) != col0AnchorKnown + 200)
 	{
-		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=2 right (+400)\n");
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=2 right (+200)\n");
 		++fail;
 	}
-	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 3) != col0AnchorKnown - 600)
+	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 3) != col0AnchorKnown - 400)
 	{
-		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=3 left (-600)\n");
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=3 explore left (-400)\n");
 		++fail;
 	}
-	if (!IsStitchLeft(1) || IsStitchLeft(2) || !IsStitchLeft(3))
+	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 4) != col0AnchorKnown + 400)
 	{
-		std::fprintf(stderr, "self-test: IsStitchLeft alternation\n");
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=4 explore right (+400)\n");
+		++fail;
+	}
+	if (!IsStitchLeft(1) || IsStitchLeft(2))
+	{
+		std::fprintf(stderr, "self-test: IsStitchLeft k=1 left k=2 right\n");
 		++fail;
 	}
 
@@ -1751,10 +1772,18 @@ static int RunSweepPipelineSelfTests()
 		const int leftBase = StitchMovingBaseFromAnchor(col0AnchorKnown, 1);
 		std::vector<double> stitchBell = MakeBellPow(101, 50, -250000.0, -230000.0);
 		FeedPipelineSweepExact(st, stitchBell, Col0FromMovingBase(leftBase, 200), dacStep);
-		if (st.stitchK != 1 || st.phase != Recal1DPipelinePhase::FineRefine)
+		if (st.stitchK != 2 || st.phase != Recal1DPipelinePhase::Stitch)
 		{
-			std::fprintf(stderr, "self-test: stitch k=1 early stop -> FineRefine (phase=%d stitchK=%d)\n",
-				(int)st.phase, st.stitchK);
+			std::fprintf(stderr, "self-test: stitch k=1 collect only -> stitchK=%d phase=%d\n",
+				st.stitchK, (int)st.phase);
+			++fail;
+		}
+		const int rightBase = StitchMovingBaseFromAnchor(col0AnchorKnown, 2);
+		FeedPipelineSweepExact(st, stitchBell, Col0FromMovingBase(rightBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 2)
+		{
+			std::fprintf(stderr, "self-test: stitch symmetric trio bell -> FineRefine (phase=%d lastStitchK=%d)\n",
+				(int)st.phase, st.lastStitchK);
 			++fail;
 		}
 	}
@@ -1766,23 +1795,128 @@ static int RunSweepPipelineSelfTests()
 		std::vector<double> flat200(101, -250000.0);
 		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
 		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
-		for (int k = 1; k <= 3; ++k)
+		for (int k = 1; k <= 4; ++k)
 		{
 			const int baseK = StitchMovingBaseFromAnchor(col0AnchorKnown, k);
 			FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(baseK, 200), dacStep);
-			if (k < 3 && st.phase == Recal1DPipelinePhase::Failed)
+			if (k < 4 && st.phase == Recal1DPipelinePhase::Failed)
 				break;
 		}
-		if (st.phase != Recal1DPipelinePhase::Failed || st.lastStitchK != 3)
+		if (st.phase != Recal1DPipelinePhase::Failed || st.lastStitchK != 4)
 		{
-			std::fprintf(stderr, "self-test: stitch k1..3 all fail -> Failed (phase=%d lastStitchK=%d)\n",
+			std::fprintf(stderr, "self-test: stitch k1..4 all fail -> Failed (phase=%d lastStitchK=%d)\n",
 				(int)st.phase, st.lastStitchK);
 			++fail;
 		}
 		const M576::PeakPipelineFailureReport rep = BuildPeakPipelineFailureReport(st);
-		if (std::strcmp(rep.failedPhase, "stitch_k3") != 0)
+		if (std::strcmp(rep.failedPhase, "stitch_k4") != 0)
 		{
 			std::fprintf(stderr, "self-test: pipeline failure report phase=%s\n", rep.failedPhase);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		std::vector<double> flat33(33, -250000.0);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		for (int k = 1; k <= 2; ++k)
+		{
+			const int baseK = StitchMovingBaseFromAnchor(col0AnchorKnown, k);
+			FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(baseK, 200), dacStep);
+		}
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 3)
+		{
+			std::fprintf(stderr, "self-test: symmetric trio flat fail -> explore k=3 (phase=%d stitchK=%d)\n",
+				(int)st.phase, st.stitchK);
+			++fail;
+		}
+		const int exploreBase = StitchMovingBaseFromAnchor(col0AnchorKnown, 3);
+		std::vector<double> exploreBell = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, exploreBell, Col0FromMovingBase(exploreBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 3)
+		{
+			std::fprintf(stderr, "self-test: stitch explore k=3 bell -> FineRefine (phase=%d lastStitchK=%d)\n",
+				(int)st.phase, st.lastStitchK);
+			++fail;
+		}
+		if (st.hasLastMergePlateau)
+		{
+			std::fprintf(stderr, "self-test: explore merge must not use dual_knee\n");
+			++fail;
+		}
+	}
+
+	{
+		const std::vector<double> mesa = MakeMesaPow(101, 20, 80, -260000.0, -240000.0);
+		const std::vector<double> bell = MakeBellPow(101, 50, -260000.0, -240000.0);
+		if (!M576::IsMergedMesaProfile(mesa))
+		{
+			std::fprintf(stderr, "self-test: IsMergedMesaProfile mesa must be true\n");
+			++fail;
+		}
+		if (M576::IsMergedMesaProfile(bell))
+		{
+			std::fprintf(stderr, "self-test: IsMergedMesaProfile bell must be false\n");
+			++fail;
+		}
+		double t = 0.0;
+		Peak1DValidateCode c = Peak1DValidateCode::Empty;
+		M576::Peak1DPlateauTrace tr = {};
+		if (!M576::FindPlateauDualKneePeak1D(mesa, t, c, &tr) || c != Peak1DValidateCode::Ok
+			|| t < 45.0 || t > 55.0 || !tr.usedDualKnee)
+		{
+			std::fprintf(stderr, "self-test: mesa dual_knee t* in [45,55] (got %.4g code=%s)\n",
+				t, Peak1DCodeName(c));
+			++fail;
+		}
+		std::vector<M576::Recal1DSweepSegment> segs;
+		for (int k = 0; k <= 2; ++k)
+		{
+			M576::Recal1DSweepSegment seg = {};
+			seg.col0 = Col0FromMovingBase(col0AnchorKnown, 200);
+			seg.halfRange = 200;
+			seg.stitchK = k;
+			seg.pow = mesa;
+			segs.push_back(seg);
+		}
+		double peakDac = 0.0;
+		double tMerged = 0.0;
+		int idxMerged = 0;
+		Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
+		double spanRaw = 0.0;
+		M576::Peak1DPlateauTrace mergeTr = {};
+		if (!M576::FindPeakDacOnMerged(
+				segs, dacStep, peakDac, tMerged, idxMerged, mergeCode, nullptr, spanRaw, &mergeTr)
+			|| mergeCode != Peak1DValidateCode::Ok || tMerged < 45.0 || tMerged > 55.0
+			|| !mergeTr.usedDualKnee)
+		{
+			std::fprintf(stderr, "self-test: FindPeakDacOnMerged mesa symmetric trio t* in [45,55] (got %.4g code=%s dual=%d)\n",
+				tMerged, Peak1DCodeName(mergeCode), mergeTr.usedDualKnee ? 1 : 0);
+			++fail;
+		}
+		std::vector<M576::Recal1DSweepSegment> bellSegs;
+		for (int k = 0; k <= 2; ++k)
+		{
+			M576::Recal1DSweepSegment seg = {};
+			seg.col0 = Col0FromMovingBase(col0AnchorKnown, 200);
+			seg.halfRange = 200;
+			seg.stitchK = k;
+			seg.pow = bell;
+			bellSegs.push_back(seg);
+		}
+		double bellT = 0.0;
+		Peak1DValidateCode bellCode = Peak1DValidateCode::Empty;
+		M576::Peak1DPlateauTrace bellTr = {};
+		if (!M576::FindPeakDacOnMerged(
+				bellSegs, dacStep, peakDac, bellT, idxMerged, bellCode, nullptr, spanRaw, &bellTr)
+			|| bellCode != Peak1DValidateCode::Ok || bellTr.usedDualKnee)
+		{
+			std::fprintf(stderr, "self-test: FindPeakDacOnMerged bell symmetric trio relaxed (t=%.4g code=%s dual=%d)\n",
+				bellT, Peak1DCodeName(bellCode), bellTr.usedDualKnee ? 1 : 0);
 			++fail;
 		}
 	}

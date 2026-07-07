@@ -28,11 +28,11 @@ namespace M576
 	struct Recal1DSweepPipelineState
 	{
 		int uiFineRange = 64;
-		/// @deprecated FineRefine ??? uiFineRange??? m_dacRange??????????ν???????
+		/// @deprecated FineRefine ??? uiFineRange??? m_dacRange???????????????????
 		int fineHalfRange = 64;
 		int coarseRange = 200;
 		int movingBase = 0;
-		/// ???@200 ?????? col0 ê???????? DAC???? 9999 ?λ movingBase????
+		/// ???@200 ?????? col0 ?????????? DAC???? 9999 ??? movingBase????
 		int anchorBase = 0;
 		int stitchK = 0;
 		int sweepCount = 0;
@@ -44,6 +44,10 @@ namespace M576
 		double mergedSpanRaw = 0.0;
 		int pendingFineBase = 0;
 		bool hasPendingFineBase = false;
+		int lastMergeKneeLeft = -1;
+		int lastMergeKneeRight = -1;
+		double lastMergeTPeak = 0.0;
+		bool hasLastMergePlateau = false;
 	};
 
 	struct PeakPipelineFailureReport
@@ -58,6 +62,9 @@ namespace M576
 		const char* failedPhase = "fine64";
 		int lastStitchK = 0;
 		double mergedSpanRaw = 0.0;
+		int mergeKneeLeft = -1;
+		int mergeKneeRight = -1;
+		double mergeTPeak = 0.0;
 		std::vector<Recal1DSweepSegment> segments;
 	};
 
@@ -69,10 +76,10 @@ namespace M576
 		const char* phaseLogTag = "fine64";
 	};
 
-	/// k 为奇：anchor-k*UNIT；k 为偶：anchor+k*UNIT（anchor = 首次@200 固件 col0）。
+	/// k ????anchor-k*UNIT??k ????anchor+k*UNIT??anchor = ???@200 ??? col0????
 	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK);
 
-	/// 首次@200 失败进入拼接：锚点为固件返回 col0（首格 DAC），非 9999 占位 movingBase。
+	/// ???@200 ?????????????????????? col0????? DAC?????? 9999 ??? movingBase??
 	int StitchAnchorCol0FromCoarseSweep(double col0);
 
 	bool IsStitchLeft(int stitchK);
@@ -96,13 +103,13 @@ namespace M576
 	bool FindPeakDacOnMerged(
 		const std::vector<Recal1DSweepSegment>& segments,
 		int dacStep,
-		Peak1DFitPolicy policy,
 		double& outPeakDac,
 		double& outTPeak,
 		int& outPeakIdx,
 		Peak1DValidateCode& outCode,
 		Peak1DFitTrace* trace,
-		double& outMergedSpanRaw);
+		double& outMergedSpanRaw,
+		Peak1DPlateauTrace* plateauTrace = nullptr);
 
 	void InitRecal1DSweepPipeline(
 		Recal1DSweepPipelineState& state,
