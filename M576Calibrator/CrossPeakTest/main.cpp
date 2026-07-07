@@ -1632,21 +1632,29 @@ static int RunSweepPipelineSelfTests()
 	int fail = 0;
 	const int uiFine = 64;
 	const int dacStep = 4;
-	const int anchor = 1000;
+	const int movingBaseKnown = 1000;
+	const int col0AnchorKnown = (int)Col0FromMovingBase(movingBaseKnown, 200);
 
-	if (StitchMovingBaseFromAnchor(anchor, 1) != anchor - 200)
+	if (StitchMovingBaseFromAnchor(-70, 1) != -270
+		|| StitchMovingBaseFromAnchor(-70, 2) != 330
+		|| StitchMovingBaseFromAnchor(-70, 3) != -670)
 	{
-		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor k=1 left\n");
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=-70 k1..3\n");
 		++fail;
 	}
-	if (StitchMovingBaseFromAnchor(anchor, 2) != anchor + 400)
+	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 1) != 600)
 	{
-		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor k=2 right (+400)\n");
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=1 left\n");
 		++fail;
 	}
-	if (StitchMovingBaseFromAnchor(anchor, 3) != anchor - 600)
+	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 2) != col0AnchorKnown + 400)
 	{
-		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor k=3 left (-600)\n");
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=2 right (+400)\n");
+		++fail;
+	}
+	if (StitchMovingBaseFromAnchor(col0AnchorKnown, 3) != col0AnchorKnown - 600)
+	{
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor col0=800 k=3 left (-600)\n");
 		++fail;
 	}
 	if (!IsStitchLeft(1) || IsStitchLeft(2) || !IsStitchLeft(3))
@@ -1683,15 +1691,15 @@ static int RunSweepPipelineSelfTests()
 		FeedPipelineSweepExact(st, bell200, Col0FromMovingBase(9999, 200), dacStep);
 		Recal1DSweepCommand fineCmd = {};
 		if (!GetNextPipelineSweepCommand(st, fineCmd)
-			|| fineCmd.halfRange != uiFine / 2
+			|| fineCmd.halfRange != uiFine
 			|| st.phase != Recal1DPipelinePhase::FineRefine)
 		{
-			std::fprintf(stderr, "self-test: pipeline 64 fail -> 200 ok -> fine half (range=%d phase=%d)\n",
+			std::fprintf(stderr, "self-test: pipeline 64 fail -> 200 ok -> fineRefine (range=%d phase=%d)\n",
 				fineCmd.halfRange, (int)st.phase);
 			++fail;
 		}
-		const std::vector<double> bell32 = MakeBellPow(17, 8, -250000.0, -240000.0);
-		FeedPipelineSweepExact(st, bell32, Col0FromMovingBase(fineCmd.movingBase, fineCmd.halfRange), dacStep);
+		const std::vector<double> bellFine = MakeBellPow(33, 16, -250000.0, -240000.0);
+		FeedPipelineSweepExact(st, bellFine, Col0FromMovingBase(fineCmd.movingBase, fineCmd.halfRange), dacStep);
 		if (st.phase != Recal1DPipelinePhase::Succeeded || st.sweepCount != 3)
 		{
 			std::fprintf(stderr, "self-test: pipeline coarse+fine path sweeps=%d phase=%d\n",
@@ -1702,7 +1710,7 @@ static int RunSweepPipelineSelfTests()
 
 	{
 		Recal1DSweepPipelineState st = {};
-		InitRecal1DSweepPipeline(st, uiFine, anchor);
+		InitRecal1DSweepPipeline(st, uiFine, 9999);
 		static const double flat64[] = {
 			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
 			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
@@ -1710,10 +1718,37 @@ static int RunSweepPipelineSelfTests()
 			-122132, -122134, -122123
 		};
 		std::vector<double> flat(flat64, flat64 + 33);
-		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(anchor, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(9999, uiFine), dacStep);
 		std::vector<double> flat200(101, -250000.0);
-		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(anchor, 200), dacStep);
-		const int leftBase = StitchMovingBaseFromAnchor(anchor, 1);
+		FeedPipelineSweepExact(st, flat200, -70.0, dacStep);
+		Recal1DSweepCommand stitchCmd = {};
+		if (!GetNextPipelineSweepCommand(st, stitchCmd)
+			|| stitchCmd.movingBase != -270
+			|| stitchCmd.halfRange != 200
+			|| st.phase != Recal1DPipelinePhase::Stitch
+			|| st.anchorBase != -70)
+		{
+			std::fprintf(stderr,
+				"self-test: 9999/col0=-70 coarse fail -> stitch k=1 base=%d anchor=%d phase=%d\n",
+				stitchCmd.movingBase, st.anchorBase, (int)st.phase);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		static const double flat64[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64, flat64 + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		const int leftBase = StitchMovingBaseFromAnchor(col0AnchorKnown, 1);
 		std::vector<double> stitchBell = MakeBellPow(101, 50, -250000.0, -230000.0);
 		FeedPipelineSweepExact(st, stitchBell, Col0FromMovingBase(leftBase, 200), dacStep);
 		if (st.stitchK != 1 || st.phase != Recal1DPipelinePhase::FineRefine)
@@ -1726,14 +1761,14 @@ static int RunSweepPipelineSelfTests()
 
 	{
 		Recal1DSweepPipelineState st = {};
-		InitRecal1DSweepPipeline(st, uiFine, anchor);
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
 		std::vector<double> flat33(33, -250000.0);
 		std::vector<double> flat200(101, -250000.0);
-		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(anchor, uiFine), dacStep);
-		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(anchor, 200), dacStep);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
 		for (int k = 1; k <= 3; ++k)
 		{
-			const int baseK = StitchMovingBaseFromAnchor(anchor, k);
+			const int baseK = StitchMovingBaseFromAnchor(col0AnchorKnown, k);
 			FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(baseK, 200), dacStep);
 			if (k < 3 && st.phase == Recal1DPipelinePhase::Failed)
 				break;

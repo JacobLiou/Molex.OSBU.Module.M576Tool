@@ -74,7 +74,7 @@ namespace M576
 				col0, tPeak, std::isfinite(tPeak), peakIdx, sampleCount, halfRange);
 			state.hasPendingFineBase = true;
 			state.phase = Recal1DPipelinePhase::FineRefine;
-			state.failedPhaseTag = "fineHalf";
+			state.failedPhaseTag = "fineRefine";
 		}
 	}
 
@@ -86,6 +86,11 @@ namespace M576
 		if (stitchK % 2 == 1)
 			return ClampRecalBase(anchorBase - delta);
 		return ClampRecalBase(anchorBase + delta);
+	}
+
+	int StitchAnchorCol0FromCoarseSweep(double col0)
+	{
+		return ClampRecalBase((int)floor(col0 + 0.5));
 	}
 
 	bool IsStitchLeft(int stitchK)
@@ -208,9 +213,7 @@ namespace M576
 	{
 		state = {};
 		state.uiFineRange = (uiFineRange >= 1) ? uiFineRange : 1;
-		state.fineHalfRange = (state.uiFineRange + 1) / 2;
-		if (state.fineHalfRange < 1)
-			state.fineHalfRange = 1;
+		state.fineHalfRange = state.uiFineRange;
 		state.coarseRange = M576_MAX_DAC_RANGE;
 		state.movingBase = movingBase;
 		state.anchorBase = movingBase;
@@ -256,9 +259,9 @@ namespace M576
 		}
 		case Recal1DPipelinePhase::FineRefine:
 			outCmd.movingBase = state.hasPendingFineBase ? state.pendingFineBase : state.movingBase;
-			outCmd.halfRange = state.fineHalfRange;
+			outCmd.halfRange = state.uiFineRange;
 			outCmd.fitPolicy = Peak1DFitPolicy::FineRefineRelaxed;
-			outCmd.phaseLogTag = "fine half";
+			outCmd.phaseLogTag = "fineRefine";
 			return true;
 		default:
 			return false;
@@ -296,7 +299,7 @@ namespace M576
 				BeginFineRefine(state, col0, state.coarseRange, tPeak, peakIdx, (int)pow.size());
 				return false;
 			}
-			state.anchorBase = state.movingBase;
+			state.anchorBase = StitchAnchorCol0FromCoarseSweep(col0);
 			AppendSegment(state, col0, state.coarseRange, state.movingBase, 0, pow);
 			state.stitchK = 1;
 			state.lastStitchK = 0;
@@ -360,7 +363,7 @@ namespace M576
 				state.phase = Recal1DPipelinePhase::Succeeded;
 				return true;
 			}
-			state.failedPhaseTag = "fineHalf";
+			state.failedPhaseTag = "fineRefine";
 			state.phase = Recal1DPipelinePhase::Failed;
 			return true;
 
