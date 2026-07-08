@@ -103,6 +103,56 @@ namespace M576
 			}
 			return false;
 		}
+
+		static bool TryMergeAndBeginFineRefine(Recal1DSweepPipelineState& state, int dacStep)
+		{
+			double peakDac = 0.0;
+			double tMerged = 0.0;
+			int idxMerged = 0;
+			Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
+			double spanRaw = 0.0;
+			Peak1DPlateauTrace plateauTrace = {};
+			if (!FindPeakDacOnMerged(
+					state.segments,
+					dacStep,
+					peakDac,
+					tMerged,
+					idxMerged,
+					mergeCode,
+					nullptr,
+					spanRaw,
+					&plateauTrace))
+			{
+				state.mergedSpanRaw = spanRaw;
+				state.lastCode = mergeCode;
+				state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
+				state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
+				state.lastMergeTPeak = tMerged;
+				state.hasLastMergePlateau = plateauTrace.usedDualKnee;
+				return false;
+			}
+
+			state.mergedSpanRaw = spanRaw;
+			state.lastCode = Peak1DValidateCode::Ok;
+			state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
+			state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
+			state.lastMergeTPeak = tMerged;
+			state.hasLastMergePlateau = plateauTrace.usedDualKnee;
+			double mCol0 = 0.0;
+			std::vector<double> merged;
+			if (!MergeRecal1DSweepSegments(state.segments, dacStep, mCol0, merged))
+				return false;
+
+			BeginFineRefine(
+				state,
+				mCol0,
+				state.coarseRange,
+				tMerged,
+				idxMerged,
+				(int)merged.size());
+			state.movingBase = state.pendingFineBase;
+			return true;
+		}
 	}
 
 	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK)
@@ -121,9 +171,11 @@ namespace M576
 		return anchorBase;
 	}
 
-	int StitchAnchorCol0FromCoarseSweep(double col0)
+	int StitchAnchorCenterFromCoarseSweep(double col0, int halfRange)
 	{
-		return ClampRecalBase((int)floor(col0 + 0.5));
+		if (halfRange < 1)
+			return ClampRecalBase((int)floor(col0 + 0.5));
+		return ClampRecalBase((int)floor(col0 + (double)halfRange + 0.5));
 	}
 
 	bool IsStitchLeft(int stitchK)
@@ -376,7 +428,7 @@ namespace M576
 				BeginFineRefine(state, col0, state.coarseRange, tPeak, peakIdx, (int)pow.size());
 				return false;
 			}
-			state.anchorBase = StitchAnchorCol0FromCoarseSweep(col0);
+			state.anchorBase = StitchAnchorCenterFromCoarseSweep(col0, state.coarseRange);
 			AppendSegment(state, col0, state.coarseRange, state.movingBase, 0, pow);
 			state.stitchK = 1;
 			state.lastStitchK = 0;
@@ -390,56 +442,9 @@ namespace M576
 			state.lastStitchK = state.stitchK;
 			state.failedPhaseTag = "stitch_k";
 
-			if (state.stitchK < (int)M576_PEAK1D_STITCH_SYMMETRIC_RETRIES)
-			{
-				state.stitchK++;
+			if (TryMergeAndBeginFineRefine(state, dacStep))
 				return false;
-			}
 
-			double peakDac = 0.0;
-			double tMerged = 0.0;
-			int idxMerged = 0;
-			Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
-			double spanRaw = 0.0;
-			Peak1DPlateauTrace plateauTrace = {};
-			if (FindPeakDacOnMerged(
-					state.segments,
-					dacStep,
-					peakDac,
-					tMerged,
-					idxMerged,
-					mergeCode,
-					nullptr,
-					spanRaw,
-					&plateauTrace))
-			{
-				state.mergedSpanRaw = spanRaw;
-				state.lastCode = Peak1DValidateCode::Ok;
-				state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
-				state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
-				state.lastMergeTPeak = tMerged;
-				state.hasLastMergePlateau = plateauTrace.usedDualKnee;
-				double mCol0 = 0.0;
-				std::vector<double> merged;
-				if (MergeRecal1DSweepSegments(state.segments, dacStep, mCol0, merged))
-				{
-					BeginFineRefine(
-						state,
-						mCol0,
-						state.coarseRange,
-						tMerged,
-						idxMerged,
-						(int)merged.size());
-					state.movingBase = state.pendingFineBase;
-					return false;
-				}
-			}
-			state.mergedSpanRaw = spanRaw;
-			state.lastCode = mergeCode;
-			state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
-			state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
-			state.lastMergeTPeak = tMerged;
-			state.hasLastMergePlateau = plateauTrace.usedDualKnee;
 			if (state.stitchK >= (int)M576_PEAK1D_STITCH_MAX_RETRIES)
 			{
 				state.phase = Recal1DPipelinePhase::Failed;

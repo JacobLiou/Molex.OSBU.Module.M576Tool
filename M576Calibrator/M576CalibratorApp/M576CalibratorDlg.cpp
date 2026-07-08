@@ -876,7 +876,7 @@ void M576LogPeakPipelineFatal(
 		return;
 	CString uiLine;
 	uiLine.Format(
-		_T("[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%hs code=%hs anchor=%d sweeps=%d stitch_k=%d merged_span=%.4g kneeL=%d kneeR=%d t*=%.2f"),
+		_T("[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%hs code=%hs anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.4g kneeL=%d kneeR=%d t*=%.2f"),
 		recalStageLabel,
 		axisTag,
 		pathLine1Based,
@@ -894,7 +894,7 @@ void M576LogPeakPipelineFatal(
 
 	CStringA fatalBlock;
 	fatalBlock.Format(
-		"[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%s code=%s anchor=%d sweeps=%d stitch_k=%d merged_span=%.6g kneeL=%d kneeR=%d t*=%.6g\n",
+		"[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%s code=%s anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.6g kneeL=%d kneeR=%d t*=%.6g\n",
 		CStringA(recalStageLabel).GetString(),
 		CStringA(axisTag).GetString(),
 		pathLine1Based,
@@ -1120,8 +1120,16 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			outPeakIdx,
 			m_dacStep);
 
-		if (pipe.lastStitchK >= 2 && pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
+		if (pipe.lastStitchK >= 1 && pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
 		{
+			if (pipe.lastStitchK < (int)M576_PEAK1D_STITCH_MAX_RETRIES)
+			{
+				CString skipLine;
+				skipLine.Format(
+					_T("  merge ok at stitch_k%d, skip remaining -> fineRefine"),
+					pipe.lastStitchK);
+				SafeAppendLog(skipLine);
+			}
 			if (pipe.hasLastMergePlateau)
 			{
 				CString plateauLine;

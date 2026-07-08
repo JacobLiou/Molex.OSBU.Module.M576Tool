@@ -174,15 +174,13 @@ flowchart TD
   B -->|Ok| C["Phase3: offset=uiFineRange Relaxed"]
   C --> OKfine[???]
   B -->|Fail| D["Phase4: ?????@200 ??????????"]
-  D --> S1["k=1 左 anchor-200 采集"]
-  S1 --> S2["k=2 右 anchor+200 采集"]
-  S2 --> MERGE["merge 中心+左+右"]
-  MERGE -->|平台峰| DK["FindPlateauDualKneePeak1D"]
-  MERGE -->|非平台峰| RL["FineRefineRelaxed"]
-  DK -->|Ok| C
-  RL -->|Ok| C
-  DK -->|Fail| E1["k=3/k=4 explore ±400 Relaxed"]
-  RL -->|Fail| E1
+  D --> S1["k=1 左 C-200 采集"]
+  S1 --> M1["merge 当前段"]
+  M1 -->|Ok| C
+  M1 -->|Fail| S2["k=2 右 C+200 采集"]
+  S2 --> M2["merge"]
+  M2 -->|Ok| C
+  M2 -->|Fail| E1["k=3/k=4 explore merge 早停"]
   E1 -->|Ok| C
   E1 -->|Fail| FAIL["FATAL stitch_k4"]
 ```
@@ -192,8 +190,8 @@ flowchart TD
 | UI ?? | `m_dacRange`????? 64?? |
 | ????? | `M576_MAX_DAC_RANGE` = 200 |
 | ????? | `m_dacRange / 2`??64??32?? |
-| 对称拼接 | k=1 左 anchor−200、k=2 右 anchor+200（k=1 不 merge） |
-| 扩展摸索 | k=3/k=4 anchor±400；仅 FineRefineRelaxed |
+| 对称拼接 | k=1 左 C−200、k=2 右 C+200（anchor=C=floor(col0+halfRange)；**每次 append 后 merge，Ok 早停**） |
+| 扩展摸索 | k=3/k=4 C±400；仅 FineRefineRelaxed；同样 append 后 merge 早停 |
 | 合成寻峰 | 平台峰 `IsMergedMesaProfile` → **FindPlateauDualKneePeak1D**；否则 Relaxed |
 
 **????**??`PmRangeMismatch`??INV-16???????/????????Dlg???? FATAL????**???????**??`[FATAL][peak-pipeline]` + `m576_fatal.log`??INV-15????
