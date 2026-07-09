@@ -104,8 +104,59 @@ namespace M576
 			return false;
 		}
 
+		static bool EvaluateLatestStitchSegmentStrict(
+			const Recal1DSweepPipelineState& state,
+			Peak1DValidateCode& outCode)
+		{
+			outCode = Peak1DValidateCode::Empty;
+			if (state.segments.empty())
+				return false;
+			const Recal1DSweepSegment& seg = state.segments.back();
+			if (seg.stitchK < 1)
+				return false;
+			int peakIdx = 0;
+			double tPeak = 0.0;
+			(void)FindPeakOnPow(
+				seg.pow,
+				Peak1DFitPolicy::Strict,
+				peakIdx,
+				tPeak,
+				outCode,
+				nullptr);
+			return outCode == Peak1DValidateCode::Ok;
+		}
+
+		static bool MergedSymmetricTrioIsMesa(
+			const Recal1DSweepPipelineState& state,
+			int dacStep)
+		{
+			if (!SegmentsHaveSymmetricTrio(state.segments))
+				return false;
+			double col0 = 0.0;
+			std::vector<double> merged;
+			if (!MergeRecal1DSweepSegments(state.segments, dacStep, col0, merged))
+				return false;
+			return IsMergedMesaProfile(merged);
+		}
+
 		static bool TryMergeAndBeginFineRefine(Recal1DSweepPipelineState& state, int dacStep)
 		{
+			state.lastStitchStrictGateFailed = false;
+			state.lastStitchMesaBypass = false;
+			state.mesaDirectSuccess = false;
+			Peak1DValidateCode segCode = Peak1DValidateCode::Empty;
+			if (!EvaluateLatestStitchSegmentStrict(state, segCode))
+			{
+				const Recal1DSweepSegment& seg = state.segments.back();
+				if (seg.stitchK != 2 || !MergedSymmetricTrioIsMesa(state, dacStep))
+				{
+					state.lastStitchStrictGateFailed = true;
+					state.lastCode = segCode;
+					return false;
+				}
+				state.lastStitchMesaBypass = true;
+			}
+
 			double peakDac = 0.0;
 			double tMerged = 0.0;
 			int idxMerged = 0;
@@ -143,6 +194,16 @@ namespace M576
 			if (!MergeRecal1DSweepSegments(state.segments, dacStep, mCol0, merged))
 				return false;
 
+			if (plateauTrace.usedDualKnee)
+			{
+				state.lastMergeCol0 = mCol0;
+				state.lastMergePow = merged;
+				state.mesaDirectSuccess = true;
+				state.movingBase = (int)std::lround(peakDac);
+				state.phase = Recal1DPipelinePhase::Succeeded;
+				return true;
+			}
+
 			BeginFineRefine(
 				state,
 				mCol0,
@@ -153,22 +214,53 @@ namespace M576
 			state.movingBase = state.pendingFineBase;
 			return true;
 		}
+
+		static void FinalizeStitchAfterExplorePmExhausted(Recal1DSweepPipelineState& state, int dacStep)
+		{
+			if (TryMergeAndBeginFineRefine(state, dacStep))
+				return;
+			state.phase = Recal1DPipelinePhase::Failed;
+			state.failedPhaseTag = "stitch_pm_explore";
+		}
+
+		static bool HandleStitchExplorePmRangeRejectImpl(Recal1DSweepPipelineState& state, int dacStep)
+		{
+			if (state.phase != Recal1DPipelinePhase::Stitch || state.stitchK < 3)
+				return false;
+
+			state.sweepCount++;
+			state.lastCode = Peak1DValidateCode::PmRangeMismatch;
+			state.lastStitchK = state.stitchK;
+			state.failedPhaseTag = "stitch_pm_explore";
+
+			const int k = state.stitchK;
+			if (k == 3)
+			{
+				state.explorePmBlockedLeft = true;
+				if (state.stitchK < (int)M576_PEAK1D_STITCH_MAX_RETRIES)
+					state.stitchK = 4;
+				return true;
+			}
+			if (k == 4)
+			{
+				state.explorePmBlockedRight = true;
+				FinalizeStitchAfterExplorePmExhausted(state, dacStep);
+				return true;
+			}
+			return false;
+		}
 	}
 
-	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK)
+	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK, int halfRange)
 	{
 		if (stitchK < 1)
 			return anchorBase;
-		const int unit = (int)M576_PEAK1D_STITCH_UNIT_DAC;
-		if (stitchK == 1)
-			return ClampRecalBase(anchorBase - unit);
-		if (stitchK == 2)
-			return ClampRecalBase(anchorBase + unit);
-		if (stitchK == 3)
-			return ClampRecalBase(anchorBase - 2 * unit);
-		if (stitchK == 4)
-			return ClampRecalBase(anchorBase + 2 * unit);
-		return anchorBase;
+		const int R = (halfRange >= 1) ? halfRange : (int)M576_PEAK1D_STITCH_UNIT_DAC;
+		const int tier = (stitchK + 1) / 2;
+		const int offset = tier * 2 * R;
+		if (IsStitchLeft(stitchK))
+			return ClampRecalBase(anchorBase - offset);
+		return ClampRecalBase(anchorBase + offset);
 	}
 
 	int StitchAnchorCenterFromCoarseSweep(double col0, int halfRange)
@@ -216,12 +308,9 @@ namespace M576
 				const int dacKey = (int)floor(dacF + 0.5);
 				auto it = acc.find(dacKey);
 				if (it == acc.end())
-					acc[dacKey] = std::make_pair(seg.pow[(size_t)i], 1);
-				else
-				{
-					it->second.first += seg.pow[(size_t)i];
-					it->second.second += 1;
-				}
+					acc[dacKey] = std::make_pair(seg.pow[(size_t)i], seg.stitchK);
+				else if (seg.stitchK < it->second.second)
+					it->second = std::make_pair(seg.pow[(size_t)i], seg.stitchK);
 			}
 		}
 		if (acc.empty())
@@ -238,8 +327,8 @@ namespace M576
 		{
 			const int dac = dacMin + k * dacStep;
 			auto it = acc.find(dac);
-			if (it != acc.end() && it->second.second > 0)
-				outPow.push_back(it->second.first / (double)it->second.second);
+			if (it != acc.end())
+				outPow.push_back(it->second.first);
 			else
 				outPow.push_back((double)M576_RECAL_POW_INVALID_1);
 		}
@@ -377,7 +466,11 @@ namespace M576
 			const int k = state.stitchK;
 			if (k < 1 || k > (int)M576_PEAK1D_STITCH_MAX_RETRIES)
 				return false;
-			outCmd.movingBase = StitchMovingBaseFromAnchor(state.anchorBase, k);
+			if (k == 3 && state.explorePmBlockedLeft)
+				return false;
+			if (k == 4 && state.explorePmBlockedRight)
+				return false;
+			outCmd.movingBase = StitchMovingBaseFromAnchor(state.anchorBase, k, state.coarseRange);
 			outCmd.halfRange = state.coarseRange;
 			outCmd.fitPolicy = Peak1DFitPolicy::Strict;
 			if (k <= (int)M576_PEAK1D_STITCH_SYMMETRIC_RETRIES)
@@ -484,6 +577,11 @@ namespace M576
 		r.mergeTPeak = state.lastMergeTPeak;
 		r.segments = state.segments;
 		return r;
+	}
+
+	bool HandleStitchExplorePmRangeReject(Recal1DSweepPipelineState& state, int dacStep)
+	{
+		return HandleStitchExplorePmRangeRejectImpl(state, dacStep);
 	}
 
 	bool PlanRecalYCrossResweepPipeline(

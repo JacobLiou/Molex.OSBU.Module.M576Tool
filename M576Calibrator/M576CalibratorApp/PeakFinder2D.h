@@ -123,6 +123,18 @@ namespace M576
 		Peak1DFitTrace* trace = nullptr,
 		Peak1DFitPolicy policy = Peak1DFitPolicy::Strict);
 
+	/// Mesa Y@merge + X@fine：Y 峰位来自 merge t*（pipeline 已验证），X 单独 ParabolaVertexMax1D。
+	bool PeakCrossFromMesaMergedYAndFineX(
+		double mergeTPeak,
+		const std::vector<double>& powX,
+		int& outRow,
+		int& outCol,
+		Peak1DValidateCode* xDetail = nullptr,
+		double* outTY = nullptr,
+		double* outTX = nullptr,
+		Peak1DFitTrace* traceX = nullptr,
+		Peak1DFitPolicy policyX = Peak1DFitPolicy::Strict);
+
 	/// 两向各自三阶拟合寻峰；outRow/outCol = lround(tY), lround(tX)。outTY/outTX 供 SweepCol0+ 连续下标算 DAC。
 	bool PeakCrossFrom1DScans(
 		const std::vector<double>& powY,

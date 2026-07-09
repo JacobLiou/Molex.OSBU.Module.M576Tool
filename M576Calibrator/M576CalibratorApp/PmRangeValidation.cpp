@@ -1,6 +1,6 @@
 #include "PmRangeValidation.h"
 #include "PeakFinder2D.h"
-// PmRangeValidation.cpp：RECAL 0 后 opm 挡位解析与峰功率 dBm 区间校验（INV-17）。
+// PmRangeValidation.cpp：峰功率 dBm 区间校验（INV-16）；ParseOpmPmRangeReplyAscii 仅解析固件 opm 应答格式。
 #include <cmath>
 #include <cstring>
 

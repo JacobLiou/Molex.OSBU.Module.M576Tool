@@ -949,7 +949,8 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	int& outDacRangeUsed,
 	CString& err,
 	int pathLine1Based,
-	int fileSlot)
+	int fileSlot,
+	M576::SMesaDirectSweepInfo* outMesaDirect)
 {
 	err.Empty();
 	outCode = M576::Peak1DValidateCode::Empty;
@@ -960,6 +961,8 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	outCol0 = 0.0;
 	outPow.clear();
 	outTrace = M576::Peak1DFitTrace();
+	if (outMesaDirect)
+		*outMesaDirect = {};
 
 	if (!m_pRecal)
 	{
@@ -1014,34 +1017,6 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 
 		const BOOL peakFindOk = M576::FindUnimodalPeak1DIndex(
 			outPow, outPeakIdx, outCode, &outTPeak, &outTrace, cmd.fitPolicy);
-		{
-			CStringA wireA;
-			if (isPm)
-				wireA.Format(
-					"RECAL 3 %d %d %d %d %d %d",
-					sweepMode,
-					baseX,
-					baseY,
-					attemptDacRange,
-					m_dacStep,
-					m_delayMs);
-			else
-				wireA.Format(
-					"RECAL 5 %d %d %d %d %d %d",
-					sweepMode,
-					baseX,
-					baseY,
-					attemptDacRange,
-					m_dacStep,
-					m_delayMs);
-			M576RecalSweepCsvAppendRow(
-				CString(wireA),
-				outCol0,
-				outPow,
-				outAttemptCount,
-				peakFindOk,
-				outCode);
-		}
 
 		if (peakFindOk && outTrace.usedArgmaxFallback)
 		{
@@ -1056,6 +1031,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			SafeAppendLog(msg);
 		}
 
+		BOOL pmRangeFailed = FALSE;
 		if (peakFindOk && isPm && pmRangeIndex != M576_MAX_PM_RANGE)
 		{
 			const int peakHint = (outTrace.globalMaxIndex >= 0) ? outTrace.globalMaxIndex : outPeakIdx;
@@ -1077,19 +1053,77 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 					peakDbm,
 					loDbm,
 					hiDbm);
-				pipe.phase = M576::Recal1DPipelinePhase::Failed;
-				pipe.failedPhaseTag = "pm_range";
 				pipe.lastCode = outCode;
-				pipe.sweepCount++;
-				M576LogPeakPipelineFatal(
-					this,
-					M576::BuildPeakPipelineFailureReport(pipe),
-					axisTag,
-					recalStageLabel,
-					pathLine1Based,
-					fileSlot);
-				return FALSE;
+				pmRangeFailed = TRUE;
+				if (pipe.phase == M576::Recal1DPipelinePhase::Stitch && pipe.stitchK >= 3)
+				{
+					// explore PM: defer to HandleStitchExplorePmRangeReject (keep phase=Stitch).
+				}
+				else
+				{
+					pipe.phase = M576::Recal1DPipelinePhase::Failed;
+					pipe.failedPhaseTag = "pm_range";
+					pipe.sweepCount++;
+				}
 			}
+		}
+
+		{
+			CStringA wireA;
+			if (isPm)
+				wireA.Format(
+					"RECAL 3 %d %d %d %d %d %d",
+					sweepMode,
+					baseX,
+					baseY,
+					attemptDacRange,
+					m_dacStep,
+					m_delayMs);
+			else
+				wireA.Format(
+					"RECAL 5 %d %d %d %d %d %d",
+					sweepMode,
+					baseX,
+					baseY,
+					attemptDacRange,
+					m_dacStep,
+					m_delayMs);
+			const BOOL csvPeakOk = (outCode == M576::Peak1DValidateCode::Ok) ? TRUE : FALSE;
+			M576RecalSweepCsvAppendRow(
+				CString(wireA),
+				outCol0,
+				outPow,
+				outAttemptCount,
+				csvPeakOk,
+				outCode);
+		}
+
+		if (pmRangeFailed)
+		{
+			if (pipe.phase == M576::Recal1DPipelinePhase::Stitch && pipe.stitchK >= 3)
+			{
+				M576::HandleStitchExplorePmRangeReject(pipe, m_dacStep);
+				if (pipe.phase == M576::Recal1DPipelinePhase::Failed)
+				{
+					M576LogPeakPipelineFatal(
+						this,
+						M576::BuildPeakPipelineFailureReport(pipe),
+						axisTag,
+						recalStageLabel,
+						pathLine1Based,
+						fileSlot);
+					return FALSE;
+				}
+				continue;
+			}
+			M576LogPeakPipelineFatal(
+				this,
+				M576::BuildPeakPipelineFailureReport(pipe),
+				axisTag,
+				recalStageLabel,
+				pathLine1Based,
+				fileSlot);
+			return FALSE;
 		}
 
 		{
@@ -1120,7 +1154,64 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			outPeakIdx,
 			m_dacStep);
 
-		if (pipe.lastStitchK >= 1 && pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
+		if (pipe.lastStitchStrictGateFailed
+			&& pipe.phase == M576::Recal1DPipelinePhase::Stitch)
+		{
+			CString strictGateLine;
+			strictGateLine.Format(
+				_T("  stitch_k%d segment strict fail (%s), skip merge early-stop"),
+				pipe.lastStitchK,
+				M576Peak1DWhy(pipe.lastCode));
+			SafeAppendLog(strictGateLine);
+		}
+
+		if (pipe.lastStitchMesaBypass
+			&& pipe.phase == M576::Recal1DPipelinePhase::Succeeded)
+		{
+			CString bypassLine;
+			bypassLine.Format(
+				_T("  stitch_k%d symmetric trio mesa bypass strict gate -> dual_knee"),
+				pipe.lastStitchK);
+			SafeAppendLog(bypassLine);
+		}
+
+		if (pipe.mesaDirectSuccess && pipe.phase == M576::Recal1DPipelinePhase::Succeeded)
+		{
+			if (!pipe.lastMergePow.empty())
+				outPow = pipe.lastMergePow;
+			outCol0 = pipe.lastMergeCol0;
+			outTPeak = pipe.lastMergeTPeak;
+			outPeakIdx = (int)std::lround(pipe.lastMergeTPeak);
+			outCode = M576::Peak1DValidateCode::Ok;
+			outDacRangeUsed = pipe.coarseRange;
+			if (outMesaDirect)
+			{
+				outMesaDirect->active = true;
+				outMesaDirect->mergeCol0 = pipe.lastMergeCol0;
+				outMesaDirect->mergeHalfRange = pipe.coarseRange;
+				outMesaDirect->mergeTPeak = pipe.lastMergeTPeak;
+				outMesaDirect->mergePeakDac = pipe.movingBase;
+			}
+			CString plateauLine;
+			plateauLine.Format(
+				_T("  plateau dual_knee iL=%d iR=%d t*=%.2f merged_span=%.4g -> success (skip fineRefine)"),
+				pipe.lastMergeKneeLeft,
+				pipe.lastMergeKneeRight,
+				pipe.lastMergeTPeak,
+				pipe.mergedSpanRaw);
+			SafeAppendLog(plateauLine);
+			if (pipe.lastStitchK >= 1 && pipe.lastStitchK < (int)M576_PEAK1D_STITCH_MAX_RETRIES)
+			{
+				CString skipLine;
+				skipLine.Format(
+					_T("  merge ok at stitch_k%d, skip remaining -> success"),
+					pipe.lastStitchK);
+				SafeAppendLog(skipLine);
+			}
+			pipe.hasLastMergePlateau = false;
+			pipe.mesaDirectSuccess = false;
+		}
+		else if (pipe.lastStitchK >= 1 && pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
 		{
 			if (pipe.lastStitchK < (int)M576_PEAK1D_STITCH_MAX_RETRIES)
 			{
@@ -4286,105 +4377,6 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			SafeAppendLog(msg);
 		}
 	}
-	{
-		const int kOpmIds[2] = { 4, 5 };
-		CStringA opmLines[2];
-		int readRanges[2] = { -1, -1 };
-		for (int oi = 0; oi < 2; ++oi)
-		{
-			const int opmId = kOpmIds[oi];
-			if (!m_pRecal->ExchangeOpmReadPmRange(opmId, opmLines[oi], 3000, err))
-			{
-				CString log = err.IsEmpty()
-					? CString()
-					: err;
-				if (log.IsEmpty())
-				{
-					log.Format(
-						_T("[PM range] OPM %d 1: no valid readback after retries — Run Path stopped."),
-						opmId);
-				}
-				SafeAppendLog(log);
-				CString box;
-				box.Format(
-					_T("无法读取功率计挡位，已停止定标。\n\n%s\n\n请检查串口与固件后重新 Run Path。"),
-					log.GetString());
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			readRanges[oi] = CRecalSession::ParseOpmPmRangeReply(opmLines[oi]);
-			if (readRanges[oi] < M576_MIN_PM_RANGE || readRanges[oi] > M576_MAX_PM_RANGE)
-			{
-				CString log;
-				log.Format(
-					_T("[PM range] OPM %d 1: invalid reply \"%hs\" — Run Path stopped."),
-					opmId,
-					opmLines[oi].GetString());
-				SafeAppendLog(log);
-				CString box;
-				box.Format(
-					_T("功率计挡位应答无效，已停止定标。\n\nopm %d 1 应答: %hs\n\n请检查固件后重新 Run Path。"),
-					opmId,
-					opmLines[oi].GetString());
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			{
-				CString msg;
-				msg.Format(_T("OPM %d 1: pm_range readback %d."), opmId, readRanges[oi]);
-				SafeAppendLog(msg);
-			}
-		}
-		if (readRanges[0] != readRanges[1])
-		{
-			CString log;
-			log.Format(
-				_T("[PM range] OPM 4 1 (%d) vs OPM 5 1 (%d) mismatch — Run Path stopped."),
-				readRanges[0],
-				readRanges[1]);
-			SafeAppendLog(log);
-			CString box;
-			box.Format(
-				_T("两路功率计挡位读回不一致，已停止定标。\n\nopm 4 1: %d\nopm 5 1: %d\n\n请检查 PM 挡位后重新 Run Path。"),
-				readRanges[0],
-				readRanges[1]);
-			MessageBoxM576(box, MB_OK | MB_ICONERROR);
-			return;
-		}
-		const int readRange = readRanges[0];
-		if (pmRange != M576_MAX_PM_RANGE)
-		{
-			if (readRange != pmRange)
-			{
-				CString log;
-				log.Format(
-					_T("[PM range] OPM 4/5 1 mismatch: RECAL0 set %d, readback %d — Run Path stopped."),
-					pmRange,
-					readRange);
-				SafeAppendLog(log);
-				CString box;
-				box.Format(
-					_T("功率计挡位不一致，已停止定标。\n\n界面/RECAL 0 挡位: %d\nopm 4/5 1 读回: %d\n\n请检查 PM 挡位后重新 Run Path。"),
-					pmRange,
-					readRange);
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			{
-				CString msg;
-				msg.Format(_T("OPM 4/5 1: pm_range readback %d matches RECAL 0."), readRange);
-				SafeAppendLog(msg);
-			}
-		}
-		else
-		{
-			CString msg;
-			msg.Format(_T("OPM 4/5 1: RECAL0 auto(%d), device readback=%d (informational)."),
-				M576_MAX_PM_RANGE,
-				readRange);
-			SafeAppendLog(msg);
-		}
-	}
 
 	int globalProgress = 0;
 	for (int fs = 0; fs < 4; ++fs)
@@ -4629,12 +4621,14 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		double pmRejectHi = 0.0;
 		int pmRejectIdx = -1;
 		int pmRejectRangeIdx = -1;
+		M576::SMesaDirectSweepInfo yMesaPm = {};
 
 		for (int yCrossRound = 0;
 			yCrossRound < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOk && !pmSkipStep && !pmBreakPath;
 			++yCrossRound)
 		{
 			lastCrossRound = yCrossRound;
+			yMesaPm = {};
 			if (yCrossRound > 0)
 			{
 				CString msg;
@@ -4667,7 +4661,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					ySweepRangePm,
 					err,
 					i + 1,
-					fileSlot))
+					fileSlot,
+					&yMesaPm))
 			{
 				if (yCrossRound == 0)
 				{
@@ -4737,7 +4732,10 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			}
 			M576AppendPeakFitTraceLog(this, _T("RECAL3 Y预瞄(PM) "), yPreTracePm);
 			const int nY = (int)powY.size();
-			fixedY = RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, ySweepRangePm, xFixedDac);
+			if (yMesaPm.active)
+				fixedY = yMesaPm.mergePeakDac;
+			else
+				fixedY = RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, ySweepRangePm, xFixedDac);
 			{
 				CString msg;
 				msg.Format(_T("  RECAL 3 1 Base DAC (Y@peak, row=%d)=%d"), brForYBase, fixedY);
@@ -4835,7 +4833,27 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 						(int)powY.size(), (int)powX.size(), gridN, m_dacRange, m_dacStep);
 					SafeAppendLog(msg);
 				}
-				if (powY.size() != powX.size() || powY.empty())
+				if (yMesaPm.active)
+				{
+					if (powX.empty())
+					{
+						SafeAppendLog(_T("  peak: mesa Y ok but X sweep empty; skip LUT update."));
+						if (!pmFailRecorded)
+						{
+							SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+							o.result = CalibPathStepResult::Failed;
+							o.failCategory = CalibPathFailCategory::SweepDataMismatch;
+							o.failStage = "X empty (mesa Y)";
+							o.crossRound = yCrossRound;
+							o.sampleCountY = (int)powY.size();
+							o.sampleCountX = 0;
+							PushPathFailureOutcome(o);
+							pmFailRecorded = TRUE;
+						}
+						break;
+					}
+				}
+				else if (powY.size() != powX.size() || powY.empty())
 				{
 					SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 					if (!pmFailRecorded)
@@ -4860,19 +4878,37 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					M576::Peak1DFitPolicyForSweepResult(ySweepRangePm, m_dacRange);
 				const M576::Peak1DFitPolicy crossPolicyX =
 					M576::Peak1DFitPolicyForSweepResult(attemptDacRangeX, m_dacRange);
-				crossOk = M576::PeakCrossFrom1DScans(
-					powY,
-					powX,
-					br,
-					bc,
-					&yCross,
-					&xCross,
-					&tYPm,
-					&tXPm,
-					&trCrossYPm,
-					&trCrossXPm,
-					crossPolicyY,
-					crossPolicyX);
+				if (yMesaPm.active)
+				{
+					yCross = M576::Peak1DValidateCode::Ok;
+					crossOk = M576::PeakCrossFromMesaMergedYAndFineX(
+						yMesaPm.mergeTPeak,
+						powX,
+						br,
+						bc,
+						&xCross,
+						&tYPm,
+						&tXPm,
+						&trCrossXPm,
+						crossPolicyX);
+					trCrossYPm.globalMaxIndex = br;
+				}
+				else
+				{
+					crossOk = M576::PeakCrossFrom1DScans(
+						powY,
+						powX,
+						br,
+						bc,
+						&yCross,
+						&xCross,
+						&tYPm,
+						&tXPm,
+						&trCrossYPm,
+						&trCrossXPm,
+						crossPolicyY,
+						crossPolicyX);
+				}
 				if (crossOk && trCrossYPm.usedArgmaxFallback)
 				{
 					CString msg;
@@ -5002,9 +5038,14 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		{
 			M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 Y轴(PM) "), trCrossYPm);
 			M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 X轴(PM) "), trCrossXPm);
-			const int nLut = (int)powY.size();
-			const double rawDacXAtPeak = SweepCol0PlusPeakOffsetDac(xFixedDac, tYPm, nLut, ySweepRangePm);
-			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, tXPm, nLut, xSweepRange);
+			const int nYm = (int)powY.size();
+			const int nXm = (int)powX.size();
+			const int nLut = yMesaPm.active ? nXm : nYm;
+			const double yCol0ForDac = yMesaPm.active ? yMesaPm.mergeCol0 : xFixedDac;
+			const int yRangeForDac = yMesaPm.active ? yMesaPm.mergeHalfRange : ySweepRangePm;
+			const double rawDacXAtPeak =
+				SweepCol0PlusPeakOffsetDac(yCol0ForDac, tYPm, nYm, yRangeForDac);
+			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, tXPm, nXm, xSweepRange);
 			const int rawXi = static_cast<int>(std::lround(rawDacXAtPeak));
 			const int rawYi = static_cast<int>(std::lround(rawDacYAtPeak));
 			{
@@ -5388,12 +5429,14 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		int lastMovingXPd = M576_RECAL_FW_READ_BASE_DAC;
 		int lastAttemptDacRangeXPd = m_dacRange;
 		int lastCrossRoundPd = 0;
+		M576::SMesaDirectSweepInfo yMesaPd = {};
 
 		for (int yCrossRoundPd = 0;
 			yCrossRoundPd < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOkPd && !pdSkipStep && !pdBreakPath;
 			++yCrossRoundPd)
 		{
 			lastCrossRoundPd = yCrossRoundPd;
+			yMesaPd = {};
 			if (yCrossRoundPd > 0)
 			{
 				CString msg;
@@ -5426,7 +5469,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					ySweepRangePd,
 					err,
 					i + 1,
-					fileSlot))
+					fileSlot,
+					&yMesaPd))
 			{
 				if (yCrossRoundPd == 0)
 				{
@@ -5464,7 +5508,10 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			}
 			M576AppendPeakFitTraceLog(this, _T("RECAL5 Y预瞄(PD) "), yPreTracePd);
 			const int nYpd = (int)powY.size();
-			fixedYPd = RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, ySweepRangePd, xFixedDacPd);
+			if (yMesaPd.active)
+				fixedYPd = yMesaPd.mergePeakDac;
+			else
+				fixedYPd = RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, ySweepRangePd, xFixedDacPd);
 			{
 				CString msg;
 				msg.Format(_T("  RECAL 5 1 Base DAC (Y@peak, row=%d)=%d"), brForYBasePd, fixedYPd);
@@ -5536,7 +5583,15 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 						(int)powY.size(), (int)powX.size(), gridN);
 					SafeAppendLog(msg);
 				}
-				if (powY.size() != powX.size() || powY.empty())
+				if (yMesaPd.active)
+				{
+					if (powX.empty())
+					{
+						SafeAppendLog(_T("  peak: mesa Y ok but X sweep empty; skip LUT update."));
+						break;
+					}
+				}
+				else if (powY.size() != powX.size() || powY.empty())
 				{
 					SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 					break;
@@ -5549,19 +5604,37 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					M576::Peak1DFitPolicyForSweepResult(ySweepRangePd, m_dacRange);
 				const M576::Peak1DFitPolicy crossPolicyXPd =
 					M576::Peak1DFitPolicyForSweepResult(attemptDacRangeXPd, m_dacRange);
-				crossOkPd = M576::PeakCrossFrom1DScans(
-					powY,
-					powX,
-					br,
-					bc,
-					&yCrossPd,
-					&xCrossPd,
-					&tYpd,
-					&tXpd,
-					&trCrossYPd,
-					&trCrossXPd,
-					crossPolicyYPd,
-					crossPolicyXPd);
+				if (yMesaPd.active)
+				{
+					yCrossPd = M576::Peak1DValidateCode::Ok;
+					crossOkPd = M576::PeakCrossFromMesaMergedYAndFineX(
+						yMesaPd.mergeTPeak,
+						powX,
+						br,
+						bc,
+						&xCrossPd,
+						&tYpd,
+						&tXpd,
+						&trCrossXPd,
+						crossPolicyXPd);
+					trCrossYPd.globalMaxIndex = br;
+				}
+				else
+				{
+					crossOkPd = M576::PeakCrossFrom1DScans(
+						powY,
+						powX,
+						br,
+						bc,
+						&yCrossPd,
+						&xCrossPd,
+						&tYpd,
+						&tXpd,
+						&trCrossYPd,
+						&trCrossXPd,
+						crossPolicyYPd,
+						crossPolicyXPd);
+				}
 				if (crossOkPd && trCrossYPd.usedArgmaxFallback)
 				{
 					CString msg;
@@ -5658,9 +5731,15 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		{
 			M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 Y轴(PD) "), trCrossYPd);
 			M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 X轴(PD) "), trCrossXPd);
-			const int nLut = (int)powY.size();
-			const double rawDacXAtPeakPd = SweepCol0PlusPeakOffsetDac(xFixedDacPd, tYpd, nLut, ySweepRangePd);
-			const double rawDacYAtPeakPd = SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, tXpd, nLut, xSweepRangePd);
+			const int nYpdLut = (int)powY.size();
+			const int nXpdLut = (int)powX.size();
+			const int nLut = yMesaPd.active ? nXpdLut : nYpdLut;
+			const double yCol0ForDacPd = yMesaPd.active ? yMesaPd.mergeCol0 : xFixedDacPd;
+			const int yRangeForDacPd = yMesaPd.active ? yMesaPd.mergeHalfRange : ySweepRangePd;
+			const double rawDacXAtPeakPd =
+				SweepCol0PlusPeakOffsetDac(yCol0ForDacPd, tYpd, nYpdLut, yRangeForDacPd);
+			const double rawDacYAtPeakPd =
+				SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, tXpd, nXpdLut, xSweepRangePd);
 			const int rawXiPd = static_cast<int>(std::lround(rawDacXAtPeakPd));
 			const int rawYiPd = static_cast<int>(std::lround(rawDacYAtPeakPd));
 			{

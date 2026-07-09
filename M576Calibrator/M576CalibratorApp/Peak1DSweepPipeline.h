@@ -1,5 +1,6 @@
 #pragma once
 
+#include "M576Peak1DConstants.h"
 #include "Peak1DSweepRecenter.h"
 #include <string>
 #include <vector>
@@ -48,6 +49,18 @@ namespace M576
 		int lastMergeKneeRight = -1;
 		double lastMergeTPeak = 0.0;
 		bool hasLastMergePlateau = false;
+		/// Set when merge early-stop blocked: latest stitch segment failed Strict single-segment peak find.
+		bool lastStitchStrictGateFailed = false;
+		/// k=2 symmetric trio mesa merge: dual-knee peak used directly, skip fineRefine hardware sweep.
+		bool mesaDirectSuccess = false;
+		double lastMergeCol0 = 0.0;
+		std::vector<double> lastMergePow;
+		/// Strict gate bypassed because merged symmetric trio passes IsMergedMesaProfile.
+		bool lastStitchMesaBypass = false;
+		/// explore k=3 PM 超挡位：不再向左更外探。
+		bool explorePmBlockedLeft = false;
+		/// explore k=4 PM 超挡位：不再向右更外探。
+		bool explorePmBlockedRight = false;
 	};
 
 	struct PeakPipelineFailureReport
@@ -76,8 +89,18 @@ namespace M576
 		const char* phaseLogTag = "fine64";
 	};
 
-	/// k odd: anchor - offset; k even: anchor + offset (anchor = coarse sweep center).
-	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK);
+	/// Filled when mesa dual-knee merge succeeds and fineRefine is skipped (Y merge grid != X fine grid).
+	struct SMesaDirectSweepInfo
+	{
+		bool active = false;
+		double mergeCol0 = 0.0;
+		int mergeHalfRange = 0;
+		double mergeTPeak = 0.0;
+		int mergePeakDac = 0;
+	};
+
+	/// k odd: anchor - tier*tile; k even: anchor + tier*tile (tile=2*halfRange, non-overlap abut).
+	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK, int halfRange = M576_MAX_DAC_RANGE);
 
 	/// First coarse@200 sweep center: floor(col0 + halfRange).
 	int StitchAnchorCenterFromCoarseSweep(double col0, int halfRange);
@@ -132,6 +155,9 @@ namespace M576
 		int dacStep);
 
 	PeakPipelineFailureReport BuildPeakPipelineFailureReport(const Recal1DSweepPipelineState& state);
+
+	/// Stitch explore (k>=3) PM 超挡位：不 append 该段；同向 blocked；k=4 双侧耗尽后 merge 或 Failed。
+	bool HandleStitchExplorePmRangeReject(Recal1DSweepPipelineState& state, int dacStep);
 
 	/// Y cross ?????? cross ???? hint ??? base??????????? Fine64 ?????
 	bool PlanRecalYCrossResweepPipeline(
