@@ -1792,6 +1792,44 @@ static int RunSweepPipelineSelfTests()
 	{
 		Recal1DSweepPipelineState st = {};
 		InitRecal1DSweepPipeline(st, uiFine, 9999);
+		static const double flat64d[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64d, flat64d + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(9999, uiFine), dacStep);
+		const std::vector<double> bell200 = MakeBellPow(101, 50, -250000.0, -230000.0);
+		const double coarseCol0 = Col0FromMovingBase(9999, 200);
+		FeedPipelineSweepExact(st, bell200, coarseCol0, dacStep);
+		const int deferredAnchor = StitchAnchorCenterFromCoarseSweep(coarseCol0, 200);
+		std::vector<double> flatFine(33, -250000.0);
+		FeedPipelineSweepExact(st, flatFine, Col0FromMovingBase(st.pendingFineBase, uiFine), dacStep);
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 1
+			|| st.segments.size() != 1 || st.segments[0].stitchK != 0
+			|| st.anchorBase != deferredAnchor || st.hasDeferredCoarseForStitch)
+		{
+			std::fprintf(stderr,
+				"self-test: fineRefine fail -> deferred stitch (phase=%d k=%d segs=%zu anchor=%d deferred=%d)\n",
+				(int)st.phase, st.stitchK, st.segments.size(), st.anchorBase,
+				st.hasDeferredCoarseForStitch ? 1 : 0);
+			++fail;
+		}
+		const int leftBase = StitchMovingBaseFromAnchor(deferredAnchor, 1);
+		FeedPipelineSweepExact(st, bell200, Col0FromMovingBase(leftBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 1 || st.sweepCount != 4)
+		{
+			std::fprintf(stderr,
+				"self-test: deferred stitch k=1 merge -> FineRefine (phase=%d lastK=%d sweeps=%d)\n",
+				(int)st.phase, st.lastStitchK, st.sweepCount);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999);
 		static const double flat64[] = {
 			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
 			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,

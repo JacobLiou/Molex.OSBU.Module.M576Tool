@@ -61,6 +61,10 @@ namespace M576
 		bool explorePmBlockedLeft = false;
 		/// explore k=4 PM 超挡位：不再向右更外探。
 		bool explorePmBlockedRight = false;
+		/// coarse Ok 直进 fineRefine 前缓存 k=0 段；fineRefine 失败且 segments 空时可回退 Stitch。
+		bool hasDeferredCoarseForStitch = false;
+		double deferredStitchCol0 = 0.0;
+		std::vector<double> deferredStitchPow;
 	};
 
 	struct PeakPipelineFailureReport

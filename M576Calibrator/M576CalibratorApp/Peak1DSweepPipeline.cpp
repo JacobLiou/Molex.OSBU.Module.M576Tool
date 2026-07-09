@@ -518,9 +518,14 @@ namespace M576
 		case Recal1DPipelinePhase::Coarse200:
 			if (peakOk)
 			{
+				state.hasDeferredCoarseForStitch = true;
+				state.deferredStitchCol0 = col0;
+				state.deferredStitchPow = pow;
 				BeginFineRefine(state, col0, state.coarseRange, tPeak, peakIdx, (int)pow.size());
 				return false;
 			}
+			state.hasDeferredCoarseForStitch = false;
+			state.deferredStitchPow.clear();
 			state.anchorBase = StitchAnchorCenterFromCoarseSweep(col0, state.coarseRange);
 			AppendSegment(state, col0, state.coarseRange, state.movingBase, 0, pow);
 			state.stitchK = 1;
@@ -551,8 +556,30 @@ namespace M576
 		case Recal1DPipelinePhase::FineRefine:
 			if (peakOk)
 			{
+				state.hasDeferredCoarseForStitch = false;
+				state.deferredStitchPow.clear();
 				state.phase = Recal1DPipelinePhase::Succeeded;
 				return true;
+			}
+			if (state.segments.empty() && state.hasDeferredCoarseForStitch)
+			{
+				state.anchorBase = StitchAnchorCenterFromCoarseSweep(
+					state.deferredStitchCol0, state.coarseRange);
+				AppendSegment(
+					state,
+					state.deferredStitchCol0,
+					state.coarseRange,
+					state.movingBase,
+					0,
+					state.deferredStitchPow);
+				state.stitchK = 1;
+				state.lastStitchK = 0;
+				state.hasPendingFineBase = false;
+				state.hasDeferredCoarseForStitch = false;
+				state.deferredStitchPow.clear();
+				state.failedPhaseTag = "fineRefine";
+				state.phase = Recal1DPipelinePhase::Stitch;
+				return false;
 			}
 			state.failedPhaseTag = "fineRefine";
 			state.phase = Recal1DPipelinePhase::Failed;
