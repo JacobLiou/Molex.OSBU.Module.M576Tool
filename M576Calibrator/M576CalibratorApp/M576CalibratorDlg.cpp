@@ -949,8 +949,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	int& outDacRangeUsed,
 	CString& err,
 	int pathLine1Based,
-	int fileSlot,
-	M576::SMesaDirectSweepInfo* outMesaDirect)
+	int fileSlot)
 {
 	err.Empty();
 	outCode = M576::Peak1DValidateCode::Empty;
@@ -961,8 +960,6 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	outCol0 = 0.0;
 	outPow.clear();
 	outTrace = M576::Peak1DFitTrace();
-	if (outMesaDirect)
-		*outMesaDirect = {};
 
 	if (!m_pRecal)
 	{
@@ -1166,7 +1163,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 		}
 
 		if (pipe.lastStitchMesaBypass
-			&& pipe.phase == M576::Recal1DPipelinePhase::Succeeded)
+			&& pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
 		{
 			CString bypassLine;
 			bypassLine.Format(
@@ -1175,43 +1172,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			SafeAppendLog(bypassLine);
 		}
 
-		if (pipe.mesaDirectSuccess && pipe.phase == M576::Recal1DPipelinePhase::Succeeded)
-		{
-			if (!pipe.lastMergePow.empty())
-				outPow = pipe.lastMergePow;
-			outCol0 = pipe.lastMergeCol0;
-			outTPeak = pipe.lastMergeTPeak;
-			outPeakIdx = (int)std::lround(pipe.lastMergeTPeak);
-			outCode = M576::Peak1DValidateCode::Ok;
-			outDacRangeUsed = pipe.coarseRange;
-			if (outMesaDirect)
-			{
-				outMesaDirect->active = true;
-				outMesaDirect->mergeCol0 = pipe.lastMergeCol0;
-				outMesaDirect->mergeHalfRange = pipe.coarseRange;
-				outMesaDirect->mergeTPeak = pipe.lastMergeTPeak;
-				outMesaDirect->mergePeakDac = pipe.movingBase;
-			}
-			CString plateauLine;
-			plateauLine.Format(
-				_T("  plateau dual_knee iL=%d iR=%d t*=%.2f merged_span=%.4g -> success (skip fineRefine)"),
-				pipe.lastMergeKneeLeft,
-				pipe.lastMergeKneeRight,
-				pipe.lastMergeTPeak,
-				pipe.mergedSpanRaw);
-			SafeAppendLog(plateauLine);
-			if (pipe.lastStitchK >= 1 && pipe.lastStitchK < (int)M576_PEAK1D_STITCH_MAX_RETRIES)
-			{
-				CString skipLine;
-				skipLine.Format(
-					_T("  merge ok at stitch_k%d, skip remaining -> success"),
-					pipe.lastStitchK);
-				SafeAppendLog(skipLine);
-			}
-			pipe.hasLastMergePlateau = false;
-			pipe.mesaDirectSuccess = false;
-		}
-		else if (pipe.lastStitchK >= 1 && pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
+		if (pipe.lastStitchK >= 1 && pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
 		{
 			if (pipe.lastStitchK < (int)M576_PEAK1D_STITCH_MAX_RETRIES)
 			{
@@ -4621,14 +4582,12 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		double pmRejectHi = 0.0;
 		int pmRejectIdx = -1;
 		int pmRejectRangeIdx = -1;
-		M576::SMesaDirectSweepInfo yMesaPm = {};
 
 		for (int yCrossRound = 0;
 			yCrossRound < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOk && !pmSkipStep && !pmBreakPath;
 			++yCrossRound)
 		{
 			lastCrossRound = yCrossRound;
-			yMesaPm = {};
 			if (yCrossRound > 0)
 			{
 				CString msg;
@@ -4661,8 +4620,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					ySweepRangePm,
 					err,
 					i + 1,
-					fileSlot,
-					&yMesaPm))
+					fileSlot))
 			{
 				if (yCrossRound == 0)
 				{
@@ -4732,10 +4690,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			}
 			M576AppendPeakFitTraceLog(this, _T("RECAL3 Y预瞄(PM) "), yPreTracePm);
 			const int nY = (int)powY.size();
-			if (yMesaPm.active)
-				fixedY = yMesaPm.mergePeakDac;
-			else
-				fixedY = RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, ySweepRangePm, xFixedDac);
+			fixedY = RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, ySweepRangePm, xFixedDac);
 			{
 				CString msg;
 				msg.Format(_T("  RECAL 3 1 Base DAC (Y@peak, row=%d)=%d"), brForYBase, fixedY);
@@ -4833,27 +4788,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 						(int)powY.size(), (int)powX.size(), gridN, m_dacRange, m_dacStep);
 					SafeAppendLog(msg);
 				}
-				if (yMesaPm.active)
-				{
-					if (powX.empty())
-					{
-						SafeAppendLog(_T("  peak: mesa Y ok but X sweep empty; skip LUT update."));
-						if (!pmFailRecorded)
-						{
-							SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
-							o.result = CalibPathStepResult::Failed;
-							o.failCategory = CalibPathFailCategory::SweepDataMismatch;
-							o.failStage = "X empty (mesa Y)";
-							o.crossRound = yCrossRound;
-							o.sampleCountY = (int)powY.size();
-							o.sampleCountX = 0;
-							PushPathFailureOutcome(o);
-							pmFailRecorded = TRUE;
-						}
-						break;
-					}
-				}
-				else if (powY.size() != powX.size() || powY.empty())
+				if (powY.size() != powX.size() || powY.empty())
 				{
 					SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 					if (!pmFailRecorded)
@@ -4878,37 +4813,19 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					M576::Peak1DFitPolicyForSweepResult(ySweepRangePm, m_dacRange);
 				const M576::Peak1DFitPolicy crossPolicyX =
 					M576::Peak1DFitPolicyForSweepResult(attemptDacRangeX, m_dacRange);
-				if (yMesaPm.active)
-				{
-					yCross = M576::Peak1DValidateCode::Ok;
-					crossOk = M576::PeakCrossFromMesaMergedYAndFineX(
-						yMesaPm.mergeTPeak,
-						powX,
-						br,
-						bc,
-						&xCross,
-						&tYPm,
-						&tXPm,
-						&trCrossXPm,
-						crossPolicyX);
-					trCrossYPm.globalMaxIndex = br;
-				}
-				else
-				{
-					crossOk = M576::PeakCrossFrom1DScans(
-						powY,
-						powX,
-						br,
-						bc,
-						&yCross,
-						&xCross,
-						&tYPm,
-						&tXPm,
-						&trCrossYPm,
-						&trCrossXPm,
-						crossPolicyY,
-						crossPolicyX);
-				}
+				crossOk = M576::PeakCrossFrom1DScans(
+					powY,
+					powX,
+					br,
+					bc,
+					&yCross,
+					&xCross,
+					&tYPm,
+					&tXPm,
+					&trCrossYPm,
+					&trCrossXPm,
+					crossPolicyY,
+					crossPolicyX);
 				if (crossOk && trCrossYPm.usedArgmaxFallback)
 				{
 					CString msg;
@@ -5040,9 +4957,9 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 X轴(PM) "), trCrossXPm);
 			const int nYm = (int)powY.size();
 			const int nXm = (int)powX.size();
-			const int nLut = yMesaPm.active ? nXm : nYm;
-			const double yCol0ForDac = yMesaPm.active ? yMesaPm.mergeCol0 : xFixedDac;
-			const int yRangeForDac = yMesaPm.active ? yMesaPm.mergeHalfRange : ySweepRangePm;
+			const int nLut = nYm;
+			const double yCol0ForDac = xFixedDac;
+			const int yRangeForDac = ySweepRangePm;
 			const double rawDacXAtPeak =
 				SweepCol0PlusPeakOffsetDac(yCol0ForDac, tYPm, nYm, yRangeForDac);
 			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, tXPm, nXm, xSweepRange);
@@ -5429,14 +5346,12 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		int lastMovingXPd = M576_RECAL_FW_READ_BASE_DAC;
 		int lastAttemptDacRangeXPd = m_dacRange;
 		int lastCrossRoundPd = 0;
-		M576::SMesaDirectSweepInfo yMesaPd = {};
 
 		for (int yCrossRoundPd = 0;
 			yCrossRoundPd < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOkPd && !pdSkipStep && !pdBreakPath;
 			++yCrossRoundPd)
 		{
 			lastCrossRoundPd = yCrossRoundPd;
-			yMesaPd = {};
 			if (yCrossRoundPd > 0)
 			{
 				CString msg;
@@ -5469,8 +5384,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					ySweepRangePd,
 					err,
 					i + 1,
-					fileSlot,
-					&yMesaPd))
+					fileSlot))
 			{
 				if (yCrossRoundPd == 0)
 				{
@@ -5508,10 +5422,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			}
 			M576AppendPeakFitTraceLog(this, _T("RECAL5 Y预瞄(PD) "), yPreTracePd);
 			const int nYpd = (int)powY.size();
-			if (yMesaPd.active)
-				fixedYPd = yMesaPd.mergePeakDac;
-			else
-				fixedYPd = RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, ySweepRangePd, xFixedDacPd);
+			fixedYPd = RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, ySweepRangePd, xFixedDacPd);
 			{
 				CString msg;
 				msg.Format(_T("  RECAL 5 1 Base DAC (Y@peak, row=%d)=%d"), brForYBasePd, fixedYPd);
@@ -5583,15 +5494,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 						(int)powY.size(), (int)powX.size(), gridN);
 					SafeAppendLog(msg);
 				}
-				if (yMesaPd.active)
-				{
-					if (powX.empty())
-					{
-						SafeAppendLog(_T("  peak: mesa Y ok but X sweep empty; skip LUT update."));
-						break;
-					}
-				}
-				else if (powY.size() != powX.size() || powY.empty())
+				if (powY.size() != powX.size() || powY.empty())
 				{
 					SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
 					break;
@@ -5604,37 +5507,19 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					M576::Peak1DFitPolicyForSweepResult(ySweepRangePd, m_dacRange);
 				const M576::Peak1DFitPolicy crossPolicyXPd =
 					M576::Peak1DFitPolicyForSweepResult(attemptDacRangeXPd, m_dacRange);
-				if (yMesaPd.active)
-				{
-					yCrossPd = M576::Peak1DValidateCode::Ok;
-					crossOkPd = M576::PeakCrossFromMesaMergedYAndFineX(
-						yMesaPd.mergeTPeak,
-						powX,
-						br,
-						bc,
-						&xCrossPd,
-						&tYpd,
-						&tXpd,
-						&trCrossXPd,
-						crossPolicyXPd);
-					trCrossYPd.globalMaxIndex = br;
-				}
-				else
-				{
-					crossOkPd = M576::PeakCrossFrom1DScans(
-						powY,
-						powX,
-						br,
-						bc,
-						&yCrossPd,
-						&xCrossPd,
-						&tYpd,
-						&tXpd,
-						&trCrossYPd,
-						&trCrossXPd,
-						crossPolicyYPd,
-						crossPolicyXPd);
-				}
+				crossOkPd = M576::PeakCrossFrom1DScans(
+					powY,
+					powX,
+					br,
+					bc,
+					&yCrossPd,
+					&xCrossPd,
+					&tYpd,
+					&tXpd,
+					&trCrossYPd,
+					&trCrossXPd,
+					crossPolicyYPd,
+					crossPolicyXPd);
 				if (crossOkPd && trCrossYPd.usedArgmaxFallback)
 				{
 					CString msg;
@@ -5733,9 +5618,9 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 X轴(PD) "), trCrossXPd);
 			const int nYpdLut = (int)powY.size();
 			const int nXpdLut = (int)powX.size();
-			const int nLut = yMesaPd.active ? nXpdLut : nYpdLut;
-			const double yCol0ForDacPd = yMesaPd.active ? yMesaPd.mergeCol0 : xFixedDacPd;
-			const int yRangeForDacPd = yMesaPd.active ? yMesaPd.mergeHalfRange : ySweepRangePd;
+			const int nLut = nYpdLut;
+			const double yCol0ForDacPd = xFixedDacPd;
+			const int yRangeForDacPd = ySweepRangePd;
 			const double rawDacXAtPeakPd =
 				SweepCol0PlusPeakOffsetDac(yCol0ForDacPd, tYpd, nYpdLut, yRangeForDacPd);
 			const double rawDacYAtPeakPd =

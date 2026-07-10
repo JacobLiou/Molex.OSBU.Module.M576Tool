@@ -123,12 +123,17 @@ namespace M576
 		Peak1DFitTrace* trace = nullptr,
 		Peak1DFitPolicy policy = Peak1DFitPolicy::Strict);
 
-	/// Mesa Y@merge + X@fine：Y 峰位来自 merge t*（pipeline 已验证），X 单独 ParabolaVertexMax1D。
+	/// merged mesa Y：t* 附近功率有效且接近平台顶；失败返回 false。
+	bool ValidateMergedYPowerAtPeak(const std::vector<double>& powYMerged, double mergeTPeak);
+
+	/// Mesa Y@merge + X@fine：Y 须通过 ValidateMergedYPowerAtPeak；X 单独 ParabolaVertexMax1D。
 	bool PeakCrossFromMesaMergedYAndFineX(
+		const std::vector<double>& powYMerged,
 		double mergeTPeak,
 		const std::vector<double>& powX,
 		int& outRow,
 		int& outCol,
+		Peak1DValidateCode* yDetail = nullptr,
 		Peak1DValidateCode* xDetail = nullptr,
 		double* outTY = nullptr,
 		double* outTX = nullptr,

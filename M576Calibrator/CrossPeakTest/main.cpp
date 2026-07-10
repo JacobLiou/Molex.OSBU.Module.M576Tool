@@ -1129,8 +1129,10 @@ static int RunPeak1DSelfTests()
 		std::vector<double> xFine(33);
 		for (int i = 0; i < 33; ++i)
 			xFine[(size_t)i] = SyntheticRawPeakQuad(i, 16);
-		std::vector<double> yMerge(201, 0.01);
-		yMerge[100] = 1.0;
+		std::vector<double> yMerge(201);
+		for (int i = 0; i < 201; ++i)
+			yMerge[(size_t)i] = -260000.0;
+		yMerge[100] = -230000.0;
 		int brEq = 0, bcEq = 0;
 		Peak1DValidateCode ycEq = Peak1DValidateCode::Ok, xcEq = Peak1DValidateCode::Ok;
 		if (M576::PeakCrossFrom1DScans(yMerge, xFine, brEq, bcEq, &ycEq, &xcEq, nullptr, nullptr, nullptr, nullptr))
@@ -1143,10 +1145,12 @@ static int RunPeak1DSelfTests()
 		double tYM = 0.0, tXM = 0.0;
 		const double mergeTPeak = 100.0;
 		if (!M576::PeakCrossFromMesaMergedYAndFineX(
+				yMerge,
 				mergeTPeak,
 				xFine,
 				brM,
 				bcM,
+				nullptr,
 				&xcM,
 				&tYM,
 				&tXM,
@@ -1156,6 +1160,25 @@ static int RunPeak1DSelfTests()
 			|| std::abs(tYM - mergeTPeak) > 0.01 || std::abs(tXM - 16.0) > 0.2)
 		{
 			std::fprintf(stderr, "self-test: PeakCrossFromMesaMergedYAndFineX merge t*=100 X peak≈16\n");
+			++fail;
+		}
+		std::vector<double> yFlatMerge(201, 0.0);
+		Peak1DValidateCode yFlatCode = Peak1DValidateCode::Ok;
+		if (M576::PeakCrossFromMesaMergedYAndFineX(
+				yFlatMerge,
+				100.0,
+				xFine,
+				brM,
+				bcM,
+				&yFlatCode,
+				nullptr,
+				nullptr,
+				nullptr,
+				nullptr,
+				Peak1DFitPolicy::FineRefineRelaxed)
+			|| yFlatCode != Peak1DValidateCode::LowSpan)
+		{
+			std::fprintf(stderr, "self-test: PeakCrossFromMesaMergedYAndFineX must reject flat/zero merge Y\n");
 			++fail;
 		}
 	}
@@ -1693,6 +1716,307 @@ static bool FeedPipelineSweepExact(
 	return AdvanceRecal1DSweepPipeline(st, col0, pow, peakOk, code, tPeak, peakIdx, dacStep);
 }
 
+struct CommYReplayRow
+{
+	int attempt = 0;
+	double col0 = 0.0;
+	bool peakOk = false;
+	Peak1DValidateCode code = Peak1DValidateCode::Empty;
+	std::vector<double> pow;
+};
+
+/// Load slot2 Y-axis RECAL 3 0 sweeps (attempts 1..4) for one Run Path step from comm replay CSV.
+static bool LoadCommSlot2YReplayRows(std::istream& csv, int step, std::vector<CommYReplayRow>& outRows)
+{
+	outRows.clear();
+	char stepPat[48] = {};
+	std::snprintf(stepPat, sizeof(stepPat), "|step=%d/576|", step);
+	std::string line;
+	int lineNo = 0;
+	while (std::getline(csv, line))
+	{
+		++lineNo;
+		if (lineNo == 1)
+			continue;
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+			line.pop_back();
+		if (line.empty())
+			continue;
+		if (line.find("slot=2") == std::string::npos || line.find(stepPat) == std::string::npos)
+			continue;
+		std::vector<std::string> fields;
+		if (!SplitCsvFieldsSimple(line, fields) || fields.size() < 6)
+			continue;
+		for (std::string& f : fields)
+			TrimInPlace(f);
+		if (fields[1].rfind("RECAL 3 0", 0) != 0)
+			continue;
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums) || nums.size() < 2)
+			continue;
+		CommYReplayRow row = {};
+		try
+		{
+			row.attempt = std::stoi(fields[2]);
+			row.peakOk = (std::stoi(fields[3]) != 0);
+			row.code = Peak1DCodeFromCsvName(fields[4]);
+		}
+		catch (...)
+		{
+			continue;
+		}
+		row.col0 = nums[0];
+		row.pow.assign(nums.begin() + 1, nums.end());
+		outRows.push_back(row);
+	}
+	std::sort(outRows.begin(), outRows.end(), [](const CommYReplayRow& a, const CommYReplayRow& b) {
+		return a.attempt < b.attempt;
+	});
+	return outRows.size() >= 4;
+}
+
+static void FeedPipelineSweepFromCommRow(
+	Recal1DSweepPipelineState& st,
+	const CommYReplayRow& row,
+	int dacStep)
+{
+	Recal1DSweepCommand cmd = {};
+	if (!GetNextPipelineSweepCommand(st, cmd))
+		return;
+	st.movingBase = cmd.movingBase;
+	int peakIdx = 0;
+	double tPeak = 0.0;
+	Peak1DValidateCode fitCode = row.code;
+	if (row.peakOk)
+		(void)FindUnimodalPeak1DIndex(row.pow, peakIdx, fitCode, &tPeak, nullptr, cmd.fitPolicy);
+	else
+		(void)FindUnimodalPeak1DIndex(row.pow, peakIdx, fitCode, &tPeak, nullptr, cmd.fitPolicy);
+	(void)AdvanceRecal1DSweepPipeline(
+		st, row.col0, row.pow, row.peakOk, row.code, tPeak, peakIdx, dacStep);
+}
+
+static bool ReplayCommSlot2YPipeline(
+	const std::vector<CommYReplayRow>& rows,
+	Recal1DSweepPipelineState& outSt)
+{
+	const int uiFine = 64;
+	const int dacStep = 4;
+	outSt = {};
+	InitRecal1DSweepPipeline(outSt, uiFine, 9999);
+	for (size_t i = 0; i < 4 && i < rows.size(); ++i)
+		FeedPipelineSweepFromCommRow(outSt, rows[i], dacStep);
+	return true;
+}
+
+/// Prefer full comm_2026-07-08 replay CSV (repo root) over truncated CrossPeakTest copy.
+static std::ifstream OpenComm20260708FullReplayCsv(std::string& outOpenedPath)
+{
+	outOpenedPath.clear();
+	std::vector<std::string> candidates;
+	{
+		char module[MAX_PATH];
+		DWORD n = GetModuleFileNameA(nullptr, module, MAX_PATH);
+		if (n > 0 && n < MAX_PATH)
+		{
+			std::string dir(module);
+			const size_t slash = dir.find_last_of("\\/");
+			if (slash != std::string::npos)
+			{
+				dir.resize(slash + 1);
+				for (int up = 4; up >= 2; --up)
+				{
+					std::string ancestor = dir;
+					for (int i = 0; i < up; ++i)
+					{
+						if (ancestor.size() < 2)
+							break;
+						const size_t parentSlash = ancestor.find_last_of("\\/", ancestor.length() - 2);
+						if (parentSlash == std::string::npos)
+							break;
+						ancestor.resize(parentSlash + 1);
+					}
+					candidates.push_back(ancestor + "comm_2026-07-08_recal_sweeps.csv");
+				}
+			}
+		}
+	}
+	candidates.push_back("comm_2026-07-08_recal_sweeps.csv");
+	candidates.push_back("..\\CrossPeakTest\\comm_2026-07-08_recal_sweeps.csv");
+	{
+		const std::string besideExe = PathToExeDirFile("comm_2026-07-08_recal_sweeps.csv");
+		if (!besideExe.empty())
+			candidates.push_back(besideExe);
+	}
+
+	for (const std::string& path : candidates)
+	{
+		std::ifstream probe(path, std::ios::binary);
+		if (!probe)
+			continue;
+		std::string line;
+		bool hasSlot2MesaStep = false;
+		while (std::getline(probe, line))
+		{
+			if (line.find("slot=2|step=494/576") != std::string::npos)
+			{
+				hasSlot2MesaStep = true;
+				break;
+			}
+		}
+		if (!hasSlot2MesaStep)
+			continue;
+		std::ifstream f(path, std::ios::binary);
+		if (f)
+		{
+			outOpenedPath = path;
+			return f;
+		}
+	}
+	return std::ifstream();
+}
+
+/// comm_2026-07-08 IL>0.2 slot2 mesa paths: fixed pipeline must not direct-success with legacy wrong DAC.
+static int RunComm20260708Slot2IlMesaReplayTests()
+{
+	int fail = 0;
+	std::string csvPath;
+	std::ifstream csv = OpenComm20260708FullReplayCsv(csvPath);
+	if (!csv)
+	{
+		std::fprintf(stderr, "self-test: comm_2026-07-08 slot2 IL mesa replay cannot open CSV\n");
+		return 1;
+	}
+
+	struct IlMesaReplayCase
+	{
+		int step;
+		int legacyWrongDac;
+		const char* label;
+	};
+
+	static const IlMesaReplayCase kCases[] = {
+		{494, -463, "MPO42-2 IL=3.59"},
+		{551, -495, "MPO46-11 IL=2.99"},
+		{241, -427, "MPO21-1 IL=2.35"},
+		{444, -455, "MPO37-12 IL=2.23"},
+		{529, -389, "MPO45-1 IL=1.08"},
+		{332, -350, "MPO28-8 IL=1.18"},
+	};
+
+	const int uiFine = 64;
+	const int dacStep = 4;
+	const std::vector<double> flatFine(33, -250000.0);
+	const std::vector<double> flatStitch(101, -250000.0);
+
+	for (const IlMesaReplayCase& tc : kCases)
+	{
+		csv.clear();
+		csv.seekg(0);
+		std::vector<CommYReplayRow> rows;
+		if (!LoadCommSlot2YReplayRows(csv, tc.step, rows))
+		{
+			std::fprintf(stderr, "self-test: comm slot2 step %d (%s) need >=4 Y rows\n", tc.step, tc.label);
+			++fail;
+			continue;
+		}
+
+		Recal1DSweepPipelineState st = {};
+		ReplayCommSlot2YPipeline(rows, st);
+
+		if (st.phase == Recal1DPipelinePhase::Succeeded)
+		{
+			std::fprintf(stderr,
+				"self-test: comm slot2 step %d (%s) must not Succeeded (old mesa direct success)\n",
+				tc.step, tc.label);
+			++fail;
+			continue;
+		}
+
+		while (st.phase == Recal1DPipelinePhase::Stitch
+			&& st.stitchK <= (int)M576_PEAK1D_STITCH_MAX_RETRIES)
+		{
+			const int baseK = StitchMovingBaseFromAnchor(st.anchorBase, st.stitchK);
+			(void)FeedPipelineSweepExact(st, flatStitch, Col0FromMovingBase(baseK, 200), dacStep);
+		}
+
+		if (st.phase != Recal1DPipelinePhase::FineRefine
+			&& st.phase != Recal1DPipelinePhase::Failed)
+		{
+			std::fprintf(stderr,
+				"self-test: comm slot2 step %d (%s) expect FineRefine or Failed, got phase=%d stitchK=%d\n",
+				tc.step, tc.label, (int)st.phase, st.stitchK);
+			++fail;
+			continue;
+		}
+
+		if (st.phase == Recal1DPipelinePhase::FineRefine)
+		{
+			if (!st.hasPendingFineBase)
+			{
+				std::fprintf(stderr, "self-test: comm slot2 step %d (%s) FineRefine without pendingFineBase\n",
+					tc.step, tc.label);
+				++fail;
+				continue;
+			}
+			if (std::abs(st.pendingFineBase - tc.legacyWrongDac) < 80)
+			{
+				std::fprintf(stderr,
+					"self-test: comm slot2 step %d (%s) pendingFineBase=%d too close to legacy wrong %d\n",
+					tc.step, tc.label, st.pendingFineBase, tc.legacyWrongDac);
+				++fail;
+			}
+			if (!st.lastStitchMesaBypass && !st.hasLastMergePlateau)
+			{
+				std::fprintf(stderr,
+					"self-test: comm slot2 step %d (%s) mesa path expected lastStitchMesaBypass or dual_knee plateau\n",
+					tc.step, tc.label);
+				++fail;
+			}
+
+			double peakDac = 0.0;
+			double tMerged = 0.0;
+			int idxMerged = 0;
+			Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
+			double spanRaw = 0.0;
+			M576::Peak1DPlateauTrace mergeTr = {};
+			if (M576::FindPeakDacOnMerged(
+					st.segments, dacStep, peakDac, tMerged, idxMerged, mergeCode, nullptr, spanRaw, &mergeTr)
+				&& mergeCode == Peak1DValidateCode::Ok)
+			{
+				double mCol0 = 0.0;
+				std::vector<double> mergedPow;
+				if (M576::MergeRecal1DSweepSegments(st.segments, dacStep, mCol0, mergedPow))
+				{
+					const double expectDac = M576::DacAtMergedSampleIndex(mCol0, tMerged, dacStep);
+					if (std::abs((double)st.pendingFineBase - expectDac) > 8.0)
+					{
+						std::fprintf(stderr,
+							"self-test: comm slot2 step %d (%s) pendingFineBase=%d expect merged DAC %.1f (t=%.2f)\n",
+							tc.step, tc.label, st.pendingFineBase, expectDac, tMerged);
+						++fail;
+					}
+				}
+			}
+
+			Recal1DSweepPipelineState stFine = st;
+			FeedPipelineSweepExact(
+				stFine, flatFine, Col0FromMovingBase(stFine.pendingFineBase, uiFine), dacStep);
+			if (stFine.phase != Recal1DPipelinePhase::Failed
+				|| std::strcmp(stFine.failedPhaseTag, "fineRefine") != 0)
+			{
+				std::fprintf(stderr,
+					"self-test: comm slot2 step %d (%s) flat fineRefine must Failed (phase=%d tag=%s)\n",
+					tc.step, tc.label, (int)stFine.phase,
+					stFine.failedPhaseTag ? stFine.failedPhaseTag : "?");
+				++fail;
+			}
+		}
+	}
+
+	return fail;
+}
+
 static int RunSweepPipelineSelfTests()
 {
 	int fail = 0;
@@ -2160,6 +2484,17 @@ static int RunSweepPipelineSelfTests()
 						"self-test: FindPeakDacOnMerged comm mesa trio dual_knee (t=%.4g code=%s dual=%d)\n",
 						tMerged, Peak1DCodeName(mergeCode), mergeTr.usedDualKnee ? 1 : 0);
 					++fail;
+				}
+				else
+				{
+					const double expectDac = M576::DacAtMergedSampleIndex(mergedCol0, tMerged, dacStep);
+					if (std::abs(peakDac - expectDac) > 1.5)
+					{
+						std::fprintf(stderr,
+							"self-test: FindPeakDacOnMerged DAC %.4g expect %.4g (col0=%.4g t=%.4g step=%d)\n",
+							peakDac, expectDac, mergedCol0, tMerged, dacStep);
+						++fail;
+					}
 				}
 			}
 		}
@@ -2696,6 +3031,7 @@ static int RunSweepRecenterSelfTests()
 {
 	int fail = RunSweepRetryPlannerSelfTests();
 	fail += RunSweepPipelineSelfTests();
+	fail += RunComm20260708Slot2IlMesaReplayTests();
 	const int dacRange = 64;
 	const int n = 33;
 
@@ -3356,6 +3692,33 @@ static std::ifstream OpenCrossPeakTestDataFile(const char* filename, std::string
 	}
 	candidates.push_back(filename);
 	candidates.push_back(std::string("..\\CrossPeakTest\\") + filename);
+	{
+		char module[MAX_PATH];
+		DWORD n = GetModuleFileNameA(nullptr, module, MAX_PATH);
+		if (n > 0 && n < MAX_PATH)
+		{
+			std::string dir(module);
+			const size_t slash = dir.find_last_of("\\/");
+			if (slash != std::string::npos)
+			{
+				dir.resize(slash + 1);
+				for (int up = 2; up <= 4; ++up)
+				{
+					std::string ancestor = dir;
+					for (int i = 0; i < up; ++i)
+					{
+						if (ancestor.size() < 2)
+							break;
+						const size_t parentSlash = ancestor.find_last_of("\\/", ancestor.length() - 2);
+						if (parentSlash == std::string::npos)
+							break;
+						ancestor.resize(parentSlash + 1);
+					}
+					candidates.push_back(ancestor + filename);
+				}
+			}
+		}
+	}
 	for (const std::string& path : candidates)
 	{
 		std::ifstream f(path, std::ios::binary);

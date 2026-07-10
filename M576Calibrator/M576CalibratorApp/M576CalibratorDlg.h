@@ -236,8 +236,7 @@ private:
 		int& outDacRangeUsed,
 		CString& err,
 		int pathLine1Based = 0,
-		int fileSlot = 0,
-		M576::SMesaDirectSweepInfo* outMesaDirect = nullptr);
+		int fileSlot = 0);
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();

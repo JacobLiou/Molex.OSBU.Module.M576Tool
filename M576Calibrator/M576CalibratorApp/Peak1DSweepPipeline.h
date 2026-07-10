@@ -51,8 +51,6 @@ namespace M576
 		bool hasLastMergePlateau = false;
 		/// Set when merge early-stop blocked: latest stitch segment failed Strict single-segment peak find.
 		bool lastStitchStrictGateFailed = false;
-		/// k=2 symmetric trio mesa merge: dual-knee peak used directly, skip fineRefine hardware sweep.
-		bool mesaDirectSuccess = false;
 		double lastMergeCol0 = 0.0;
 		std::vector<double> lastMergePow;
 		/// Strict gate bypassed because merged symmetric trio passes IsMergedMesaProfile.
@@ -93,16 +91,6 @@ namespace M576
 		const char* phaseLogTag = "fine64";
 	};
 
-	/// Filled when mesa dual-knee merge succeeds and fineRefine is skipped (Y merge grid != X fine grid).
-	struct SMesaDirectSweepInfo
-	{
-		bool active = false;
-		double mergeCol0 = 0.0;
-		int mergeHalfRange = 0;
-		double mergeTPeak = 0.0;
-		int mergePeakDac = 0;
-	};
-
 	/// k odd: anchor - tier*tile; k even: anchor + tier*tile (tile=2*halfRange, non-overlap abut).
 	int StitchMovingBaseFromAnchor(int anchorBase, int stitchK, int halfRange = M576_MAX_DAC_RANGE);
 
@@ -112,6 +100,9 @@ namespace M576
 	bool IsStitchLeft(int stitchK);
 
 	double DacAtSampleIndex(double col0, int index, int sampleCount, int halfRange);
+
+	/// Merge grid DAC: mergeCol0 + tIndex * dacStep (matches MergeRecal1DSweepSegments).
+	double DacAtMergedSampleIndex(double mergeCol0, double tIndex, int dacStep);
 
 	bool MergeRecal1DSweepSegments(
 		const std::vector<Recal1DSweepSegment>& segments,

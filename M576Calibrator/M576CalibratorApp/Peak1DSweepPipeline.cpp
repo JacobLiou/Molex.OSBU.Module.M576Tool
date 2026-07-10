@@ -139,11 +139,22 @@ namespace M576
 			return IsMergedMesaProfile(merged);
 		}
 
+		static bool BeginFineRefineFromMergedPeak(
+			Recal1DSweepPipelineState& state,
+			double peakDac)
+		{
+			state.pendingFineBase = ClampRecalBase((int)std::lround(peakDac));
+			state.hasPendingFineBase = true;
+			state.phase = Recal1DPipelinePhase::FineRefine;
+			state.failedPhaseTag = "fineRefine";
+			state.movingBase = state.pendingFineBase;
+			return true;
+		}
+
 		static bool TryMergeAndBeginFineRefine(Recal1DSweepPipelineState& state, int dacStep)
 		{
 			state.lastStitchStrictGateFailed = false;
 			state.lastStitchMesaBypass = false;
-			state.mesaDirectSuccess = false;
 			Peak1DValidateCode segCode = Peak1DValidateCode::Empty;
 			if (!EvaluateLatestStitchSegmentStrict(state, segCode))
 			{
@@ -194,25 +205,21 @@ namespace M576
 			if (!MergeRecal1DSweepSegments(state.segments, dacStep, mCol0, merged))
 				return false;
 
+			if (plateauTrace.usedDualKnee && !ValidateMergedYPowerAtPeak(merged, tMerged))
+			{
+				state.lastMergeCol0 = mCol0;
+				state.lastMergePow = merged;
+				state.lastCode = Peak1DValidateCode::LowSpan;
+				return false;
+			}
+
 			if (plateauTrace.usedDualKnee)
 			{
 				state.lastMergeCol0 = mCol0;
 				state.lastMergePow = merged;
-				state.mesaDirectSuccess = true;
-				state.movingBase = (int)std::lround(peakDac);
-				state.phase = Recal1DPipelinePhase::Succeeded;
-				return true;
 			}
 
-			BeginFineRefine(
-				state,
-				mCol0,
-				state.coarseRange,
-				tMerged,
-				idxMerged,
-				(int)merged.size());
-			state.movingBase = state.pendingFineBase;
-			return true;
+			return BeginFineRefineFromMergedPeak(state, peakDac);
 		}
 
 		static void FinalizeStitchAfterExplorePmExhausted(Recal1DSweepPipelineState& state, int dacStep)
@@ -281,6 +288,13 @@ namespace M576
 			return col0;
 		const double step = (2.0 * (double)halfRange) / (double)(sampleCount - 1);
 		return col0 + (double)index * step;
+	}
+
+	double DacAtMergedSampleIndex(double mergeCol0, double tIndex, int dacStep)
+	{
+		if (dacStep < 1)
+			return mergeCol0;
+		return mergeCol0 + tIndex * (double)dacStep;
 	}
 
 	bool MergeRecal1DSweepSegments(
@@ -414,10 +428,10 @@ namespace M576
 			outPeakIdx = 0;
 		if (outPeakIdx >= n)
 			outPeakIdx = n - 1;
-		const int half = segments.empty() ? M576_MAX_DAC_RANGE : segments.back().halfRange;
-		outPeakDac = DacAtSampleIndex(col0, outPeakIdx, n, half);
 		if (std::isfinite(outTPeak))
-			outPeakDac = DacAtSampleIndex(col0, outTPeak, n, half);
+			outPeakDac = DacAtMergedSampleIndex(col0, outTPeak, dacStep);
+		else
+			outPeakDac = DacAtMergedSampleIndex(col0, (double)outPeakIdx, dacStep);
 		return true;
 	}
 

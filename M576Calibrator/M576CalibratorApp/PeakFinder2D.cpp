@@ -1464,23 +1464,95 @@ namespace M576
 		return true;
 	}
 
+	bool ValidateMergedYPowerAtPeak(const std::vector<double>& powYMerged, double mergeTPeak)
+	{
+		const int n = (int)powYMerged.size();
+		if (n <= 0 || !std::isfinite(mergeTPeak))
+			return false;
+
+		double vmin = 0.0;
+		double vmax = 0.0;
+		int argmax = -1;
+		bool any = false;
+		for (int i = 0; i < n; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(powYMerged[(size_t)i]))
+				continue;
+			const double v = powYMerged[(size_t)i];
+			if (!any)
+			{
+				vmin = vmax = v;
+				argmax = i;
+				any = true;
+			}
+			else
+			{
+				vmin = (std::min)(vmin, v);
+				if (v >= vmax)
+				{
+					vmax = v;
+					argmax = i;
+				}
+			}
+		}
+		if (!any || argmax < 0)
+			return false;
+
+		const double span = vmax - vmin;
+		if (span < Peak1DMinFlatSpanRaw())
+			return false;
+
+		const int iLo = (std::max)(0, (int)std::floor(mergeTPeak));
+		const int iHi = (std::min)(n - 1, (int)std::ceil(mergeTPeak));
+		double vAtT = powYMerged[(size_t)iLo];
+		if (IsRecal1DPowerInvalidValue(vAtT))
+			return false;
+		if (iHi != iLo)
+		{
+			const double vHi = powYMerged[(size_t)iHi];
+			if (IsRecal1DPowerInvalidValue(vHi))
+				return false;
+			const double frac = mergeTPeak - (double)iLo;
+			vAtT = vAtT + (vHi - vAtT) * frac;
+		}
+
+		const double plateauGate = vmax - span * 0.10;
+		if (vAtT < plateauGate)
+			return false;
+
+		if (IsRecal1DPowerInvalidValue(powYMerged[(size_t)argmax]))
+			return false;
+
+		return true;
+	}
+
 	bool PeakCrossFromMesaMergedYAndFineX(
+		const std::vector<double>& powYMerged,
 		double mergeTPeak,
 		const std::vector<double>& powX,
 		int& outRow,
 		int& outCol,
+		Peak1DValidateCode* yDetail,
 		Peak1DValidateCode* xDetail,
 		double* outTY,
 		double* outTX,
 		Peak1DFitTrace* traceX,
 		Peak1DFitPolicy policyX)
 	{
+		if (yDetail)
+			*yDetail = Peak1DValidateCode::Ok;
 		if (xDetail)
 			*xDetail = Peak1DValidateCode::Ok;
 		if (outTY)
 			*outTY = mergeTPeak;
 		if (outTX)
 			*outTX = 0.0;
+		if (!ValidateMergedYPowerAtPeak(powYMerged, mergeTPeak))
+		{
+			if (yDetail)
+				*yDetail = Peak1DValidateCode::LowSpan;
+			return false;
+		}
 		if (powX.empty())
 		{
 			if (xDetail)
