@@ -83,25 +83,6 @@ namespace M576
 		bool usedArgmaxFallback = false;
 	};
 
-	/// merged 平台型双拐点定峰 trace（stitch merge 路径）。
-	struct Peak1DPlateauTrace
-	{
-		int kneeLeftIdx = -1;
-		int kneeRightIdx = -1;
-		int argmaxIdx = -1;
-		bool usedDualKnee = false;
-	};
-
-	/// merged 曲线是否为平台峰（mesa）：NonMono + 内峰 + 平顶宽度；保守判定，避免尖峰误判。
-	bool IsMergedMesaProfile(const std::vector<double>& merged);
-
-	/// merged mesa 曲线：上升/下降沿最大斜率膝点中点为 t*（非 Strict 单段尖峰路径）。
-	bool FindPlateauDualKneePeak1D(
-		const std::vector<double>& p,
-		double& outT,
-		Peak1DValidateCode& outCode,
-		Peak1DPlateauTrace* trace = nullptr);
-
 	/// 失败时 f 非 Ok；成功时 outT 为连续峰位下标（相对整条扫频，含间隙格点下标）。
 	/// trace 非空时：入口即填全局最大；预处理成功后追加拟合点（即使后续拟合失败亦保留，便于追溯）。
 	bool ParabolaVertexMax1D(
@@ -122,23 +103,6 @@ namespace M576
 		double* outTParabola = nullptr,
 		Peak1DFitTrace* trace = nullptr,
 		Peak1DFitPolicy policy = Peak1DFitPolicy::Strict);
-
-	/// merged mesa Y：t* 附近功率有效且接近平台顶；失败返回 false。
-	bool ValidateMergedYPowerAtPeak(const std::vector<double>& powYMerged, double mergeTPeak);
-
-	/// Mesa Y@merge + X@fine：Y 须通过 ValidateMergedYPowerAtPeak；X 单独 ParabolaVertexMax1D。
-	bool PeakCrossFromMesaMergedYAndFineX(
-		const std::vector<double>& powYMerged,
-		double mergeTPeak,
-		const std::vector<double>& powX,
-		int& outRow,
-		int& outCol,
-		Peak1DValidateCode* yDetail = nullptr,
-		Peak1DValidateCode* xDetail = nullptr,
-		double* outTY = nullptr,
-		double* outTX = nullptr,
-		Peak1DFitTrace* traceX = nullptr,
-		Peak1DFitPolicy policyX = Peak1DFitPolicy::Strict);
 
 	/// 两向各自三阶拟合寻峰；outRow/outCol = lround(tY), lround(tX)。outTY/outTX 供 SweepCol0+ 连续下标算 DAC。
 	bool PeakCrossFrom1DScans(

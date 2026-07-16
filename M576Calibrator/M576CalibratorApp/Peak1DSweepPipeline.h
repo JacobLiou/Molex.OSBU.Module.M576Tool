@@ -45,16 +45,11 @@ namespace M576
 		double mergedSpanRaw = 0.0;
 		int pendingFineBase = 0;
 		bool hasPendingFineBase = false;
-		int lastMergeKneeLeft = -1;
-		int lastMergeKneeRight = -1;
 		double lastMergeTPeak = 0.0;
-		bool hasLastMergePlateau = false;
 		/// Set when merge early-stop blocked: latest stitch segment failed Strict single-segment peak find.
 		bool lastStitchStrictGateFailed = false;
-		double lastMergeCol0 = 0.0;
-		std::vector<double> lastMergePow;
-		/// Strict gate bypassed because merged symmetric trio passes IsMergedMesaProfile.
-		bool lastStitchMesaBypass = false;
+		/// Strict gate bypassed: k=2 with symmetric trio k0+k1+k2 — merge uses FineRefineRelaxed on merged curve.
+		bool lastStitchSymmetricTrioMerge = false;
 		/// explore k=3 PM 超挡位：不再向左更外探。
 		bool explorePmBlockedLeft = false;
 		/// explore k=4 PM 超挡位：不再向右更外探。
@@ -77,8 +72,6 @@ namespace M576
 		const char* failedPhase = "fine64";
 		int lastStitchK = 0;
 		double mergedSpanRaw = 0.0;
-		int mergeKneeLeft = -1;
-		int mergeKneeRight = -1;
 		double mergeTPeak = 0.0;
 		std::vector<Recal1DSweepSegment> segments;
 	};
@@ -126,8 +119,7 @@ namespace M576
 		int& outPeakIdx,
 		Peak1DValidateCode& outCode,
 		Peak1DFitTrace* trace,
-		double& outMergedSpanRaw,
-		Peak1DPlateauTrace* plateauTrace = nullptr);
+		double& outMergedSpanRaw);
 
 	void InitRecal1DSweepPipeline(
 		Recal1DSweepPipelineState& state,

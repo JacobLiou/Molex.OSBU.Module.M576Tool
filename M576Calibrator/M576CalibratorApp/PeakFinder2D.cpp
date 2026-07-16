@@ -1,10 +1,10 @@
-#include <vector>
+﻿#include <vector>
 #include <algorithm>
 #include <cmath>
 #include <utility>
 #include "PeakFinder2D.h"
 #include "M576Peak1DConstants.h"
-// PeakFinder2D.cpp：RECAL 3/5 扫频后一维/二维寻峰、三阶拟合与单峰校验（CrossPeakTest 同源逻辑）。
+// PeakFinder2D.cpp锛歊ECAL 3/5 鎵鍚庝竴缁?浜岀淮瀵诲嘲銆佷笁闃舵嫙鍚堜笌鍗曞嘲鏍￠獙锛圕rossPeakTest 鍚屾簮閫昏緫锛夈€?
 
 namespace M576
 {
@@ -122,7 +122,7 @@ namespace M576
 		static const double kTRangeEps = 1e-9;
 		static const double kCubAbsWeak = 1e-17;
 		static const double kDerivRejectScale = 0.05;
-		static const double kFlatSpanMult = 1000; // spanAll≤MIN_ABS*k => 视同常值线拒绝
+		static const double kFlatSpanMult = 1000; // spanAll鈮IN_ABS*k => 瑙嗗悓甯稿€肩嚎鎷掔粷
 
 		static bool MinMaxRange(const std::vector<double>& p, double& outMin, double& outMax)
 		{
@@ -323,7 +323,7 @@ namespace M576
 			}
 		}
 
-		/// xs/ys：原格点下标递增；跨度 span 与该批样本 min/max。
+		/// xs/ys锛氬師鏍肩偣涓嬫爣閫掑锛涜法搴?span 涓庤鎵规牱鏈?min/max銆?
 		static bool FitsAreStrictMonotoneAlongIndex(const std::vector<double>& xs, const std::vector<double>& ys, double epsMono)
 		{
 			if (xs.size() < 2)
@@ -335,7 +335,7 @@ namespace M576
 				if (dy <= epsMono)
 					strictInc = false;
 			}
-			// 仅在沿下标严格上升时拒绝（整体向扫频末端爬升无虚峰）；单侧下降翼或洞左仅保留右翼仍有效。
+			// 浠呭湪娌夸笅鏍囦弗鏍间笂鍗囨椂鎷掔粷锛堟暣浣撳悜鎵鏈鐖崌鏃犺櫄宄帮級锛涘崟渚т笅闄嶇考鎴栨礊宸︿粎淇濈暀鍙崇考浠嶆湁鏁堛€?
 			return strictInc;
 		}
 
@@ -363,7 +363,7 @@ namespace M576
 			return true;
 		}
 
-		/// 全序列严格单调：峰在扫频窗外，三阶顶点贴边不可当作有效拟合。
+		/// 鍏ㄥ簭鍒椾弗鏍煎崟璋冿細宄板湪鎵绐楀锛屼笁闃堕《鐐硅创杈逛笉鍙綋浣滄湁鏁堟嫙鍚堛€?
 		static bool IsFullSweepMonotoneMissedPeak(const std::vector<double>& p)
 		{
 			std::vector<double> ys;
@@ -389,7 +389,7 @@ namespace M576
 			return IsStrictIncreasingSeq(ys, epsMono) || IsStrictDecreasingSeq(ys, epsMono);
 		}
 
-		/// 从峰顶 i0 向两侧找首个 y<=peakY-minPromDb 的格点；对称 halfW 拟合窗（端点峰仅校验有数据一侧）。
+		/// 浠庡嘲椤?i0 鍚戜袱渚ф壘棣栦釜 y<=peakY-minPromDb 鐨勬牸鐐癸紱瀵圭О halfW 鎷熷悎绐楋紙绔偣宄颁粎鏍￠獙鏈夋暟鎹竴渚э級銆?
 		static bool FindProminenceSymmetricWindow(
 			const std::vector<double>& pFilled,
 			const std::vector<unsigned char>& useOk,
@@ -468,7 +468,7 @@ namespace M576
 			return true;
 		}
 
-		/// useOk 格点上的 max−min（离群剔除后平坦门控用）。
+		/// useOk 鏍肩偣涓婄殑 max鈭抦in锛堢缇ゅ墧闄ゅ悗骞冲潶闂ㄦ帶鐢級銆?
 		static bool SpanMinMaxOnUseOk(
 			const std::vector<double>& p,
 			const std::vector<unsigned char>& useOk,
@@ -894,7 +894,7 @@ namespace M576
 		}
 	} // namespace
 
-	// ---------- 二维格点邻域和 / 全局最大 ----------
+	// ---------- 浜岀淮鏍肩偣閭诲煙鍜?/ 鍏ㄥ眬鏈€澶?----------
 	static bool InRange(int rr, int cc, int rows, int cols)
 	{
 		return rr >= 0 && cc >= 0 && rr < rows && cc < cols;
@@ -1106,7 +1106,7 @@ namespace M576
 		return true;
 	}
 
-	// ---------- 一维单峰校验（span/边缘/孤立尖峰） ----------
+	// ---------- 涓€缁村崟宄版牎楠岋紙span/杈圭紭/瀛ょ珛灏栧嘲锛?----------
 	bool ValidateUnimodal1DAtArgmax(const std::vector<double>& data, int ii, Peak1DValidateCode& f)
 	{
 		f = Peak1DValidateCode::Ok;
@@ -1167,275 +1167,6 @@ namespace M576
 		return false;
 	}
 
-	static bool FindPlateauKneeIndices1D(
-		const std::vector<double>& data,
-		int n,
-		int iPeak,
-		int& outIL,
-		int& outIR)
-	{
-		outIL = 0;
-		outIR = n - 1;
-		if (n < 2 || iPeak < 0 || iPeak >= n)
-			return false;
-
-		const int leftMargin = (std::max)(1, n / 5);
-		const int rightMargin = (std::max)(1, n / 10);
-		const int leftSearchStart = leftMargin;
-		const int leftSearchEnd = iPeak;
-		const int rightSearchStart = iPeak + 1;
-		const int rightSearchEnd = n - 1 - rightMargin;
-		if (leftSearchStart + 1 > leftSearchEnd || rightSearchStart > rightSearchEnd)
-			return false;
-
-		int iL = leftSearchStart;
-		double bestPosSlope = -(1e300);
-		bool haveLeft = false;
-		for (int i = leftSearchStart + 1; i <= leftSearchEnd; ++i)
-		{
-			if (IsRecal1DPowerInvalidValue(data[(size_t)i])
-				|| IsRecal1DPowerInvalidValue(data[(size_t)(i - 1)]))
-				continue;
-			const double d = data[(size_t)i] - data[(size_t)(i - 1)];
-			if (d > bestPosSlope || (d == bestPosSlope && i > iL))
-			{
-				bestPosSlope = d;
-				iL = i;
-				haveLeft = true;
-			}
-		}
-		if (!haveLeft)
-			iL = leftSearchStart;
-
-		int iR = rightSearchEnd;
-		double bestNegSlope = 1e300;
-		bool haveRight = false;
-		for (int i = rightSearchStart; i <= rightSearchEnd; ++i)
-		{
-			if (IsRecal1DPowerInvalidValue(data[(size_t)i])
-				|| IsRecal1DPowerInvalidValue(data[(size_t)(i - 1)]))
-				continue;
-			const double d = data[(size_t)i] - data[(size_t)(i - 1)];
-			if (d < bestNegSlope || (d == bestNegSlope && i < iR))
-			{
-				bestNegSlope = d;
-				iR = i;
-				haveRight = true;
-			}
-		}
-		if (!haveRight)
-			iR = rightSearchEnd;
-
-		if (iL >= iR)
-			return false;
-		outIL = iL;
-		outIR = iR;
-		return true;
-	}
-
-	bool IsMergedMesaProfile(const std::vector<double>& merged)
-	{
-		const int n = (int)merged.size();
-		if (n < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
-			return false;
-
-		int iPeak = -1;
-		double vmin = 0.0;
-		double vmax = 0.0;
-		bool any = false;
-		for (int i = 0; i < n; ++i)
-		{
-			if (IsRecal1DPowerInvalidValue(merged[(size_t)i]))
-				continue;
-			const double v = merged[(size_t)i];
-			if (!any)
-			{
-				vmin = vmax = v;
-				iPeak = i;
-				any = true;
-			}
-			else
-			{
-				vmin = (std::min)(vmin, v);
-				if (v >= vmax)
-				{
-					vmax = v;
-					iPeak = i;
-				}
-			}
-		}
-		if (!any || iPeak < 0)
-			return false;
-
-		const double span = vmax - vmin;
-		if (span < Peak1DMinFlatSpanRaw())
-			return false;
-
-		const int edge = (std::max)(1, n / 10);
-		if (iPeak < edge || iPeak >= n - edge)
-			return false;
-
-		int iL = 0;
-		int iR = n - 1;
-		if (!FindPlateauKneeIndices1D(merged, n, iPeak, iL, iR))
-			return false;
-
-		const int minPlateau = (std::max)(5, (n * 12 + 99) / 100);
-		if (iR - iL + 1 < minPlateau)
-			return false;
-
-		double topLo = vmax;
-		double topHi = vmin;
-		const double plateauGate = vmax - span * 0.05;
-		bool anyPlateauTop = false;
-		int plateauCount = 0;
-		for (int i = iL; i <= iR; ++i)
-		{
-			if (IsRecal1DPowerInvalidValue(merged[(size_t)i]))
-				continue;
-			const double v = merged[(size_t)i];
-			if (v < plateauGate)
-				continue;
-			++plateauCount;
-			anyPlateauTop = true;
-			topLo = (std::min)(topLo, v);
-			topHi = (std::max)(topHi, v);
-		}
-		const int kneeBand = iR - iL + 1;
-		if (!anyPlateauTop || plateauCount < minPlateau || plateauCount * 2 < kneeBand)
-			return false;
-		if (topHi - topLo > span * 0.15)
-			return false;
-
-		const double epsMono = (std::max)((double)M576_PEAK1D_MIN_ABS_EPS_DB,
-			span * (double)M576_PEAK1D_EPS_REL_OF_SPAN);
-		bool strictInc = true;
-		bool strictDec = true;
-		bool havePrev = false;
-		double prevY = 0.0;
-		for (int i = 0; i < n; ++i)
-		{
-			if (IsRecal1DPowerInvalidValue(merged[(size_t)i]))
-				continue;
-			const double y = merged[(size_t)i];
-			if (havePrev)
-			{
-				if (y <= prevY + epsMono)
-					strictInc = false;
-				if (y >= prevY - epsMono)
-					strictDec = false;
-			}
-			prevY = y;
-			havePrev = true;
-		}
-		return havePrev && !strictInc && !strictDec;
-	}
-
-	bool FindPlateauDualKneePeak1D(
-		const std::vector<double>& p,
-		double& outT,
-		Peak1DValidateCode& outCode,
-		Peak1DPlateauTrace* trace)
-	{
-		outCode = Peak1DValidateCode::Ok;
-		outT = 0.0;
-		if (trace != nullptr)
-		{
-			trace->kneeLeftIdx = -1;
-			trace->kneeRightIdx = -1;
-			trace->argmaxIdx = -1;
-			trace->usedDualKnee = false;
-		}
-
-		const int n = (int)p.size();
-		if (n < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
-		{
-			outCode = Peak1DValidateCode::NotEnoughSamples;
-			return false;
-		}
-
-		int iPeak = -1;
-		double vmin = 0.0;
-		double vmax = 0.0;
-		bool any = false;
-		for (int i = 0; i < n; ++i)
-		{
-			if (IsRecal1DPowerInvalidValue(p[(size_t)i]))
-				continue;
-			const double v = p[(size_t)i];
-			if (!any)
-			{
-				vmin = vmax = v;
-				iPeak = i;
-				any = true;
-			}
-			else
-			{
-				vmin = (std::min)(vmin, v);
-				if (v >= vmax)
-				{
-					vmax = v;
-					iPeak = i;
-				}
-			}
-		}
-		if (!any || iPeak < 0)
-		{
-			outCode = Peak1DValidateCode::Empty;
-			return false;
-		}
-		const double span = vmax - vmin;
-		if (span < Peak1DMinFlatSpanRaw())
-		{
-			outCode = Peak1DValidateCode::LowSpan;
-			return false;
-		}
-
-		int iL = 0;
-		int iR = n - 1;
-		bool haveLeft = false;
-		bool haveRight = false;
-		if (!FindPlateauKneeIndices1D(p, n, iPeak, iL, iR))
-		{
-			outCode = Peak1DValidateCode::ParabolaNotDownward;
-			return false;
-		}
-		haveLeft = (iL > 0);
-		haveRight = (iR < n - 1);
-
-		if (iL >= iR)
-		{
-			outCode = Peak1DValidateCode::ParabolaNotDownward;
-			return false;
-		}
-		if (iR - iL + 1 < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
-		{
-			outCode = Peak1DValidateCode::NotEnoughValidSamples;
-			return false;
-		}
-		if (iL == 0 && iR == n - 1 && !haveLeft && !haveRight)
-		{
-			outCode = Peak1DValidateCode::ParabolaNotDownward;
-			return false;
-		}
-
-		outT = ((double)iL + (double)iR) * 0.5;
-		if (outT < 0.0)
-			outT = 0.0;
-		if (outT > (double)(n - 1))
-			outT = (double)(n - 1);
-
-		if (trace != nullptr)
-		{
-			trace->kneeLeftIdx = iL;
-			trace->kneeRightIdx = iR;
-			trace->argmaxIdx = iPeak;
-			trace->usedDualKnee = true;
-		}
-		outCode = Peak1DValidateCode::Ok;
-		return true;
-	}
-
 	bool FindUnimodalPeak1DIndex(
 		const std::vector<double>& data,
 		int& outIdx,
@@ -1461,122 +1192,6 @@ namespace M576
 			outIdx = 0;
 		if (outIdx >= (int)data.size())
 			outIdx = (int)data.size() - 1;
-		return true;
-	}
-
-	bool ValidateMergedYPowerAtPeak(const std::vector<double>& powYMerged, double mergeTPeak)
-	{
-		const int n = (int)powYMerged.size();
-		if (n <= 0 || !std::isfinite(mergeTPeak))
-			return false;
-
-		double vmin = 0.0;
-		double vmax = 0.0;
-		int argmax = -1;
-		bool any = false;
-		for (int i = 0; i < n; ++i)
-		{
-			if (IsRecal1DPowerInvalidValue(powYMerged[(size_t)i]))
-				continue;
-			const double v = powYMerged[(size_t)i];
-			if (!any)
-			{
-				vmin = vmax = v;
-				argmax = i;
-				any = true;
-			}
-			else
-			{
-				vmin = (std::min)(vmin, v);
-				if (v >= vmax)
-				{
-					vmax = v;
-					argmax = i;
-				}
-			}
-		}
-		if (!any || argmax < 0)
-			return false;
-
-		const double span = vmax - vmin;
-		if (span < Peak1DMinFlatSpanRaw())
-			return false;
-
-		const int iLo = (std::max)(0, (int)std::floor(mergeTPeak));
-		const int iHi = (std::min)(n - 1, (int)std::ceil(mergeTPeak));
-		double vAtT = powYMerged[(size_t)iLo];
-		if (IsRecal1DPowerInvalidValue(vAtT))
-			return false;
-		if (iHi != iLo)
-		{
-			const double vHi = powYMerged[(size_t)iHi];
-			if (IsRecal1DPowerInvalidValue(vHi))
-				return false;
-			const double frac = mergeTPeak - (double)iLo;
-			vAtT = vAtT + (vHi - vAtT) * frac;
-		}
-
-		const double plateauGate = vmax - span * 0.10;
-		if (vAtT < plateauGate)
-			return false;
-
-		if (IsRecal1DPowerInvalidValue(powYMerged[(size_t)argmax]))
-			return false;
-
-		return true;
-	}
-
-	bool PeakCrossFromMesaMergedYAndFineX(
-		const std::vector<double>& powYMerged,
-		double mergeTPeak,
-		const std::vector<double>& powX,
-		int& outRow,
-		int& outCol,
-		Peak1DValidateCode* yDetail,
-		Peak1DValidateCode* xDetail,
-		double* outTY,
-		double* outTX,
-		Peak1DFitTrace* traceX,
-		Peak1DFitPolicy policyX)
-	{
-		if (yDetail)
-			*yDetail = Peak1DValidateCode::Ok;
-		if (xDetail)
-			*xDetail = Peak1DValidateCode::Ok;
-		if (outTY)
-			*outTY = mergeTPeak;
-		if (outTX)
-			*outTX = 0.0;
-		if (!ValidateMergedYPowerAtPeak(powYMerged, mergeTPeak))
-		{
-			if (yDetail)
-				*yDetail = Peak1DValidateCode::LowSpan;
-			return false;
-		}
-		if (powX.empty())
-		{
-			if (xDetail)
-				*xDetail = Peak1DValidateCode::Empty;
-			return false;
-		}
-		double tX = 0.0;
-		Peak1DValidateCode cx = Peak1DValidateCode::Ok;
-		const bool okX = ParabolaVertexMax1D(powX, tX, cx, traceX, policyX);
-		if (xDetail)
-			*xDetail = okX ? Peak1DValidateCode::Ok : cx;
-		if (!okX)
-			return false;
-		outRow = (int)std::lround(mergeTPeak);
-		outCol = (int)std::lround(tX);
-		const int ns = (int)powX.size();
-		if (outRow < 0)
-			outRow = 0;
-		if (outCol < 0)
-			outCol = 0;
-		if (outCol >= ns)
-			outCol = ns - 1;
-		if (outTX)
-			*outTX = tX;
 		return true;
 	}
 

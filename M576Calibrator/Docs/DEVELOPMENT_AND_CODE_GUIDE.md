@@ -1,53 +1,54 @@
-# M576Calibrator ¿ª·¢Éè¼ÆÓë´úÂëËµÃ÷
+# M576Calibrator å¼€å‘è®¾è®¡ä¸ä»£ç è¯´æ˜
 
-±¾ÎÄµµ»ùÓÚµ±Ç°²Ö¿âÖĞ `M576Calibrator` ½â·½°¸ÄÚÔ´ÂëÕûÀí£¬ÓÃÓÚ**¼Ü¹¹ËµÃ÷¡¢Ä£¿éÖ°Ôğ¡¢Àà/·½·¨Ë÷Òı**ÓëºóĞøÎ¬»¤³Áµí¡£Ï¸½ÚÒÔÍ·ÎÄ¼şÓëÊµÏÖÎª×¼£»`Z4767StructDefine.h` ÌåÁ¿½Ï´ó£¬´Ë´¦Ö»¸ÅÀ¨ÆäÔÚÁ÷³ÌÖĞµÄ½ÇÉ«¡£
+æœ¬æ–‡æ¡£åŸºäºå½“å‰ä»“åº“ä¸­ `M576Calibrator` è§£æ–¹æ¡ˆå†…æºç æ•´ç†ï¼Œç”¨äº**æ¶æ„è¯´æ˜ã€æ¨¡å—èŒè´£ã€ç±»/æ–¹æ³•ç´¢å¼•**ä¸åç»­ç»´æŠ¤æ²‰æ·€ã€‚ç»†èŠ‚ä»¥å¤´æ–‡ä»¶ä¸å®ç°ä¸ºå‡†ï¼›`Z4767StructDefine.h` ä½“é‡è¾ƒå¤§ï¼Œæ­¤å¤„åªæ¦‚æ‹¬å…¶åœ¨æµç¨‹ä¸­çš„è§’è‰²ã€‚
 
-**¶ÁÕß**£º¹Ì¼ş/ÉÏÎ»»ú¶Ô½Ó¡¢²úÏßÈí¼şÎ¬»¤¡¢¶ş´Î¹¦ÄÜÀ©Õ¹¡£
+**è¯»è€…**ï¼šå›ºä»¶/ä¸Šä½æœºå¯¹æ¥ã€äº§çº¿è½¯ä»¶ç»´æŠ¤ã€äºŒæ¬¡åŠŸèƒ½æ‰©å±•ã€‚
 
-**¶Ô±íÓë²»±äÁ¿**£¨¸Ä Merge / RECAL / Read Ç°±Ø¶Á£©£º
+**å¯¹è¡¨ä¸ä¸å˜é‡**ï¼ˆæ”¹ Merge / RECAL / Read å‰å¿…è¯»ï¼‰ï¼š
 
-| ÎÄµµ | ÓÃÍ¾ |
+| æ–‡æ¡£ | ç”¨é€” |
 |------|------|
-| [`INVARIANTS.md`](INVARIANTS.md) | ²»¿ÉÎ¥·´µÄ INV-xx ÌõÎÄ£¨SN33/34¡¢CH19¨C32¡¢ÖØÊÔ¡¢Read£© |
-| [`LUT_INDEXING.md`](LUT_INDEXING.md) | SN / sw / ch / MCS ¿éºÅ¶ÔÕÕ±í |
-| [`PeakFinder.md`](PeakFinder.md) | Á½Öá½»²æÑ°·åËã·¨¡¢Y Ô¤É¨ÖØÊÔÓë planner ²ßÂÔËµÃ÷ |
+| [`INVARIANTS.md`](INVARIANTS.md) | ä¸å¯è¿åçš„ INV-xx æ¡æ–‡ï¼ˆSN33/34ã€CH19â€“32ã€é‡è¯•ã€Readï¼‰ |
+| [`LUT_INDEXING.md`](LUT_INDEXING.md) | SN / sw / ch / MCS å—å·å¯¹ç…§è¡¨ |
+| [`PeakFinder.md`](PeakFinder.md) | ä¸¤è½´äº¤å‰å¯»å³°ç®—æ³•ã€Y é¢„æ‰«é‡è¯•ä¸ planner ç­–ç•¥è¯´æ˜ |
+| [`peakFinderEmergency.md`](peakFinderEmergency.md) | **å¯»å³°ç®—æ³•ç´§æ€¥å›é€€ SOP**ï¼ˆL0=`0f80f0f` æ— æ‹¼æ¥/mesaï¼›IL ä¸è¾¾æ ‡æ—¶æ‰‹æœ¯å¼å›é€€æ­¥éª¤ï¼‰ |
 
 ---
 
-## 1. ÎÄµµ·¶Î§Óë½â·½°¸
+## 1. æ–‡æ¡£èŒƒå›´ä¸è§£æ–¹æ¡ˆ
 
-| ¹¤³Ì | ÀàĞÍ | ×÷ÓÃ |
+| å·¥ç¨‹ | ç±»å‹ | ä½œç”¨ |
 |------|------|------|
-| **Z4671Core** | ¾²Ì¬¿â£¨.lib£© | Óë Z4671/¿ØÖÆ°å Ïà¹ØµÄ**´®¿Ú¡¢¶ş½øÖÆÖ¸Áî¡¢LUT/MEMS bin ÂäÅÌ¡¢CRC/×Ö½ÚĞò¡¢Í¨ĞÅÖØÊÔ**µÈ¿É¸´ÓÃÄÜÁ¦£»²»ÒÀÀµ MFC ¶Ô»°¿ò¡£ |
-| **M576CalibratorApp** | MFC ¿ÉÖ´ĞĞÎÄ¼ş | 1310nm ¶¨±ê**ÉÏÎ»»ú UI ÓëÒµÎñ±àÅÅ**£ºµ¥´®¿ÚÁ¬ 439F¡¢ASCII RECAL ¶¨±ê¡¢¾­ `trans`/`$$` ËíµÀµÄ¶Á Flash/ÉÕÂ¼¡¢Â·¾¶ CSV¡¢Ñ°·å¡¢Í³¼Æµ¼³öµÈ¡£ |
-| **CrossPeakTest**£¨Í¬Ä¿Â¼£¬¿ÉÑ¡£© | ¿ØÖÆÌ¨/²âÊÔ¹¤³Ì | Õë¶ÔÑ°·åµÈËã·¨µÄ¶ÀÁ¢ÑéÖ¤£¬·Ç²úÏßÖ÷³ÌĞòÒÀÀµÁ´ºËĞÄ¡£ |
+| **Z4671Core** | é™æ€åº“ï¼ˆ.libï¼‰ | ä¸ Z4671/æ§åˆ¶æ¿ ç›¸å…³çš„**ä¸²å£ã€äºŒè¿›åˆ¶æŒ‡ä»¤ã€LUT/MEMS bin è½ç›˜ã€CRC/å­—èŠ‚åºã€é€šä¿¡é‡è¯•**ç­‰å¯å¤ç”¨èƒ½åŠ›ï¼›ä¸ä¾èµ– MFC å¯¹è¯æ¡†ã€‚ |
+| **M576CalibratorApp** | MFC å¯æ‰§è¡Œæ–‡ä»¶ | 1310nm å®šæ ‡**ä¸Šä½æœº UI ä¸ä¸šåŠ¡ç¼–æ’**ï¼šå•ä¸²å£è¿ 439Fã€ASCII RECAL å®šæ ‡ã€ç» `trans`/`$$` éš§é“çš„è¯» Flash/çƒ§å½•ã€è·¯å¾„ CSVã€å¯»å³°ã€ç»Ÿè®¡å¯¼å‡ºç­‰ã€‚ |
+| **CrossPeakTest**ï¼ˆåŒç›®å½•ï¼Œå¯é€‰ï¼‰ | æ§åˆ¶å°/æµ‹è¯•å·¥ç¨‹ | é’ˆå¯¹å¯»å³°ç­‰ç®—æ³•çš„ç‹¬ç«‹éªŒè¯ï¼Œéäº§çº¿ä¸»ç¨‹åºä¾èµ–é“¾æ ¸å¿ƒã€‚ |
 
-¹¤³ÌÒÀÀµ¹ØÏµ£º**M576CalibratorApp ÒÀÀµ²¢Á´½Ó Z4671Core**£¨`M576Calibrator.sln` ÖĞÒÑÅäÖÃÏîÄ¿ÒÀÀµ£©¡£
+å·¥ç¨‹ä¾èµ–å…³ç³»ï¼š**M576CalibratorApp ä¾èµ–å¹¶é“¾æ¥ Z4671Core**ï¼ˆ`M576Calibrator.sln` ä¸­å·²é…ç½®é¡¹ç›®ä¾èµ–ï¼‰ã€‚
 
 ---
 
-## 2. ×ÜÌå¼Ü¹¹
+## 2. æ€»ä½“æ¶æ„
 
 ```mermaid
 flowchart TB
   subgraph app [M576CalibratorApp]
-    UI[CM576CalibratorDlg Ö÷½çÃæ]
-    Recal[CRecalSession RECAL ÎÄ±¾]
-    Path[PathCsvDriver / TransLutRoute Â·¾¶]
-    Peak[PeakFinder2D / LutPeakApply Ñ°·åÓëĞ´ DAC]
-    Mcs[McsFwTransport Í¸´«Óë MCS ÉÕ¶Á]
+    UI[CM576CalibratorDlg ä¸»ç•Œé¢]
+    Recal[CRecalSession RECAL æ–‡æœ¬]
+    Path[PathCsvDriver / TransLutRoute è·¯å¾„]
+    Peak[PeakFinder2D / LutPeakApply å¯»å³°ä¸å†™ DAC]
+    Mcs[McsFwTransport é€ä¼ ä¸ MCS çƒ§è¯»]
     Sw1x[Switch1x64FwTransport 1x64 MEM/XMODEM]
     Board[Board439fTransTunnel trans/$$]
-    Merge[LutMerge1310 Óë¼ÈÓĞ LUT ºÏ²¢]
-    CalibW[CalibWriteMeta Í³¼Æ CSV]
+    Merge[LutMerge1310 ä¸æ—¢æœ‰ LUT åˆå¹¶]
+    CalibW[CalibWriteMeta ç»Ÿè®¡ CSV]
   end
   subgraph core [Z4671Core]
-    OpComm[COpComm ´®¿Ú]
-    Zcmd[Z4671Command ¶ş½øÖÆÃüÁî]
-    LutW[CLutBinWriter MCS LUT °ü]
-    MemsW[CMems1x64LutBinWriter 1x64 2208B °ü]
+    OpComm[COpComm ä¸²å£]
+    Zcmd[Z4671Command äºŒè¿›åˆ¶å‘½ä»¤]
+    LutW[CLutBinWriter MCS LUT åŒ…]
+    MemsW[CMems1x64LutBinWriter 1x64 2208B åŒ…]
     Crc[COpCRC32]
-    St[Z4767StructDefine / M576OneX64Coef ½á¹¹Ìå]
+    St[Z4767StructDefine / M576OneX64Coef ç»“æ„ä½“]
   end
   UI --> Recal
   UI --> Path
@@ -64,229 +65,229 @@ flowchart TB
   Merge --> St
 ```
 
-- **Í¬Ò»ÌõÎïÀí´®¿Ú**£º`COpComm` ´ò¿ªºó£¬**ASCII ²ã**ÓÉ `CRecalSession` ·¢ `RECAL ...`£»**Í¸´«**µ½Ä³ `trans` Í¨µÀºó£¬**¶ş½øÖÆ²ã**ÓÃ `Z4671Command` ÓëÏÂÎ»»ú Z4671 ·ç¸ñÖ¡Í¨ĞÅ£¨Óë `Board439fTransTunnel` ÅäºÏ±ØĞëÏÈ `trans n` ÔÙ·¢¶ş½øÖÆ£¬½áÊøÓÃ `$$`£©¡£
+- **åŒä¸€æ¡ç‰©ç†ä¸²å£**ï¼š`COpComm` æ‰“å¼€åï¼Œ**ASCII å±‚**ç”± `CRecalSession` å‘ `RECAL ...`ï¼›**é€ä¼ **åˆ°æŸ `trans` é€šé“åï¼Œ**äºŒè¿›åˆ¶å±‚**ç”¨ `Z4671Command` ä¸ä¸‹ä½æœº Z4671 é£æ ¼å¸§é€šä¿¡ï¼ˆä¸ `Board439fTransTunnel` é…åˆå¿…é¡»å…ˆ `trans n` å†å‘äºŒè¿›åˆ¶ï¼Œç»“æŸç”¨ `$$`ï¼‰ã€‚
 
 ---
 
-## 3. ¹¤³ÌÒ»£ºZ4671Core
+## 3. å·¥ç¨‹ä¸€ï¼šZ4671Core
 
-### 3.1 Éè¼ÆÄ¿±ê
+### 3.1 è®¾è®¡ç›®æ ‡
 
-- ´Ó Z4671 Ê±´ú¼Ì³Ğ²¢ÊÕÁ²£º**´®¿Ú¶ÁĞ´¡¢ÃüÁîÖ¡¡¢Ó²¼şĞÅÏ¢/¿ª¹Ø/¹â·ÅµÈÖ¸Áî**£¨¼û `Z4671Command`£©¡£
-- Îª M576 ¶¨±êÌá¹© **¿ÉÁ´½ÓµÄ¡¢ÎŞ UI µÄ** ÄÜÁ¦£º`stLutSettingZ4671` µÄºÏ°üĞ´ÅÌ¡¢1x64 `stM576OneX64MemsSwCoef` µÄ 2208B ºÏ°ü¡¢CRC Óë¶à×Ö½ÚĞò¡£
-- **Í¨ĞÅ¿É¹Û²âĞÔ**£º`CommLog.h` µÄ `M576CommLogTarget` ½«ÊÕ·¢ÎÄ±¾/´íÎó»Øµ÷¸øÉÏ²ã£¬±ãÓÚ M576 Ğ´ÅÌÈÕÖ¾ºÍ UI ÍÑ¹³¡£
+- ä» Z4671 æ—¶ä»£ç»§æ‰¿å¹¶æ”¶æ•›ï¼š**ä¸²å£è¯»å†™ã€å‘½ä»¤å¸§ã€ç¡¬ä»¶ä¿¡æ¯/å¼€å…³/å…‰æ”¾ç­‰æŒ‡ä»¤**ï¼ˆè§ `Z4671Command`ï¼‰ã€‚
+- ä¸º M576 å®šæ ‡æä¾› **å¯é“¾æ¥çš„ã€æ—  UI çš„** èƒ½åŠ›ï¼š`stLutSettingZ4671` çš„åˆåŒ…å†™ç›˜ã€1x64 `stM576OneX64MemsSwCoef` çš„ 2208B åˆåŒ…ã€CRC ä¸å¤šå­—èŠ‚åºã€‚
+- **é€šä¿¡å¯è§‚æµ‹æ€§**ï¼š`CommLog.h` çš„ `M576CommLogTarget` å°†æ”¶å‘æ–‡æœ¬/é”™è¯¯å›è°ƒç»™ä¸Šå±‚ï¼Œä¾¿äº M576 å†™ç›˜æ—¥å¿—å’Œ UI è„±é’©ã€‚
 
-### 3.2 Í·ÎÄ¼şÓëÎÄ¼şÖ°Ôğ£¨ºËĞÄ£©
+### 3.2 å¤´æ–‡ä»¶ä¸æ–‡ä»¶èŒè´£ï¼ˆæ ¸å¿ƒï¼‰
 
-| ÎÄ¼ş | ËµÃ÷ |
+| æ–‡ä»¶ | è¯´æ˜ |
 |------|------|
-| `stdafx.h` / `stdafx.cpp` | Ô¤±àÒëÍ·¡£ |
-| `OpComm.h` / `OpComm.cpp` | **`COpComm`**£º´ò¿ª/¹Ø±Õ´®¿Ú¡¢`ReadBuffer`/`WriteBuffer`£¨º¬²» Purge µÄ±äÌå£¬¹© ASCII ÇëÇóÏìÓ¦£©¡¢`RxBytesWaiting` µÈ¡£`Z4671Command` ¹«ÓĞ¼Ì³Ğ´ËÀà¡£ |
-| `CommPort.h` | `CCommPortRef`£º¶Ô `COpComm` µÄ±¡°ü×°£¬Ô¤Áô¸ø¿ÉÌæ»»ÊµÏÖ/²âÊÔ¡£ |
-| `Z4671Command.h` / `Z4671Command.cpp` | **`Z4671Command`**£ºÔÚ `COpComm` Ö®ÉÏÊµÏÖ´óÁ¿ **CMD_*** ÓëÒµÎñ·½·¨£¨Èç `SetSwitchDAC`¡¢`GetLogFileData`¡¢EDFA/VOA/¹â¿ª¹Ø/¹Ì¼şÉı¼¶µÈ£©¡£M576 ³¡¾°Ö÷ÒªÓÃ **Í¸´«¡¢¶Á log ÎÄ¼ş/Flash¡¢·¢É¨Ãè¡¢¹Ì¼ş·ÖÆ¬** µÈ¡£ÄÚÖÃ **Í¨ĞÅÈÕÖ¾/Ö¡ trace**£¨`SetCommLogTarget`¡¢`TraceInfo`/`TraceError`/`TraceFrame` µÈ£©¡£ |
-| `Z4767StructDefine.h` | Óë²úÆ·/Z4671 Èí¼ş¼æÈİµÄ**´óĞÍ½á¹¹Ìå¶¨Òå**£¨Èç `stLutSettingZ4671`¡¢¶Ë¿Ú/ÎÂÇø/Ğ£ÑéµÈ£©¡£¶¨±êÖ»Ğ´ÆäÖĞ **µÍÎÂ²Û `wCalibPtrDAC`** µÈ×Ó¼¯£¬ÒÔÒµÎñ´úÂëÎª×¼¡£ |
-| `M576OneX64Coef.h` / `M576OneX64TempMeta.h` | **1x64 µ¥¿ª¹Ø 2208B ÎÄ¼ş/Flash** ²¼¾ÖÓë `stM576OneX64MemsSwCoef` ¾µÏñ£»Óë 126S ¹Ì¼ş `tagMemsSwCoef` ¶ÔÆë¡£`M576OneX64ApplyStandardTempMeta` ÔÚĞ´ 2208B Ç°Ìî³ä±ê×¼ÎÂÇøµÈÔªÊı¾İ¡£ |
-| `LutBinWriter.h` / `LutBinWriter.cpp` | **`CLutBinWriter`**£º°´ Z4671 **CreateBinFileZ4671** ²¼¾ÖĞ´ MCS **LUT ºÏ°ü**£¨`SLutBinWriteParams`£ºÂ·¾¶¡¢SN/PN/Ê±¼ä¡¢¾µÏñ»ùÖ·¡¢`stLutSettingZ4671*`£©¡£Ìá¹© `LutPayloadOffset`¡¢´ÓÎÄ¼şÖ»¶Á LUT Ìå¡¢`ReadBundleSnFromFile`¡¢Éè±¸ payload ³ß´çµÈ¡£ |
-| `Mems1x64LutBinWriter.h` / `Mems1x64LutBinWriter.cpp` | **`CMems1x64LutBinWriter`**£ºµ¥¿ª¹Ø 2208B ÎÄ¼ş£¨BUNDLEHEADER + 2048 body¡¢CRC ¹æÔòÔÚ×¢ÊÍÖĞËµÃ÷£©¡¢¶Á»Øµ¥ÎÄ¼şµ½½á¹¹Ìå¡£ |
-| `OpCRC32.h` / `OpCRC32.cpp` | **`COpCRC32`**£ºÓë bin ÖĞ CRC ×Ö¶Î¼ÆËãÒ»ÖÂµÄ±íÇı¶¯ CRC¡£ |
-| `ByteSwap.h` | ¶à×Ö½Ú×ÖĞò/Ö÷»úÓëÏß¸ñÊ½×ª»»¸¨Öú¡£ |
-| `CommLog.h` | `M576CommLogTarget`¡¢**°´ĞĞ/¸ñÊ½»¯/Ê®Áù½øÖÆ/ASCII ×ªÒå** µÈ£¬¹© RECAL Óë `Z4671Command` ¹²ÓÃ¡£ |
-| `CommRetry.h` | **`M576WithRetry`**£º·ºĞÍ Polly Ê½ÖØÊÔÄ£°å£¬Ä¬ÈÏÓë `M576CalibratorApp` ÖĞÖØÊÔ³£Êı¿ÉÅäºÏ£¨ºê `M576_COMM_RETRY_*`£©¡£ |
+| `stdafx.h` / `stdafx.cpp` | é¢„ç¼–è¯‘å¤´ã€‚ |
+| `OpComm.h` / `OpComm.cpp` | **`COpComm`**ï¼šæ‰“å¼€/å…³é—­ä¸²å£ã€`ReadBuffer`/`WriteBuffer`ï¼ˆå«ä¸ Purge çš„å˜ä½“ï¼Œä¾› ASCII è¯·æ±‚å“åº”ï¼‰ã€`RxBytesWaiting` ç­‰ã€‚`Z4671Command` å…¬æœ‰ç»§æ‰¿æ­¤ç±»ã€‚ |
+| `CommPort.h` | `CCommPortRef`ï¼šå¯¹ `COpComm` çš„è–„åŒ…è£…ï¼Œé¢„ç•™ç»™å¯æ›¿æ¢å®ç°/æµ‹è¯•ã€‚ |
+| `Z4671Command.h` / `Z4671Command.cpp` | **`Z4671Command`**ï¼šåœ¨ `COpComm` ä¹‹ä¸Šå®ç°å¤§é‡ **CMD_*** ä¸ä¸šåŠ¡æ–¹æ³•ï¼ˆå¦‚ `SetSwitchDAC`ã€`GetLogFileData`ã€EDFA/VOA/å…‰å¼€å…³/å›ºä»¶å‡çº§ç­‰ï¼‰ã€‚M576 åœºæ™¯ä¸»è¦ç”¨ **é€ä¼ ã€è¯» log æ–‡ä»¶/Flashã€å‘æ‰«æã€å›ºä»¶åˆ†ç‰‡** ç­‰ã€‚å†…ç½® **é€šä¿¡æ—¥å¿—/å¸§ trace**ï¼ˆ`SetCommLogTarget`ã€`TraceInfo`/`TraceError`/`TraceFrame` ç­‰ï¼‰ã€‚ |
+| `Z4767StructDefine.h` | ä¸äº§å“/Z4671 è½¯ä»¶å…¼å®¹çš„**å¤§å‹ç»“æ„ä½“å®šä¹‰**ï¼ˆå¦‚ `stLutSettingZ4671`ã€ç«¯å£/æ¸©åŒº/æ ¡éªŒç­‰ï¼‰ã€‚å®šæ ‡åªå†™å…¶ä¸­ **ä½æ¸©æ§½ `wCalibPtrDAC`** ç­‰å­é›†ï¼Œä»¥ä¸šåŠ¡ä»£ç ä¸ºå‡†ã€‚ |
+| `M576OneX64Coef.h` / `M576OneX64TempMeta.h` | **1x64 å•å¼€å…³ 2208B æ–‡ä»¶/Flash** å¸ƒå±€ä¸ `stM576OneX64MemsSwCoef` é•œåƒï¼›ä¸ 126S å›ºä»¶ `tagMemsSwCoef` å¯¹é½ã€‚`M576OneX64ApplyStandardTempMeta` åœ¨å†™ 2208B å‰å¡«å……æ ‡å‡†æ¸©åŒºç­‰å…ƒæ•°æ®ã€‚ |
+| `LutBinWriter.h` / `LutBinWriter.cpp` | **`CLutBinWriter`**ï¼šæŒ‰ Z4671 **CreateBinFileZ4671** å¸ƒå±€å†™ MCS **LUT åˆåŒ…**ï¼ˆ`SLutBinWriteParams`ï¼šè·¯å¾„ã€SN/PN/æ—¶é—´ã€é•œåƒåŸºå€ã€`stLutSettingZ4671*`ï¼‰ã€‚æä¾› `LutPayloadOffset`ã€ä»æ–‡ä»¶åªè¯» LUT ä½“ã€`ReadBundleSnFromFile`ã€è®¾å¤‡ payload å°ºå¯¸ç­‰ã€‚ |
+| `Mems1x64LutBinWriter.h` / `Mems1x64LutBinWriter.cpp` | **`CMems1x64LutBinWriter`**ï¼šå•å¼€å…³ 2208B æ–‡ä»¶ï¼ˆBUNDLEHEADER + 2048 bodyã€CRC è§„åˆ™åœ¨æ³¨é‡Šä¸­è¯´æ˜ï¼‰ã€è¯»å›å•æ–‡ä»¶åˆ°ç»“æ„ä½“ã€‚ |
+| `OpCRC32.h` / `OpCRC32.cpp` | **`COpCRC32`**ï¼šä¸ bin ä¸­ CRC å­—æ®µè®¡ç®—ä¸€è‡´çš„è¡¨é©±åŠ¨ CRCã€‚ |
+| `ByteSwap.h` | å¤šå­—èŠ‚å­—åº/ä¸»æœºä¸çº¿æ ¼å¼è½¬æ¢è¾…åŠ©ã€‚ |
+| `CommLog.h` | `M576CommLogTarget`ã€**æŒ‰è¡Œ/æ ¼å¼åŒ–/åå…­è¿›åˆ¶/ASCII è½¬ä¹‰** ç­‰ï¼Œä¾› RECAL ä¸ `Z4671Command` å…±ç”¨ã€‚ |
+| `CommRetry.h` | **`M576WithRetry`**ï¼šæ³›å‹ Polly å¼é‡è¯•æ¨¡æ¿ï¼Œé»˜è®¤ä¸ `M576CalibratorApp` ä¸­é‡è¯•å¸¸æ•°å¯é…åˆï¼ˆå® `M576_COMM_RETRY_*`ï¼‰ã€‚ |
 
-### 3.3 ÀàÓë·½·¨ËµÃ÷
+### 3.3 ç±»ä¸æ–¹æ³•è¯´æ˜
 
-#### 3.3.1 `COpComm`£¨`OpComm.h`£©
+#### 3.3.1 `COpComm`ï¼ˆ`OpComm.h`ï¼‰
 
-- **Ö°Ôğ**£ºWin32 ´®¿Ú¾ä±ú·â×°£¬**Ô­Ê¼×Ö½Ú**ÊÕ·¢£»²»¸ºÔğĞ­ÒéÆ´Ö¡¡£
-- **Ö÷Òª·½·¨**  
-  - `OpenPort` / `ClosePort`£º´ò¿ª/¹Ø±Õ¡£  
-  - `ReadBuffer` / `WriteBuffer`£º¶àÖÖÖØÔØ£»×¢Òâ Z4671 ÓÃ `ReadBuffer(..., WORD*)` ±ÜÃâ /RTC1 Óë³¤¶ÈĞÎ²Î»ìÓÃ¡£  
-  - `WriteBufferNoPurge`£º·¢ ASCII ºóĞè±£Áô RX ¶ÓÁĞ£¬±ÜÃâÎó Purge¡£  
-  - `RxBytesWaiting`£º³¤ RECAL É¨ÆµĞĞÊ±ÅäºÏ drain/¶ÁÂú¡£
+- **èŒè´£**ï¼šWin32 ä¸²å£å¥æŸ„å°è£…ï¼Œ**åŸå§‹å­—èŠ‚**æ”¶å‘ï¼›ä¸è´Ÿè´£åè®®æ‹¼å¸§ã€‚
+- **ä¸»è¦æ–¹æ³•**  
+  - `OpenPort` / `ClosePort`ï¼šæ‰“å¼€/å…³é—­ã€‚  
+  - `ReadBuffer` / `WriteBuffer`ï¼šå¤šç§é‡è½½ï¼›æ³¨æ„ Z4671 ç”¨ `ReadBuffer(..., WORD*)` é¿å… /RTC1 ä¸é•¿åº¦å½¢å‚æ··ç”¨ã€‚  
+  - `WriteBufferNoPurge`ï¼šå‘ ASCII åéœ€ä¿ç•™ RX é˜Ÿåˆ—ï¼Œé¿å…è¯¯ Purgeã€‚  
+  - `RxBytesWaiting`ï¼šé•¿ RECAL æ‰«é¢‘è¡Œæ—¶é…åˆ drain/è¯»æ»¡ã€‚
 
-#### 3.3.2 `Z4671Command`£¨`Z4671Command.h`£©
+#### 3.3.2 `Z4671Command`ï¼ˆ`Z4671Command.h`ï¼‰
 
-- **»ùÀà**£º`COpComm`¡£  
-- **¹«¿ªÊı¾İ³ÉÔ±£¨½ÚÑ¡£©**£º`m_pNewData` µÈ»º³åÇø¡¢`m_stModuleInfo`¡¢`m_stScanPara`¡¢²úÆ·²àµçÑ¹/±¨¾¯»º´æµÈ¡£  
-- **M576/¶¨±ê³£Éæ¼°·½·¨**£¨ÓëÍêÕû²úÏß/EDFA/VOA µÈ²¢´æ£¬ÏÂ±í**·ÇÈ«Á¿**£©£º  
+- **åŸºç±»**ï¼š`COpComm`ã€‚  
+- **å…¬å¼€æ•°æ®æˆå‘˜ï¼ˆèŠ‚é€‰ï¼‰**ï¼š`m_pNewData` ç­‰ç¼“å†²åŒºã€`m_stModuleInfo`ã€`m_stScanPara`ã€äº§å“ä¾§ç”µå‹/æŠ¥è­¦ç¼“å­˜ç­‰ã€‚  
+- **M576/å®šæ ‡å¸¸æ¶‰åŠæ–¹æ³•**ï¼ˆä¸å®Œæ•´äº§çº¿/EDFA/VOA ç­‰å¹¶å­˜ï¼Œä¸‹è¡¨**éå…¨é‡**ï¼‰ï¼š  
 
-| Àà±ğ | ·½·¨Ê¾Àı | ËµÃ÷ |
+| ç±»åˆ« | æ–¹æ³•ç¤ºä¾‹ | è¯´æ˜ |
 |------|----------|------|
-| ¿ª¹Ø/É¨Ãè | `SetSwitchDAC`, `GetCurrentDAC`, `SendScanTrig`, `SendScanDoubleTrig`, `SwitchSingleSwitch`, `GetSingleSwitchState`, `SwitchALLSwitch` | ÉèÖÃ/²éÑ¯ MEMS/¿ª¹ØÓë DAC É¨Ãè¡£ |
-| ¹â¹¦ÂÊ/PD/ÎÂ¶È | `GetProductPDPower`, `GetProductPDADC`, `GetPDPower`, `GetEDFATemp`, `GetMCSTemp`, `GetMCSAlarm` µÈ | Óë¹¦ÂÊ¼Æ/PD/Ä£¿é×´Ì¬Ïà¹Ø¡£ |
-| ¹Ì¼ş/ÎÄ¼ş | `StartFWUpdate`, `SendFWTranSportFW` / `FWTranSportFW`, `FWUpdateEnd`, `GetLogFileData` µÈ | Flash ·ÖÆ¬´«ÊäÓë log Çø¶ÁÈ¡£¨M576 µÄ MCS ÉÏÔØ/¶Á»ØÂ·¾¶»áµ÷´ËÀà£©¡£ |
-| ĞÅÏ¢ | `GetProductSN`/`PN`/`ID`, `GetMCSVersion`, `GetEDFAInfo` µÈ | Éè±¸±êÊ¶Óë°æ±¾¡£ |
-| ÆäËû | `CmdSendExchange`/`CmdReadExchange` | ¸üÍ¨ÓÃµÄÖ¡½»»»Èë¿Ú£¨ÄÚ²¿ÈÔ×ßĞ­Òé·â×°£©¡£ |
-| ÈÕÖ¾ÓëÕï¶Ï | `SetCommLogTarget`, `TraceInfo`, `TraceError`, `GetErrorMsg` | Óë `M576CommLogTarget` ¼°Ö¡ trace ÅäºÏ¡£ |
-| ¸¨Öú | `SetScanDelayTime` | É¨Ãè¼ä¸ô¡£ |
+| å¼€å…³/æ‰«æ | `SetSwitchDAC`, `GetCurrentDAC`, `SendScanTrig`, `SendScanDoubleTrig`, `SwitchSingleSwitch`, `GetSingleSwitchState`, `SwitchALLSwitch` | è®¾ç½®/æŸ¥è¯¢ MEMS/å¼€å…³ä¸ DAC æ‰«æã€‚ |
+| å…‰åŠŸç‡/PD/æ¸©åº¦ | `GetProductPDPower`, `GetProductPDADC`, `GetPDPower`, `GetEDFATemp`, `GetMCSTemp`, `GetMCSAlarm` ç­‰ | ä¸åŠŸç‡è®¡/PD/æ¨¡å—çŠ¶æ€ç›¸å…³ã€‚ |
+| å›ºä»¶/æ–‡ä»¶ | `StartFWUpdate`, `SendFWTranSportFW` / `FWTranSportFW`, `FWUpdateEnd`, `GetLogFileData` ç­‰ | Flash åˆ†ç‰‡ä¼ è¾“ä¸ log åŒºè¯»å–ï¼ˆM576 çš„ MCS ä¸Šè½½/è¯»å›è·¯å¾„ä¼šè°ƒæ­¤ç±»ï¼‰ã€‚ |
+| ä¿¡æ¯ | `GetProductSN`/`PN`/`ID`, `GetMCSVersion`, `GetEDFAInfo` ç­‰ | è®¾å¤‡æ ‡è¯†ä¸ç‰ˆæœ¬ã€‚ |
+| å…¶ä»– | `CmdSendExchange`/`CmdReadExchange` | æ›´é€šç”¨çš„å¸§äº¤æ¢å…¥å£ï¼ˆå†…éƒ¨ä»èµ°åè®®å°è£…ï¼‰ã€‚ |
+| æ—¥å¿—ä¸è¯Šæ–­ | `SetCommLogTarget`, `TraceInfo`, `TraceError`, `GetErrorMsg` | ä¸ `M576CommLogTarget` åŠå¸§ trace é…åˆã€‚ |
+| è¾…åŠ© | `SetScanDelayTime` | æ‰«æé—´éš”ã€‚ |
 
-- **×¢Òâ**£º`Z4671Command` ÖĞÃüÁîÂëºê£¨`CMD_HW_*` µÈ£©ÌåÁ¿´ó£¬**M576 ×¨ÓÃ RECAL ÎÄ±¾**²»ÔÚ±¾Àà£¬¶øÔÚ **M576CalibratorApp µÄ `CRecalSession`**¡£
+- **æ³¨æ„**ï¼š`Z4671Command` ä¸­å‘½ä»¤ç å®ï¼ˆ`CMD_HW_*` ç­‰ï¼‰ä½“é‡å¤§ï¼Œ**M576 ä¸“ç”¨ RECAL æ–‡æœ¬**ä¸åœ¨æœ¬ç±»ï¼Œè€Œåœ¨ **M576CalibratorApp çš„ `CRecalSession`**ã€‚
 
-#### 3.3.3 `CLutBinWriter`£¨`LutBinWriter.h`£©
+#### 3.3.3 `CLutBinWriter`ï¼ˆ`LutBinWriter.h`ï¼‰
 
-- **µ¥ÀıÊ½¾²Ì¬Àà**£º`Write` Ğ´ÍêÕûºÏ°ü£»`LutPayloadOffset` µÈÃèÊö´ÅÅÌ²¼¾Ö¡£  
-- **Ö÷Òª¾²Ì¬·½·¨**  
-  - `Write`£ºÈë²Î `SLutBinWriteParams`¡£  
-  - `ReadLutFromFile`£º´ÓÒÑÓĞ bin Ö»½âÎö LUT Ìå¡£  
-  - `ReadBundleSnFromFile`£º¶ÁºÏ°üÍ· SN¡£  
-  - `FullBundleFileSize` / `LutDevicePayloadSize`£ºÎÄ¼ş×Ü´óĞ¡ÓëÉè±¸ÔÊĞíµÄ LUT payload ´óĞ¡Çø·Ö¡£
+- **å•ä¾‹å¼é™æ€ç±»**ï¼š`Write` å†™å®Œæ•´åˆåŒ…ï¼›`LutPayloadOffset` ç­‰æè¿°ç£ç›˜å¸ƒå±€ã€‚  
+- **ä¸»è¦é™æ€æ–¹æ³•**  
+  - `Write`ï¼šå…¥å‚ `SLutBinWriteParams`ã€‚  
+  - `ReadLutFromFile`ï¼šä»å·²æœ‰ bin åªè§£æ LUT ä½“ã€‚  
+  - `ReadBundleSnFromFile`ï¼šè¯»åˆåŒ…å¤´ SNã€‚  
+  - `FullBundleFileSize` / `LutDevicePayloadSize`ï¼šæ–‡ä»¶æ€»å¤§å°ä¸è®¾å¤‡å…è®¸çš„ LUT payload å¤§å°åŒºåˆ†ã€‚
 
-#### 3.3.4 `CMems1x64LutBinWriter`£¨`Mems1x64LutBinWriter.h`£©
+#### 3.3.4 `CMems1x64LutBinWriter`ï¼ˆ`Mems1x64LutBinWriter.h`ï¼‰
 
-- `WriteSingleSwitch`£ºÒ»¿ª¹Ø 2208B Êä³ö¡£  
-- `ReadMemsFromFile`£º¶ÁÈë `stM576OneX64MemsSwCoef`¡£  
-- `ReadBundleVer16FromCoef`£º´Ó½á¹¹ÌåÖĞ¶Á 16 ×Ö½Ú version ´®¡£  
-- Áí¼ûÎÄ¼şÄÚ **`M576OneX64ApplyStandardTempMeta`£¨C Á´½Óº¯Êı£©**¡£
+- `WriteSingleSwitch`ï¼šä¸€å¼€å…³ 2208B è¾“å‡ºã€‚  
+- `ReadMemsFromFile`ï¼šè¯»å…¥ `stM576OneX64MemsSwCoef`ã€‚  
+- `ReadBundleVer16FromCoef`ï¼šä»ç»“æ„ä½“ä¸­è¯» 16 å­—èŠ‚ version ä¸²ã€‚  
+- å¦è§æ–‡ä»¶å†… **`M576OneX64ApplyStandardTempMeta`ï¼ˆC é“¾æ¥å‡½æ•°ï¼‰**ã€‚
 
-#### 3.3.5 `COpCRC32`£¨`OpCRC32.h`£©
+#### 3.3.5 `COpCRC32`ï¼ˆ`OpCRC32.h`ï¼‰
 
-- `InitCRC32`¡¢`GetThisCRC`£¨µ¥×Ö½Ú²½½ø£©¡¢`GetCRC`£¨Õû»º³å£©£ºÎª LUT/ºÏ°üÓëÉè±¸Ô¼¶¨¶àÏîÊ½ `POLYNOMIAL`¡£
+- `InitCRC32`ã€`GetThisCRC`ï¼ˆå•å­—èŠ‚æ­¥è¿›ï¼‰ã€`GetCRC`ï¼ˆæ•´ç¼“å†²ï¼‰ï¼šä¸º LUT/åˆåŒ…ä¸è®¾å¤‡çº¦å®šå¤šé¡¹å¼ `POLYNOMIAL`ã€‚
 
-#### 3.3.6 `CCommPortRef`£¨`CommPort.h`£©
+#### 3.3.6 `CCommPortRef`ï¼ˆ`CommPort.h`ï¼‰
 
-- ¶Ô `COpComm` µÄÒıÓÃ·â×°£»µ±Ç°ÒµÎñÂ·¾¶¶àÎªÖ±½ÓÊ¹ÓÃ `COpComm` / `Z4671Command`¡£
+- å¯¹ `COpComm` çš„å¼•ç”¨å°è£…ï¼›å½“å‰ä¸šåŠ¡è·¯å¾„å¤šä¸ºç›´æ¥ä½¿ç”¨ `COpComm` / `Z4671Command`ã€‚
 
-#### 3.3.7 Ä£°åÓë¹¤¾ß
+#### 3.3.7 æ¨¡æ¿ä¸å·¥å…·
 
-- `CommRetry.h`£º`M576WithRetry` ¶àÖØÖØÊÔ¡£  
-- `M576CommLogTarget` + `M576HexDump` / `M576EscapeAscii`£ºÈÕÖ¾¿É¹Û²âÓëµ÷ÊÔ¡£
+- `CommRetry.h`ï¼š`M576WithRetry` å¤šé‡é‡è¯•ã€‚  
+- `M576CommLogTarget` + `M576HexDump` / `M576EscapeAscii`ï¼šæ—¥å¿—å¯è§‚æµ‹ä¸è°ƒè¯•ã€‚
 
 ---
 
-## 4. ¹¤³Ì¶ş£ºM576CalibratorApp
+## 4. å·¥ç¨‹äºŒï¼šM576CalibratorApp
 
-### 4.1 Éè¼ÆÄ¿±ê
+### 4.1 è®¾è®¡ç›®æ ‡
 
-- µ¥Ö÷¶Ô»°¿ò **`CM576CalibratorDlg`** Çı¶¯È«Á÷³Ì£º**¿ª´®¿Ú ¡ú Ñ¡ PM/PD Ä£Ê½Óë²ÎÊı ¡ú ÅÜÂ·¾¶ CSV£¨RECAL 0/1/2 + 3 »ò 5 ¶şÎ¬É¨£©¡ú Ñ°·å ¡ú °Ñ½»²æ·å´¦ DAC Ğ´ÈëÄÚ´æÖĞµÄ LUT »ò 1x64 ËÄ¿é½á¹¹Ìå ¡ú Éú³É/ºÏ²¢ bin ¡ú ¿ÉÑ¡¶Á»Ø±¸·İÓë·ÖÎÄ¼şÉÕÂ¼**¡£
-- **²»×èÈû UI**£º³¤ÈÎÎñ½ø `std::thread`£¬Í¨¹ı×Ô¶¨ÒåÏûÏ¢/¶ÓÁĞË¢ÈÕÖ¾Óë½ø¶ÈÌõ£¨Í·ÎÄ¼ş×¢ÊÍÖĞÓĞËµÃ÷£©¡£
-- **Í¨ĞÅ·Ö²ã**£ºASCII£¨`CRecalSession`£©Óë¶ş½øÖÆ+Í¸´«£¨`McsFwTransport` / `Board439fTransTunnel` / `Switch1x64FwTransport` + `Z4671Command`£©Ã÷È··ÖÀë¡£
+- å•ä¸»å¯¹è¯æ¡† **`CM576CalibratorDlg`** é©±åŠ¨å…¨æµç¨‹ï¼š**å¼€ä¸²å£ â†’ é€‰ PM/PD æ¨¡å¼ä¸å‚æ•° â†’ è·‘è·¯å¾„ CSVï¼ˆRECAL 0/1/2 + 3 æˆ– 5 äºŒç»´æ‰«ï¼‰â†’ å¯»å³° â†’ æŠŠäº¤å‰å³°å¤„ DAC å†™å…¥å†…å­˜ä¸­çš„ LUT æˆ– 1x64 å››å—ç»“æ„ä½“ â†’ ç”Ÿæˆ/åˆå¹¶ bin â†’ å¯é€‰è¯»å›å¤‡ä»½ä¸åˆ†æ–‡ä»¶çƒ§å½•**ã€‚
+- **ä¸é˜»å¡ UI**ï¼šé•¿ä»»åŠ¡è¿› `std::thread`ï¼Œé€šè¿‡è‡ªå®šä¹‰æ¶ˆæ¯/é˜Ÿåˆ—åˆ·æ—¥å¿—ä¸è¿›åº¦æ¡ï¼ˆå¤´æ–‡ä»¶æ³¨é‡Šä¸­æœ‰è¯´æ˜ï¼‰ã€‚
+- **é€šä¿¡åˆ†å±‚**ï¼šASCIIï¼ˆ`CRecalSession`ï¼‰ä¸äºŒè¿›åˆ¶+é€ä¼ ï¼ˆ`McsFwTransport` / `Board439fTransTunnel` / `Switch1x64FwTransport` + `Z4671Command`ï¼‰æ˜ç¡®åˆ†ç¦»ã€‚
 
-### 4.2 Èë¿ÚÓë×ÊÔ´
+### 4.2 å…¥å£ä¸èµ„æº
 
-- **`CM576CalibratorApp`**£¨`M576Calibrator.h` / `M576Calibrator.cpp`£©  
-  - ±ê×¼ MFC `CWinAppEx`£º³õÊ¼»¯ÊµÀı¡¢Ö÷¶Ô»°¿ò¡£  
-- **`M576CalibratorDlg`**£ºÖ÷ÒµÎñËùÔÚ£¨`.h` ÉùÃ÷ÁË³ÉÔ±¡¢¹¤×÷Ïß³Ì¡¢ÏûÏ¢Óë´ó²¿·ÖË½ÓĞ·½·¨£»`.cpp` ÌåÁ¿ºÜ´ó£¬**ÒÔÍ·ÎÄ¼ş·Ö¿é×¢ÊÍÎª×¼**£©¡£
+- **`CM576CalibratorApp`**ï¼ˆ`M576Calibrator.h` / `M576Calibrator.cpp`ï¼‰  
+  - æ ‡å‡† MFC `CWinAppEx`ï¼šåˆå§‹åŒ–å®ä¾‹ã€ä¸»å¯¹è¯æ¡†ã€‚  
+- **`M576CalibratorDlg`**ï¼šä¸»ä¸šåŠ¡æ‰€åœ¨ï¼ˆ`.h` å£°æ˜äº†æˆå‘˜ã€å·¥ä½œçº¿ç¨‹ã€æ¶ˆæ¯ä¸å¤§éƒ¨åˆ†ç§æœ‰æ–¹æ³•ï¼›`.cpp` ä½“é‡å¾ˆå¤§ï¼Œ**ä»¥å¤´æ–‡ä»¶åˆ†å—æ³¨é‡Šä¸ºå‡†**ï¼‰ã€‚
 
-### 4.3 ÀàÓëFreeº¯ÊıÄ£¿é£¨°´ÎÄ¼ş£©
+### 4.3 ç±»ä¸Freeå‡½æ•°æ¨¡å—ï¼ˆæŒ‰æ–‡ä»¶ï¼‰
 
-#### 4.3.1 `CM576CalibratorDlg`£¨`M576CalibratorDlg.h` / `.cpp`£©
+#### 4.3.1 `CM576CalibratorDlg`ï¼ˆ`M576CalibratorDlg.h` / `.cpp`ï¼‰
 
-| ·½Ãæ | ËµÃ÷ |
+| æ–¹é¢ | è¯´æ˜ |
 |------|------|
-| ´®¿ÚÓëÉè±¸ | `Z4671Command m_dev429f`£»`CRecalSession` µÄ `unique_ptr` ÔÚ´ò¿ª´®¿ÚÊ±°ó¶¨µ½Í¬Ò» `COpComm` »ùÒıÓÃ¡£ |
-| ÄÚ´æÌ¬ LUT/MEMS | `m_lutByTrans[4]`£ºtrans1¨C2 Îª MCS ÓÃ `stLutSettingZ4671`£»trans3¨C4 ÔÚÂß¼­ÉÏÓ³Éäµ½ `m_mems1x64[2][4]`£¨Á½Â· 1x64 ¡Á Ã¿Â·ËÄ¿ª¹Ø 2K£©¡£ |
-| ºóÌ¨Ïß³Ì | `PathWorkerEntry`£¨¶¨±êÂ·¾¶£©¡¢`ReadFlashBackupWorkerEntry`£¨¶Á±¸·İ£©¡¢`ReadAllSnWorkerEntry`£¨¶Á SN£©¡¢`BurnFlashWorkerEntry`£¨·ÖÎÄ¼şÉÕÂ¼£©µÈ¡£ |
-| UI ÓëÏß³Ì°²È« | `SafeAppendLog`¡¢`OnPathLogFlush`¡¢½ø¶È `SafeSetProgressPos`¡¢ÒÔ¼°¶àÖÖ `OnXxxFinished` ÔÚ UI Ïß³ÌÊÕ½á¹û¡£ |
-| ¶¨±ê×ÓÁ÷³Ì | `RunPathPowerMeter` / `RunPathPd`¡¢°´·ÖÎÄ¼ş `RunPathPowerMeterFile` / `RunPathPdFile`£»Óë `m_nCalMode`¡¢`m_dacRange`¡¢`m_dacStep`¡¢`m_delayMs` µÈ°ó¶¨¡£ |
-| ÆäËü | `TryPreloadLutFromPerTransBackup`¡¢`ValidateRunPathInputs`¡¢`ProgressThunk` / `CommLogThunk` ¾²Ì¬»Øµ÷µÈ¡£ |
+| ä¸²å£ä¸è®¾å¤‡ | `Z4671Command m_dev429f`ï¼›`CRecalSession` çš„ `unique_ptr` åœ¨æ‰“å¼€ä¸²å£æ—¶ç»‘å®šåˆ°åŒä¸€ `COpComm` åŸºå¼•ç”¨ã€‚ |
+| å†…å­˜æ€ LUT/MEMS | `m_lutByTrans[4]`ï¼štrans1â€“2 ä¸º MCS ç”¨ `stLutSettingZ4671`ï¼›trans3â€“4 åœ¨é€»è¾‘ä¸Šæ˜ å°„åˆ° `m_mems1x64[2][4]`ï¼ˆä¸¤è·¯ 1x64 Ã— æ¯è·¯å››å¼€å…³ 2Kï¼‰ã€‚ |
+| åå°çº¿ç¨‹ | `PathWorkerEntry`ï¼ˆå®šæ ‡è·¯å¾„ï¼‰ã€`ReadFlashBackupWorkerEntry`ï¼ˆè¯»å¤‡ä»½ï¼‰ã€`ReadAllSnWorkerEntry`ï¼ˆè¯» SNï¼‰ã€`BurnFlashWorkerEntry`ï¼ˆåˆ†æ–‡ä»¶çƒ§å½•ï¼‰ç­‰ã€‚ |
+| UI ä¸çº¿ç¨‹å®‰å…¨ | `SafeAppendLog`ã€`OnPathLogFlush`ã€è¿›åº¦ `SafeSetProgressPos`ã€ä»¥åŠå¤šç§ `OnXxxFinished` åœ¨ UI çº¿ç¨‹æ”¶ç»“æœã€‚ |
+| å®šæ ‡å­æµç¨‹ | `RunPathPowerMeter` / `RunPathPd`ã€æŒ‰åˆ†æ–‡ä»¶ `RunPathPowerMeterFile` / `RunPathPdFile`ï¼›ä¸ `m_nCalMode`ã€`m_dacRange`ã€`m_dacStep`ã€`m_delayMs` ç­‰ç»‘å®šã€‚ |
+| å…¶å®ƒ | `TryPreloadLutFromPerTransBackup`ã€`ValidateRunPathInputs`ã€`ProgressThunk` / `CommLogThunk` é™æ€å›è°ƒç­‰ã€‚ |
 
-**Óë½çÃæ°´Å¥/ÏûÏ¢**£¨½ÚÑ¡£©£º`OnBnClickedOpenPorts`¡¢`OnBnClickedRunPath`¡¢`OnBnClickedGenBin`¡¢`OnBnClickedReadFlashBackup`¡¢`OnBnClickedFlash`¡¢`OnBnClickedReadAllSn`¡¢`OnBnClickedExportCalibStats`¡¢`OnBnClickedStop` µÈ£¬ÅäºÏ `WM_M576_PATH_*` ÏµÁĞ×Ô¶¨ÒåÏûÏ¢£¨¼ûÍ·ÎÄ¼ş `afx_msg` ÉùÃ÷£©¡£
+**ä¸ç•Œé¢æŒ‰é’®/æ¶ˆæ¯**ï¼ˆèŠ‚é€‰ï¼‰ï¼š`OnBnClickedOpenPorts`ã€`OnBnClickedRunPath`ã€`OnBnClickedGenBin`ã€`OnBnClickedReadFlashBackup`ã€`OnBnClickedFlash`ã€`OnBnClickedReadAllSn`ã€`OnBnClickedExportCalibStats`ã€`OnBnClickedStop` ç­‰ï¼Œé…åˆ `WM_M576_PATH_*` ç³»åˆ—è‡ªå®šä¹‰æ¶ˆæ¯ï¼ˆè§å¤´æ–‡ä»¶ `afx_msg` å£°æ˜ï¼‰ã€‚
 
-#### 4.3.2 `CRecalSession`£¨`RecalSession.h` / `.cpp`£©
+#### 4.3.2 `CRecalSession`ï¼ˆ`RecalSession.h` / `.cpp`ï¼‰
 
-- ·â×°Óë 439F µÄ **RECAL ÎÄ±¾Ğ­Òé**£¨`SendRecal0` ÃüÁî A¡¢`SendRecal1` B¡¢`SendRecal2` C¡¢`SendRecal3`/`5` É¨Æµ£©¡£  
-- `ExchangeRecal*ReadLine` / `ExchangeRecal*ReadSweep`£º´øÖØÊÔµÄ¡°·¢+ÊÕ¡±Ò»Ìå¡£  
-- ¾²Ì¬½âÎö£º`ParsePowerDoubles`¡¢`ParseRecal3SweepLine`£¨É¨ÆµĞĞÊ×ÖµÎª¹Ì¶¨Öá DAC£¬ÓàÎª¶¯ÖáÉÏ²ÉÑù£©¡£  
-- ÄÚ²¿£º`ReadAsciiResponse`¡¢`ReadAsciiSweepResponse`¡¢³¬Ê±Õ» `PushCommTimeouts`/`PopCommTimeouts`¡¢`WriteNoPurgeReliable` µÈ£¬±£Ö¤**¿É¿¿ĞĞ¶ÁÓë¿ÉÖØ¸´ÈÕÖ¾**¡£
+- å°è£…ä¸ 439F çš„ **RECAL æ–‡æœ¬åè®®**ï¼ˆ`SendRecal0` å‘½ä»¤ Aã€`SendRecal1` Bã€`SendRecal2` Cã€`SendRecal3`/`5` æ‰«é¢‘ï¼‰ã€‚  
+- `ExchangeRecal*ReadLine` / `ExchangeRecal*ReadSweep`ï¼šå¸¦é‡è¯•çš„â€œå‘+æ”¶â€ä¸€ä½“ã€‚  
+- é™æ€è§£æï¼š`ParsePowerDoubles`ã€`ParseRecal3SweepLine`ï¼ˆæ‰«é¢‘è¡Œé¦–å€¼ä¸ºå›ºå®šè½´ DACï¼Œä½™ä¸ºåŠ¨è½´ä¸Šé‡‡æ ·ï¼‰ã€‚  
+- å†…éƒ¨ï¼š`ReadAsciiResponse`ã€`ReadAsciiSweepResponse`ã€è¶…æ—¶æ ˆ `PushCommTimeouts`/`PopCommTimeouts`ã€`WriteNoPurgeReliable` ç­‰ï¼Œä¿è¯**å¯é è¡Œè¯»ä¸å¯é‡å¤æ—¥å¿—**ã€‚
 
-#### 4.3.3 `McsFwTransport`£¨`McsFwTransport.h` / `.cpp`£©
+#### 4.3.3 `McsFwTransport`ï¼ˆ`McsFwTransport.h` / `.cpp`ï¼‰
 
-- **MCS ²à**¾­ `trans`+¶ş½øÖÆ£º`McsFwUploadBin` / `McsFwUploadBinEx`£¨`M576_BURN_FILE_COUNT=10` ¸ö·ÖÎÄ¼ş¿ÉÑ¡ÑÚÂë£©¡¢`McsReadLutBundleFromDevice`¡¢`McsReadAllTransProductSn`¡£  
-- Â·¾¶ÓëÃüÃû£º`M576TransBackupPathFromBase`¡¢`M576TransBinPathForRead`¡¢`M576TransBinPathForSwitch`£¨ĞÂÃüÃû + ÀÏ `*_tN.bin` »ØÍË¼û×¢ÊÍ£©¡£  
-- ÀàĞÍ `M576TransSnPnInfo`£ºMCS/1x64 µÄ SN »º´æ¹©Ğ´Í·Óë¶Á»Ø¡£  
-- `McsFwProgressCb`£ºÉÏÔØ/¶Á»Ø½ø¶È£¬**`__cdecl`** ÒÔÓë½çÃæ thunk Ò»ÖÂ¡£
+- **MCS ä¾§**ç» `trans`+äºŒè¿›åˆ¶ï¼š`McsFwUploadBin` / `McsFwUploadBinEx`ï¼ˆ`M576_BURN_FILE_COUNT=10` ä¸ªåˆ†æ–‡ä»¶å¯é€‰æ©ç ï¼‰ã€`McsReadLutBundleFromDevice`ã€`McsReadAllTransProductSn`ã€‚  
+- è·¯å¾„ä¸å‘½åï¼š`M576TransBackupPathFromBase`ã€`M576TransBinPathForRead`ã€`M576TransBinPathForSwitch`ï¼ˆæ–°å‘½å + è€ `*_tN.bin` å›é€€è§æ³¨é‡Šï¼‰ã€‚  
+- ç±»å‹ `M576TransSnPnInfo`ï¼šMCS/1x64 çš„ SN ç¼“å­˜ä¾›å†™å¤´ä¸è¯»å›ã€‚  
+- `McsFwProgressCb`ï¼šä¸Šè½½/è¯»å›è¿›åº¦ï¼Œ**`__cdecl`** ä»¥ä¸ç•Œé¢ thunk ä¸€è‡´ã€‚
 
-#### 4.3.4 `Switch1x64FwTransport`£¨`Switch1x64FwTransport.h` / `.cpp`£©
+#### 4.3.4 `Switch1x64FwTransport`ï¼ˆ`Switch1x64FwTransport.h` / `.cpp`ï¼‰
 
-- trans3/4 ÉÏ **1x64**£ºMEM Ğ­Òé¶Á 4¡Á2048 body¡¢×é 2208B¡¢XMODEM ÏÂ·¢¡£  
-- `M576Read1x64MemsBinOnCurrentTunnel`¡¢`M576Upload1x64MemsBinOnCurrentTunnel`¡¢`M576Read1x64SnAllOnCurrentTunnel` µÈ£»`M5761x64MemReadStepCount` µÈ¸¨Öú¡£
+- trans3/4 ä¸Š **1x64**ï¼šMEM åè®®è¯» 4Ã—2048 bodyã€ç»„ 2208Bã€XMODEM ä¸‹å‘ã€‚  
+- `M576Read1x64MemsBinOnCurrentTunnel`ã€`M576Upload1x64MemsBinOnCurrentTunnel`ã€`M576Read1x64SnAllOnCurrentTunnel` ç­‰ï¼›`M5761x64MemReadStepCount` ç­‰è¾…åŠ©ã€‚
 
-#### 4.3.5 `Board439fTransTunnel`£¨`Board439fTransTunnel.h` / `.cpp`£©
+#### 4.3.5 `Board439fTransTunnel`ï¼ˆ`Board439fTransTunnel.h` / `.cpp`ï¼‰
 
-- `BeginTrans` / `EndTrans`£º·¢ ASCII `trans <n>` Óë `$$` ½øÈë/ÍË³öÍ¸´«£¬ÆÚ¼äºóĞø×Ö½Ú·¢Íùµ±Ç°ËíµÀÖ¸ÏòÉè±¸¡£
+- `BeginTrans` / `EndTrans`ï¼šå‘ ASCII `trans <n>` ä¸ `$$` è¿›å…¥/é€€å‡ºé€ä¼ ï¼ŒæœŸé—´åç»­å­—èŠ‚å‘å¾€å½“å‰éš§é“æŒ‡å‘è®¾å¤‡ã€‚
 
-#### 4.3.6 `PathCsvDriver`£¨`PathCsvDriver.h` / `.cpp`£©
+#### 4.3.6 `PathCsvDriver`ï¼ˆ`PathCsvDriver.h` / `.cpp`ï¼‰
 
-- ½á¹¹Ìå **`SPathStep`**£¨PM/RECAL 1£©£º`targetSwitchIndex` + ËÄÂ·Í¨µÀ `c1..c4`£¨1#1x64 / 1#MCS / 2#MCS / 2#1x64 Ë³Ğò£¬¼ûÍ·×¢ÊÍ£©¡£  
-- **`SPathStepPd`**£¨PD/RECAL 2£©£ºÈı²ÎÊıĞÎÌ¬£¬target Óë ch1 °ëÇøÒşº¬ Stage/MCS ÒøĞĞ£¨¼ûÍ·×¢ÊÍ£©¡£  
-- `LoadPathCsv` / `LoadPathCsvPd` + `ValidatePathStep` / `ValidatePathStepPd`¡£
+- ç»“æ„ä½“ **`SPathStep`**ï¼ˆPM/RECAL 1ï¼‰ï¼š`targetSwitchIndex` + å››è·¯é€šé“ `c1..c4`ï¼ˆ1#1x64 / 1#MCS / 2#MCS / 2#1x64 é¡ºåºï¼Œè§å¤´æ³¨é‡Šï¼‰ã€‚  
+- **`SPathStepPd`**ï¼ˆPD/RECAL 2ï¼‰ï¼šä¸‰å‚æ•°å½¢æ€ï¼Œtarget ä¸ ch1 åŠåŒºéšå« Stage/MCS é“¶è¡Œï¼ˆè§å¤´æ³¨é‡Šï¼‰ã€‚  
+- `LoadPathCsv` / `LoadPathCsvPd` + `ValidatePathStep` / `ValidatePathStepPd`ã€‚
 
-#### 4.3.7 `TransLutRoute`£¨`TransLutRoute.h` / `.cpp`£©
+#### 4.3.7 `TransLutRoute`ï¼ˆ`TransLutRoute.h` / `.cpp`ï¼‰
 
-- `TransSlotFromPmTarget` / `TransSlotFromPdTarget`£º°Ñ RECAL Ä¿±êºÅÓ³Éäµ½ **trans ²Û 0~3**¡£  
-- `PmStepMatchesFileSlot` / `PdStepMatchesFileSlot`£ºÅĞ¶Ï¸Ã²½ÊÇ·ñÊôÓÚÄ³·Ö CSV/·ÖÎÄ¼ş slot¡£
+- `TransSlotFromPmTarget` / `TransSlotFromPdTarget`ï¼šæŠŠ RECAL ç›®æ ‡å·æ˜ å°„åˆ° **trans æ§½ 0~3**ã€‚  
+- `PmStepMatchesFileSlot` / `PdStepMatchesFileSlot`ï¼šåˆ¤æ–­è¯¥æ­¥æ˜¯å¦å±äºæŸåˆ† CSV/åˆ†æ–‡ä»¶ slotã€‚
 
-#### 4.3.8 `LutPeakApply`£¨`LutPeakApply.h` / `.cpp`£©
+#### 4.3.8 `LutPeakApply`ï¼ˆ`LutPeakApply.h` / `.cpp`ï¼‰
 
-- `PeakGridToDacWord`£ºÓÉ·å¸ñĞĞÁĞ¡¢`halfRange`¡¢¸ñÆğµã£¬¼ÆËã½»²æ·å´¦ **X/Y ÏßĞÔÕûÊı**£¬**Ç¯Î»µ½ int16 ºóÒÔ 16 Î»¶ş²¹Âë**Ğ´Èë `WORD`/`short` ÓïÒå¡£  
-- `ApplyRecalPeakToLut` / `ApplyRecalPeakToLutPd`£º°´Ä¿±ê£¨MCS µÄ swIdx/ch »ò 1x64 ÔÚ LUT ÖĞÕ¼Î»µÈ£©°Ñ DAC ¶ÔĞ´Èë `stLutSettingZ4671`¡£  
-- `ApplyRecalPeakToMems1x64` / `ApplyRecalPeakToMems1x64Pd`£ºĞ´Èë 1x64 ËÄ¿éÖĞµÄ **µÍÎÂµµ** `stCalibDAC[0].stChnDAC[].sDACx/y`¡£
+- `PeakGridToDacWord`ï¼šç”±å³°æ ¼è¡Œåˆ—ã€`halfRange`ã€æ ¼èµ·ç‚¹ï¼Œè®¡ç®—äº¤å‰å³°å¤„ **X/Y çº¿æ€§æ•´æ•°**ï¼Œ**é’³ä½åˆ° int16 åä»¥ 16 ä½äºŒè¡¥ç **å†™å…¥ `WORD`/`short` è¯­ä¹‰ã€‚  
+- `ApplyRecalPeakToLut` / `ApplyRecalPeakToLutPd`ï¼šæŒ‰ç›®æ ‡ï¼ˆMCS çš„ swIdx/ch æˆ– 1x64 åœ¨ LUT ä¸­å ä½ç­‰ï¼‰æŠŠ DAC å¯¹å†™å…¥ `stLutSettingZ4671`ã€‚  
+- `ApplyRecalPeakToMems1x64` / `ApplyRecalPeakToMems1x64Pd`ï¼šå†™å…¥ 1x64 å››å—ä¸­çš„ **ä½æ¸©æ¡£** `stCalibDAC[0].stChnDAC[].sDACx/y`ã€‚
 
-#### 4.3.9 `PeakFinder2D`£¨`PeakFinder2D.h` / `.cpp`£©
+#### 4.3.9 `PeakFinder2D`ï¼ˆ`PeakFinder2D.h` / `.cpp`ï¼‰
 
-- ÃüÃû¿Õ¼ä `M576`£º`PeakCross2D`¡¢`PeakMax2D`¡¢`PeakMax1D`¡¢`PeakCrossFrom1DScans`£¨Á½´ÎÒ»Î¬É¨µÃµ½ÀëÉ¢½»²æ·åË÷Òı£©¡£
-- **·åÍ»³ö¶È£¨prominence£©**£ºStrict Ô¤´¦ÀíÓÃ `Peak1DGetMinProminenceDb()`£¨Ä¬ÈÏ `M576_PEAK1D_MIN_PROMINENCE_DB`=0.3 dB£©£»Á÷Ë®ÏßÎªÎŞĞ§ÌŞ³ı ¡ú ¶Ô³ÆÈ¥·Ç¶Ô³ÆÎ²°Í ¡ú **½ö¶Ô³Æ´°ÄÚ** span¡İÃÅÏŞ£¨`Peak1DDbToRawDelta` »»Ëã¹Ì¼ş raw£©¡ú Èı½×ÄâºÏ£»È«ĞòÁĞ span ²»×ã¡¢argmax Ë«²à¼çµã²»×ã¡¢»ò¶Ô³Æ´°ÄÚ¶¯Ì¬¹ıĞ¡ ¡ú `ParabolaNotDownward`¡£**dB ÃÅÏŞ½öÓÃÓÚÅäÖÃÓëÈÕÖ¾£¬Ëã·¨ÄÚÒ»ÂÉ×ª raw**£¨`M576_RECAL_RAW_TO_DBM_SCALE`=10000£©¡£ÄâºÏ´°ÓÅÏÈ¶Ô³Æ prominence °ë´°£¨`halfW¡İ2`£©£¬Ñù±¾²»×ãÊ±µ¥µ÷°üÂç / ¹Ì¶¨°ë´°¶µµ×£¨Ìù±ß comm Step478 ÀàÈÔ×ß `VertexOutOfRange`£©¡£
-- **ÔËĞĞÊ±ÅäÖÃ**£ºexe Í¬Ä¿Â¼ [`M576Calibrator.ini`](../M576CalibratorApp/M576Calibrator.ini) `[PeakFinder]` ¡ú `MinProminenceDb`£»`M576AppConfig` ÓÚ `InitInstance` ¼ÓÔØ£¬**ÖØÆôÉúĞ§**£»Æô¶¯ÈÕÖ¾´òÓ¡Êµ¼ÊÖµ¡£
+- å‘½åç©ºé—´ `M576`ï¼š`PeakCross2D`ã€`PeakMax2D`ã€`PeakMax1D`ã€`PeakCrossFrom1DScans`ï¼ˆä¸¤æ¬¡ä¸€ç»´æ‰«å¾—åˆ°ç¦»æ•£äº¤å‰å³°ç´¢å¼•ï¼‰ã€‚
+- **å³°çªå‡ºåº¦ï¼ˆprominenceï¼‰**ï¼šStrict é¢„å¤„ç†ç”¨ `Peak1DGetMinProminenceDb()`ï¼ˆé»˜è®¤ `M576_PEAK1D_MIN_PROMINENCE_DB`=0.3 dBï¼‰ï¼›æµæ°´çº¿ä¸ºæ— æ•ˆå‰”é™¤ â†’ å¯¹ç§°å»éå¯¹ç§°å°¾å·´ â†’ **ä»…å¯¹ç§°çª—å†…** spanâ‰¥é—¨é™ï¼ˆ`Peak1DDbToRawDelta` æ¢ç®—å›ºä»¶ rawï¼‰â†’ ä¸‰é˜¶æ‹Ÿåˆï¼›å…¨åºåˆ— span ä¸è¶³ã€argmax åŒä¾§è‚©ç‚¹ä¸è¶³ã€æˆ–å¯¹ç§°çª—å†…åŠ¨æ€è¿‡å° â†’ `ParabolaNotDownward`ã€‚**dB é—¨é™ä»…ç”¨äºé…ç½®ä¸æ—¥å¿—ï¼Œç®—æ³•å†…ä¸€å¾‹è½¬ raw**ï¼ˆ`M576_RECAL_RAW_TO_DBM_SCALE`=10000ï¼‰ã€‚æ‹Ÿåˆçª—ä¼˜å…ˆå¯¹ç§° prominence åŠçª—ï¼ˆ`halfWâ‰¥2`ï¼‰ï¼Œæ ·æœ¬ä¸è¶³æ—¶å•è°ƒåŒ…ç»œ / å›ºå®šåŠçª—å…œåº•ï¼ˆè´´è¾¹ comm Step478 ç±»ä»èµ° `VertexOutOfRange`ï¼‰ã€‚
+- **è¿è¡Œæ—¶é…ç½®**ï¼šexe åŒç›®å½• [`M576Calibrator.ini`](../M576CalibratorApp/M576Calibrator.ini) `[PeakFinder]` â†’ `MinProminenceDb`ï¼›`M576AppConfig` äº `InitInstance` åŠ è½½ï¼Œ**é‡å¯ç”Ÿæ•ˆ**ï¼›å¯åŠ¨æ—¥å¿—æ‰“å°å®é™…å€¼ã€‚
 
-#### 4.3.9a `M576AppConfig`£¨`M576AppConfig.h` / `.cpp`£©
+#### 4.3.9a `M576AppConfig`ï¼ˆ`M576AppConfig.h` / `.cpp`ï¼‰
 
-- ¶ÁÈ¡ `M576Calibrator.ini`£¬µ÷ÓÃ `Peak1DSetMinProminenceDb`£»·Ç·¨Öµ clamp ÖÁ `[MIN_PROMINENCE_DB_MIN, MAX]` ²¢»ØÍËÄ¬ÈÏ¡£
+- è¯»å– `M576Calibrator.ini`ï¼Œè°ƒç”¨ `Peak1DSetMinProminenceDb`ï¼›éæ³•å€¼ clamp è‡³ `[MIN_PROMINENCE_DB_MIN, MAX]` å¹¶å›é€€é»˜è®¤ã€‚
 
-#### 4.3.10 `LutMerge1310`£¨`LutMerge1310.h` / `.cpp`£©
+#### 4.3.10 `LutMerge1310`ï¼ˆ`LutMerge1310.h` / `.cpp`ï¼‰
 
-- `MergeLut1310LowTempSlot`£ºÔÚÒÑÓĞ `base` LUT ÉÏ£¬½öÓÃ **1310 ¶¨±ê²úÎïµÄµÍÎÂ²Û**¸²¸Ç¡£  
-- `MergeMems1310LowTempSlot`£º1x64 ËÄ¿é 2K µÄµÍÎÂµµ `stChnDAC[IDX_LOW]` ¼¶ºÏ²¢£¨¾ßÌåË÷ÒıÓë `IDX_TEMP_LOW` Ò»ÖÂ£¬¼ûÊµÏÖ£©¡£
+- `MergeLut1310LowTempSlot`ï¼šåœ¨å·²æœ‰ `base` LUT ä¸Šï¼Œä»…ç”¨ **1310 å®šæ ‡äº§ç‰©çš„ä½æ¸©æ§½**è¦†ç›–ã€‚  
+- `MergeMems1310LowTempSlot`ï¼š1x64 å››å— 2K çš„ä½æ¸©æ¡£ `stChnDAC[IDX_LOW]` çº§åˆå¹¶ï¼ˆå…·ä½“ç´¢å¼•ä¸ `IDX_TEMP_LOW` ä¸€è‡´ï¼Œè§å®ç°ï¼‰ã€‚
 
-#### 4.3.11 `CalibWriteMeta`£¨`CalibWriteMeta.h` / `.cpp`£©
+#### 4.3.11 `CalibWriteMeta`ï¼ˆ`CalibWriteMeta.h` / `.cpp`ï¼‰
 
-- `SCalibrationStatRow`£ºÒ»´Î¶¨±ê²½µÄ**ÔªÊı¾İ**£¨Ä£Ê½¡¢trans¡¢·åĞĞÁĞ¡¢¸ñ³ß´ç¡¢raw/Ğ´Èë DAC¡¢½á¹¹ÌåÂ·¾¶ÓëÆ«ÒÆµÈ£©¡£  
-- `CalibBuildStatRowPmLut` / `PmMems` / `PdLut` / `PdMems`£ºÔÚ PM/PD ¡Á MCS/1x64 ×éºÏÏÂÌî³äĞĞ¡£  
-- `WriteCalibrationStatsCsv`£ºUTF-8 BOM + ÁĞÍ· + ¶àĞĞ£¬¹©µ¼³ö°´Å¥Ê¹ÓÃ¡£
+- `SCalibrationStatRow`ï¼šä¸€æ¬¡å®šæ ‡æ­¥çš„**å…ƒæ•°æ®**ï¼ˆæ¨¡å¼ã€transã€å³°è¡Œåˆ—ã€æ ¼å°ºå¯¸ã€raw/å†™å…¥ DACã€ç»“æ„ä½“è·¯å¾„ä¸åç§»ç­‰ï¼‰ã€‚  
+- `CalibBuildStatRowPmLut` / `PmMems` / `PdLut` / `PdMems`ï¼šåœ¨ PM/PD Ã— MCS/1x64 ç»„åˆä¸‹å¡«å……è¡Œã€‚  
+- `WriteCalibrationStatsCsv`ï¼šUTF-8 BOM + åˆ—å¤´ + å¤šè¡Œï¼Œä¾›å¯¼å‡ºæŒ‰é’®ä½¿ç”¨ã€‚
 
-#### 4.3.12 `CM576BurnSelectDlg`£¨`M576BurnSelectDlg.h` / `.cpp`£©
+#### 4.3.12 `CM576BurnSelectDlg`ï¼ˆ`M576BurnSelectDlg.h` / `.cpp`ï¼‰
 
-- Ê®Â··ÖÎÄ¼şÉÕÂ¼µÄ**¸´Ñ¡**¶Ô»°¿ò£»`GetMask` ·µ»Ø `std::array<bool, M576_BURN_FILE_COUNT>` ¹© `McsFwUploadBinEx` Ê¹ÓÃ¡£
+- åè·¯åˆ†æ–‡ä»¶çƒ§å½•çš„**å¤é€‰**å¯¹è¯æ¡†ï¼›`GetMask` è¿”å› `std::array<bool, M576_BURN_FILE_COUNT>` ä¾› `McsFwUploadBinEx` ä½¿ç”¨ã€‚
 
-#### 4.3.13 ÆäËü
+#### 4.3.13 å…¶å®ƒ
 
-- `CalibConstants.h`£ºM576 Óë 439F/¹Ì¼şÔ¼¶¨³£Á¿£¨RECAL ²ÎÊı¡¢³¬Ê±¡¢·Ö trans Í¨µÀ±í¡¢¸ñµãÄ¬ÈÏµÈ£©£»**¸ÄºêÇ°ĞèÓë¹Ì¼ş/²úÏßÈ·ÈÏ**¡£  
-- `M576Calibrator.h` / `M576Calibrator.cpp`£ºÓ¦ÓÃ¶ÔÏóÓë `InitInstance`¡£  
-- ×ÊÔ´Óë¶Ô»°¿ò ID£º`resource.h`£¨²»Õ¹¿ª£©¡£
+- `CalibConstants.h`ï¼šM576 ä¸ 439F/å›ºä»¶çº¦å®šå¸¸é‡ï¼ˆRECAL å‚æ•°ã€è¶…æ—¶ã€åˆ† trans é€šé“è¡¨ã€æ ¼ç‚¹é»˜è®¤ç­‰ï¼‰ï¼›**æ”¹å®å‰éœ€ä¸å›ºä»¶/äº§çº¿ç¡®è®¤**ã€‚  
+- `M576Calibrator.h` / `M576Calibrator.cpp`ï¼šåº”ç”¨å¯¹è±¡ä¸ `InitInstance`ã€‚  
+- èµ„æºä¸å¯¹è¯æ¡† IDï¼š`resource.h`ï¼ˆä¸å±•å¼€ï¼‰ã€‚
 
-### 4.4 ¶¨±êÓë bin µÄ¶Ëµ½¶ËÊı¾İÁ÷£¨ÕªÒª£©
+### 4.4 å®šæ ‡ä¸ bin çš„ç«¯åˆ°ç«¯æ•°æ®æµï¼ˆæ‘˜è¦ï¼‰
 
-1. ÓÃ»§Ñ¡ CSV ¡ú `LoadPathCsv*` µÃµ½ `SPathStep( /Pd)` Êı×é¡£  
-2. `RunPath*` Ñ­»·Ã¿²½£º±ØÒªÊ± `RECAL 0/1/2` ¡ú Á½´Î `RECAL 3` »ò `5` µÃ¹¦ÂÊ¾ØÕó ¡ú `PeakCrossFrom1DScans` µÈµÃ `(peakRow,peakCol)`¡£  
-3. `PeakGridToDacWord` µÃ DAC ¶Ô£»`ApplyRecalPeakToLut` »ò `ApplyRecalPeakToMems1x64*` ¸üĞÂÄÚ´æ¡£  
-4. Éú³ÉÊ±£º`CLutBinWriter::Write` Ğ´ MCS ·ÖÎÄ¼ş£»`CMems1x64LutBinWriter` Ğ´¸÷¿ª¹Ø 2208B£»`LutMerge1310*` ÔÚĞèÒªÊ±Óë»ùÏß bin ºÏ¡£  
-5. ÉÕ¶Á£º`McsFwUploadBinEx` / `McsReadLutBundleFromDevice` + 1x64 ×¨ÓÃ `Switch1x64FwTransport`£¬¾ùÒÀÀµ´ËÇ° **`Board439fTransTunnel` ½ø trans**¡£
+1. ç”¨æˆ·é€‰ CSV â†’ `LoadPathCsv*` å¾—åˆ° `SPathStep( /Pd)` æ•°ç»„ã€‚  
+2. `RunPath*` å¾ªç¯æ¯æ­¥ï¼šå¿…è¦æ—¶ `RECAL 0/1/2` â†’ ä¸¤æ¬¡ `RECAL 3` æˆ– `5` å¾—åŠŸç‡çŸ©é˜µ â†’ `PeakCrossFrom1DScans` ç­‰å¾— `(peakRow,peakCol)`ã€‚  
+3. `PeakGridToDacWord` å¾— DAC å¯¹ï¼›`ApplyRecalPeakToLut` æˆ– `ApplyRecalPeakToMems1x64*` æ›´æ–°å†…å­˜ã€‚  
+4. ç”Ÿæˆæ—¶ï¼š`CLutBinWriter::Write` å†™ MCS åˆ†æ–‡ä»¶ï¼›`CMems1x64LutBinWriter` å†™å„å¼€å…³ 2208Bï¼›`LutMerge1310*` åœ¨éœ€è¦æ—¶ä¸åŸºçº¿ bin åˆã€‚  
+5. çƒ§è¯»ï¼š`McsFwUploadBinEx` / `McsReadLutBundleFromDevice` + 1x64 ä¸“ç”¨ `Switch1x64FwTransport`ï¼Œå‡ä¾èµ–æ­¤å‰ **`Board439fTransTunnel` è¿› trans**ã€‚
 
-### 4.5 Êä³öÄ¿Â¼£º`latest` ¹¤×÷ÇøÓë `archive` ¹éµµ
+### 4.5 è¾“å‡ºç›®å½•ï¼š`latest` å·¥ä½œåŒºä¸ `archive` å½’æ¡£
 
-| Â·¾¶ | ÓÃÍ¾ |
+| è·¯å¾„ | ç”¨é€” |
 |------|------|
-| `output\latest\` | µ±Ç°¶ÁĞ´¹¤×÷Çø£º`{SN}_backup.bin` / `{SN}_standard.bin`¡¢DAC CSV£¨`ResolveBinOutputDirAbs`£© |
-| `output\archive\{YYYYMMDD_HHMMSS_MCS1SN}\` | Read SN ³É¹¦Ê±´´½¨£»`backup/`¡¢`standard/`¡¢`pre_burn/` Îª¸÷½×¶Î¿ìÕÕ |
-| `output\pm_*.csv` / `pd_*.csv` | ²»±ä£¬ÈÔÔÚ `output\` ¸ùÄ¿Â¼ |
-| `output\comm_YYYY-MM-DD.log` | ²»±ä£»¹éµµÊ±¸´ÖÆµ½ `archive\...\logs\comm_*.log` |
-| `output\comm_YYYY-MM-DD_recal_sweeps.csv` | Run Path ÊµÊ±×·¼Ó£ºÃ¿´Î RECAL 3/5 É¨Æµ£¨º¬ retry£©£»ÁĞ `path,cmd,attempt,peak_ok,code,c0..cN`£»¹éµµÊ±¸´ÖÆµ½ `archive\...\logs\` |
+| `output\latest\` | å½“å‰è¯»å†™å·¥ä½œåŒºï¼š`{SN}_backup.bin` / `{SN}_standard.bin`ã€DAC CSVï¼ˆ`ResolveBinOutputDirAbs`ï¼‰ |
+| `output\archive\{YYYYMMDD_HHMMSS_MCS1SN}\` | Read SN æˆåŠŸæ—¶åˆ›å»ºï¼›`backup/`ã€`standard/`ã€`pre_burn/` ä¸ºå„é˜¶æ®µå¿«ç…§ |
+| `output\pm_*.csv` / `pd_*.csv` | ä¸å˜ï¼Œä»åœ¨ `output\` æ ¹ç›®å½• |
+| `output\comm_YYYY-MM-DD.log` | ä¸å˜ï¼›å½’æ¡£æ—¶å¤åˆ¶åˆ° `archive\...\logs\comm_*.log` |
+| `output\comm_YYYY-MM-DD_recal_sweeps.csv` | Run Path å®æ—¶è¿½åŠ ï¼šæ¯æ¬¡ RECAL 3/5 æ‰«é¢‘ï¼ˆå« retryï¼‰ï¼›åˆ— `path,cmd,attempt,peak_ok,code,c0..cN`ï¼›å½’æ¡£æ—¶å¤åˆ¶åˆ° `archive\...\logs\` |
 
-ÊµÏÖ£º[`M576OutputArchive.h/.cpp`](../M576CalibratorApp/M576OutputArchive.h)£¨`M576ArchiveCopyBinSet`¡¢`M576ArchiveCopyRunPathLogs`¡¢`M576WriteSessionMeta`£©£»Run Path É¨Æµ CSV ÓÉ [`M576RecalSweepCsv.h/.cpp`](../M576CalibratorApp/M576RecalSweepCsv.h) ÔÚ Path worker ÄÚĞ´Èë£»¹Ò¹³ÔÚ `CM576CalibratorDlg::BeginArchiveSession` / `ArchiveCurrentBinSet`£¨Read SN¡¢Read Flash¡¢Write BIN¡¢Burn Ç°£©¡£¹éµµÊ§°Ü½ö Warn ÈÕÖ¾£¬²»×è¶ÏÖ÷Á÷³Ì¡£
-
----
-
-## 5. CrossPeakTest ¹¤³Ì
-
-- Ğ¡¹¤³Ì£¬ÓÃÓÚÔÚ**ÎŞÕû UI** Çé¿öÏÂÑéÖ¤ `PeakFinder2D` »òÏà¹ØÂß¼­£¨`main.cpp`£©£¬±ãÓÚËã·¨»Ø¹é£»**²»Ìæ´ú** M576 Ö÷³ÌĞò¼¯³É²âÊÔ¡£
+å®ç°ï¼š[`M576OutputArchive.h/.cpp`](../M576CalibratorApp/M576OutputArchive.h)ï¼ˆ`M576ArchiveCopyBinSet`ã€`M576ArchiveCopyRunPathLogs`ã€`M576WriteSessionMeta`ï¼‰ï¼›Run Path æ‰«é¢‘ CSV ç”± [`M576RecalSweepCsv.h/.cpp`](../M576CalibratorApp/M576RecalSweepCsv.h) åœ¨ Path worker å†…å†™å…¥ï¼›æŒ‚é’©åœ¨ `CM576CalibratorDlg::BeginArchiveSession` / `ArchiveCurrentBinSet`ï¼ˆRead SNã€Read Flashã€Write BINã€Burn å‰ï¼‰ã€‚å½’æ¡£å¤±è´¥ä»… Warn æ—¥å¿—ï¼Œä¸é˜»æ–­ä¸»æµç¨‹ã€‚
 
 ---
 
-## 6. Î¬»¤ÓëÀ©Õ¹½¨Òé
+## 5. CrossPeakTest å·¥ç¨‹
 
-- **M576CalibratorApp Ô´ÎÄ¼ş±àÂë**£º¹¤³Ì `CharacterSet=MultiByte` ÇÒ±àÒëÑ¡Ïî `/utf-8`£»`.cpp` ÒÔ **UTF-8£¨ÎŞ BOM£©** ±£´æ£¬ÖĞÎÄ½öĞ´ÔÚ `//` ×¢ÊÍÖĞ¡£ÀıÍâ£º`Board439fFwBurnTransport.cpp`¡¢`CalibWriteMeta.cpp` ±£Áô **UTF-8 BOM**£¬±à¼­Ê±²»ÒªÈ¥µô BOM ÒÔÃâÕûÎÄ¼ş diff¡£
-- **¸ÄÍ¨ĞÅ³¬Ê±/ÖØÊÔ**£ºÓÅÏÈ²é `CalibConstants.h` Óë `CommRetry.h`¡¢ÒÔ¼° `CRecalSession` ÖĞ `M576_COMM_RETRY_*` µÄÓÃ·¨¡£  
-- **¸Ä DAC ÓïÒå**£ºÒÔ `LutPeakApply.cpp` Óë `CalibWriteMeta` ÖĞ **WORD µÄ¶ş²¹Âë½âÊÍ** Îª×¼£¬²¢Óë¹Ì¼ş¶ÔÅÄ¡£  
-- **ĞÂÔö trans »òÂ·¾¶¹æÔò**£º¸Ä `TransLutRoute` + ³£Á¿±í + ¶Ô»°¿òÀïÎÄ¼ş slot ¹æÔò£¬**±ÜÃâÔÚ UI ÀïĞ´ËÀ**Ğ­Òé×Ö·û´®¡£  
-- **Z4671 Ö¸ÁîÀ©Õ¹**£ºÔÚ `Z4671Command` ÖĞÔö¼Ó·½·¨Ê±±£³ÖÓëÏÖÓĞ **Ö¡¸ñÊ½/Ğ£Ñé/ÈÕÖ¾** Ä£Ê½Ò»ÖÂ£¬²¢ÔÚ `McsFwTransport` ÖĞÖ»×ö±àÅÅ¡¢²»Æ´´í¶ş½øÖÆ±ß½ç¡£
+- å°å·¥ç¨‹ï¼Œç”¨äºåœ¨**æ— æ•´ UI** æƒ…å†µä¸‹éªŒè¯ `PeakFinder2D` æˆ–ç›¸å…³é€»è¾‘ï¼ˆ`main.cpp`ï¼‰ï¼Œä¾¿äºç®—æ³•å›å½’ï¼›**ä¸æ›¿ä»£** M576 ä¸»ç¨‹åºé›†æˆæµ‹è¯•ã€‚
+
+---
+
+## 6. ç»´æŠ¤ä¸æ‰©å±•å»ºè®®
+
+- **M576CalibratorApp æºæ–‡ä»¶ç¼–ç **ï¼šå·¥ç¨‹ `CharacterSet=MultiByte` ä¸”ç¼–è¯‘é€‰é¡¹ `/utf-8`ï¼›`.cpp` ä»¥ **UTF-8ï¼ˆæ—  BOMï¼‰** ä¿å­˜ï¼Œä¸­æ–‡ä»…å†™åœ¨ `//` æ³¨é‡Šä¸­ã€‚ä¾‹å¤–ï¼š`Board439fFwBurnTransport.cpp`ã€`CalibWriteMeta.cpp` ä¿ç•™ **UTF-8 BOM**ï¼Œç¼–è¾‘æ—¶ä¸è¦å»æ‰ BOM ä»¥å…æ•´æ–‡ä»¶ diffã€‚
+- **æ”¹é€šä¿¡è¶…æ—¶/é‡è¯•**ï¼šä¼˜å…ˆæŸ¥ `CalibConstants.h` ä¸ `CommRetry.h`ã€ä»¥åŠ `CRecalSession` ä¸­ `M576_COMM_RETRY_*` çš„ç”¨æ³•ã€‚  
+- **æ”¹ DAC è¯­ä¹‰**ï¼šä»¥ `LutPeakApply.cpp` ä¸ `CalibWriteMeta` ä¸­ **WORD çš„äºŒè¡¥ç è§£é‡Š** ä¸ºå‡†ï¼Œå¹¶ä¸å›ºä»¶å¯¹æ‹ã€‚  
+- **æ–°å¢ trans æˆ–è·¯å¾„è§„åˆ™**ï¼šæ”¹ `TransLutRoute` + å¸¸é‡è¡¨ + å¯¹è¯æ¡†é‡Œæ–‡ä»¶ slot è§„åˆ™ï¼Œ**é¿å…åœ¨ UI é‡Œå†™æ­»**åè®®å­—ç¬¦ä¸²ã€‚  
+- **Z4671 æŒ‡ä»¤æ‰©å±•**ï¼šåœ¨ `Z4671Command` ä¸­å¢åŠ æ–¹æ³•æ—¶ä¿æŒä¸ç°æœ‰ **å¸§æ ¼å¼/æ ¡éªŒ/æ—¥å¿—** æ¨¡å¼ä¸€è‡´ï¼Œå¹¶åœ¨ `McsFwTransport` ä¸­åªåšç¼–æ’ã€ä¸æ‹¼é”™äºŒè¿›åˆ¶è¾¹ç•Œã€‚
 
 ---

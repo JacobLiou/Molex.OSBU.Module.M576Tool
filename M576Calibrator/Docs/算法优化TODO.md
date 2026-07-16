@@ -1,191 +1,187 @@
-﻿# 1310 Ѱ�� / �����㷨�Ż� TODO�����۸壩
+# 1310 寻峰 / 定标算法优化 TODO（讨论稿）
 
-> **״̬**�������У�**��δ����ʵʩ**��  
-> **����**��1310 У׼�̼��� Flash �� DAC��`RECAL` �� `base=9999`��ΪɨƵ��㣻���ߴ������Ա�������ͨ�� IL �Բ����롣��ǰ��λ�� RECAL 3/5 + `PeakFinder2D` ����Ѱ���� `Peak1DSweepRecenter` ���Բ����ѽ�����������΢��������Ϲ�ʽ�ԡ���ֵƫԶ / ����ϡ������������������ޡ�  
-> **����ĵ�**��[`INVARIANTS.md`](INVARIANTS.md)��INV-10..19����[`DEVELOPMENT_AND_CODE_GUIDE.md`](DEVELOPMENT_AND_CODE_GUIDE.md)��[`LUT_INDEXING.md`](LUT_INDEXING.md)  
-> **��ش���**��`PeakFinder2D.cpp`��`Peak1DSweepRecenter.cpp`��`M576Peak1DConstants.h`��`M576CalibratorDlg.cpp`��`RunRecal1DSweepWithPeakRecenterRetry`����`CrossPeakTest/`��`dataAnalysis/analyze_il_channels.py`
+> **状态**：讨论中，**尚未立项实施**。  
+> **背景**：1310 校准固件以 Flash 内 DAC（`RECAL` 中 `base=9999`）为扫频起点；产线大量测试表明部分通道 IL 仍不理想。当前上位机 RECAL 3/5 + `PeakFinder2D` 交叉寻峰与 `Peak1DSweepRecenter` 重试策略已较完整，继续微调三阶拟合公式对「初值偏远 / 弱耦合」类问题的收益可能有限。  
+> **相关文档**：[`INVARIANTS.md`](INVARIANTS.md)（INV-10..19）、[`DEVELOPMENT_AND_CODE_GUIDE.md`](DEVELOPMENT_AND_CODE_GUIDE.md)、[`LUT_INDEXING.md`](LUT_INDEXING.md)  
+> **相关代码**：`PeakFinder2D.cpp`、`Peak1DSweepRecenter.cpp`、`M576Peak1DConstants.h`、`M576CalibratorDlg.cpp`（`RunRecal1DSweepWithPeakRecenterRetry`）、`CrossPeakTest/`、`dataAnalysis/analyze_il_channels.py`
 
 ---
 
-## 1. ���� framing�����۹�ʶǰ�ᣩ
+## 1. 问题 framing（讨论共识前提）
 
-### 1.1 ��ǰ��·�����ǡ��� 2D ���������
+### 1.1 当前主路径不是「真 2D 格点搜索」
 
-PM/PD Run Path ʵ���ǣ�
+PM/PD Run Path 实际是：
 
-1. `RECAL 0` ���ù�Դ / PM ��  
-2. `RECAL 1` ·��  
-3. `RECAL 3`���� `5`��**mode 0**���� X��ɨ Y  
-4. **mode 1**���� Y@peak��ɨ X  
-5. `PeakCrossFrom1DScans`������������� LSQ + ����У�飬�õ����� `(row, col)` �� DAC  
+1. `RECAL 0` 配置光源 / PM 档  
+2. `RECAL 1` 路由  
+3. `RECAL 3`（或 `5`）**mode 0**：定 X、扫 Y  
+4. **mode 1**：定 Y@peak、扫 X  
+5. `PeakCrossFrom1DScans`：两轴各自三阶 LSQ + 单峰校验，得到交叉 `(row, col)` → DAC  
 
-��ˡ�Peak2D �յ��㷨���������������ࣺ
+因此「Peak2D 拐点算法」的疑问需拆成两类：
 
-| ���� | ���������� | ��λ������ |
+| 现象 | 更可能主因 | 上位机侧重 |
 |------|------------|------------|
-| ��־�޷� / `flat` / `StrictInc` / skip | Flash ��ֵƫ��ɨƵ����δ��ס��� | recenter���� offset����ʽ base |
-| �� `-> peak row=...` �� IL �� | ���塢�԰ꡢ�� Y-span����ȫ�����Ž���� | ɨƵ�ܶȡ��������ޡ���ͨ������ |
-| ���Դ����Բ� | ������ϲ���ֵ/���ڸ������� | backup base�����˶��ꡢ�̼�Эͬ |
+| 日志无峰 / `flat` / `StrictInc` / skip | Flash 初值偏、扫频窗口未盖住真峰 | recenter、扩 offset、显式 base |
+| 有 `-> peak row=...` 但 IL 差 | 弱峰、旁瓣、低 Y-span、非全局最优交叉点 | 扫频密度、验收门限、难通道配置 |
+| 重试打满仍差 | 物理耦合差或初值/窗口根本不对 | backup base、两趟定标、固件协同 |
 
-### 1.2 ������λ���������Ķ�ǰ���ظ����֣�
+### 1.2 已有上位机能力（改动前勿重复造轮）
 
-- Flat / �������� / �� offset / base ƽ�ƣ�INV-10��INV-11��  
-- Y Ԥɨ OK������ Y ʧ�� �� ��¯ RECAL 3/0��INV-19��  
-- ��� 12 �� attempt��`M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS`��  
-- PM��`RECAL 0` �� `opm` ��λ�˶ԣ�INV-17��  
-- ���߻ع飺`CrossPeakTest`��comm ������`dataAnalysis/analyze_il_channels.py`
+- Flat / 单调贴边 / 扩 offset / base 平移（INV-10、INV-11）  
+- Y 预扫 OK、交叉 Y 失败 → 重炉 RECAL 3/0（INV-19）  
+- 最多 12 次 attempt（`M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS`）  
+- PM：`RECAL 0` 后 `opm` 挡位核对（INV-17）  
+- 离线回归：`CrossPeakTest`；comm 分析：`dataAnalysis/analyze_il_channels.py`
 
-### 1.3 ���� comm �������ͣ�������������
+### 1.3 产线 comm 初步分型（待扩大样本）
 
-�ο� `comm_2026-06-17` ���豸 K6528198 ������
+参考 `comm_2026-06-17` 等设备 K6528198 分析：
 
-- **Ѱ��ʧ����**���� Step 565��`no peak` + `flat` + `StrictInc`��  
-- **Ѱ��ɹ���IL ����**���� Step 568���з嵫 Y-span ���ͣ�~9948 vs ���� ~81875��  
-- **�߷�����**���� 2#MCS slot2��Step 187��565 �ȣ������Ƿ����·/ӳ����ش�����  
+- **寻峰失败型**：如 Step 565（`no peak` + `flat` + `StrictInc`）  
+- **寻峰成功、IL 差型**：如 Step 568（有峰但 Y-span 极低，~9948 vs 正常 ~81875）  
+- **高发区域**：如 2#MCS slot2（Step 187、565 等）——是否与光路/映射相关待讨论  
 
-**������**����ͨ���С�ʧ�� vs �ɹ��� IL ���ռ���٣���������Ͷ�� recenter �����������ޡ�
+**待讨论**：坏通道中「失败 vs 成功但 IL 差」各占多少？决定优先投入 recenter 还是验收门限。
 
 ---
 
-## 2. �Ż��� backlog�����������ȼ���
+## 2. 优化项 backlog（按建议优先级）
 
-ÿ���ע��**״̬**��**�㼶**����λ�� / �̼� / �������̣���**����**��**����**��
+每项标注：**状态**、**层级**（上位机 / 固件 / 产线流程）、**风险**、**依赖**。
 
-### P0 �� ���ݷ�������ͣ�������ű���ǿ��
+### P0 — 数据分析与分型（零代码或脚本增强）
 
-| ID | ���� | ״̬ | ˵�� |
+| ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
-| **ALG-P0-01** | ��ͨ���Զ����ͱ��� | ������ | ��չ `analyze_il_channels.py`��������� `validate_code`��`trend`��`Y-span`����λ���ߡ�retry ���������� base/offset������ IL ���� |
-| **ALG-P0-02** | comm �� CrossPeakTest �طűջ� | ������� | ��λ�� Run Path ��ʵʱд `comm_*_recal_sweeps.csv`����ȫ�� retry����`tools/extract_recal_sweep_csv.py` ������**�� comm ��־**�طţ�`CrossPeakTest --export-peak-csv` / `--mock-sweeps` ������ `path` �� |
-| **ALG-P0-03** | ��ͨ���嵥ά�� | ������ | ����ά�����߷� step / slot / MCS �项������Ϊ�����������������յ����� |
+| **ALG-P0-01** | 坏通道自动分型报告 | 讨论中 | 扩展 `analyze_il_channels.py`：按步输出 `validate_code`、`trend`、`Y-span`、峰位贴边、retry 次数、最终 base/offset，并与 IL 关联 |
+| **ALG-P0-02** | comm → CrossPeakTest 回放闭环 | 部分完成 | 上位机 Run Path 已实时写 `comm_*_recal_sweeps.csv`（含全部 retry）；`tools/extract_recal_sweep_csv.py` 仍用于**旧 comm 日志**回放；`CrossPeakTest --export-peak-csv` / `--mock-sweeps` 兼容新 `path` 列 |
+| **ALG-P0-03** | 难通道清单维护 | 讨论中 | 产线维护「高发 step / slot / MCS 块」表，作为后续配置驱动与验收的输入 |
 
-**���۵�**������ά���Ƿ��㹻���Ƿ���Ҫ�� `(fileSlot, sw, ch)` �������� path step index��
+**讨论点**：分型维度是否足够？是否需要按 `(fileSlot, sw, ch)` 而不仅是 path step index？
 
 ---
 
-### P1 �� ɨƵ������ UI Ĭ��ֵ���ͷ��գ���С��Χʵ���ԣ�
+### P1 — 扫频参数与 UI 默认值（低风险，可小范围实机试）
 
-| ID | ���� | ״̬ | ˵�� |
+| ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
-| **ALG-P1-01** | ��ͨ�� `dacRange` / `dacStep` / `delayMs` ����ʵ�� | ������ | �Թ̶��� step ��С����ɨ�裻ע�� `M576_MAX_RECAL_SWEEP_READ_MS` ��ʱ |
-| **ALG-P1-02** | Ĭ�� UI �������߽���ֵ�ĵ��� | ������ | ��ͨ�� P0 ������д���û��ֲ�� TODO ��¼ |
-| **ALG-P1-03** | ��ɨ��������������ȶ��� | ������ | `dacStep` ��С �� �������ࣻ�� `M576_PEAK1D_CUBIC_MIN_SAMPLES`��fine refine ��ϵ |
+| **ALG-P1-01** | 难通道 `dacRange` / `dacStep` / `delayMs` 矩阵实验 | 讨论中 | 对固定坏 step 做小矩阵扫描；注意 `M576_MAX_RECAL_SWEEP_READ_MS` 超时 |
+| **ALG-P1-02** | 默认 UI 参数产线建议值文档化 | 讨论中 | 在通过 P0 分析后，写入用户手册或本 TODO 附录 |
+| **ALG-P1-03** | 精扫点数与三阶拟合稳定性 | 讨论中 | `dacStep` 减小 → 点数增多；与 `M576_PEAK1D_CUBIC_MIN_SAMPLES`、fine refine 关系 |
 
-**���۵�**���Ƿ�������ȫ�� UI �������롸��ͨ�����ǡ����棿�� P2-02��
+**讨论点**：是否允许「全局 UI 参数」与「难通道覆盖」并存？见 P2-02。
 
 ---
 
-### P2 �� ��ʽ base ��ͨ�������ã��еȸĶ�������Ԥ�ڸߣ�
+### P2 — 显式 base 与通道级配置（中等改动，收益预期高）
 
-| ID | ���� | ״̬ | ˵�� |
+| ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
-| **ALG-P2-01** | Retry ʱ�� Backup LUT DAC ����ʽ `baseY`/`baseX` | ������ | Read Bin ��� `backupAll1310DAC.csv` / session LUT ȡ `(sw,ch)` DAC��ʧ������ʱ���ý� `9999`���������� Flash ��ֵ |
-| **ALG-P2-02** | ��ͨ�����ñ���CSV/JSON�� | ������ | ��ʾ����`step_index, coarse_range, fine_range, delay_ms, force_base_y, force_base_x, max_extra_retry`��Run Path �������� UI |
-| **ALG-P2-03** | �ڵ� / ͬ SW ��ֵ��ֵ�����ã� | ������ | ��ֵ����������У׼ͨ��������� INV-06 ϡ�� merge��������ȾδУ׼��λ |
+| **ALG-P2-01** | Retry 时用 Backup LUT DAC 作显式 `baseY`/`baseX` | 讨论中 | Read Bin 后从 `backupAll1310DAC.csv` / session LUT 取 `(sw,ch)` DAC；失败重试时不用仅 `9999`，减少依赖 Flash 初值 |
+| **ALG-P2-02** | 难通道配置表（CSV/JSON） | 讨论中 | 列示例：`step_index, coarse_range, fine_range, delay_ms, force_base_y, force_base_x, max_extra_retry`；Run Path 读表覆盖 UI |
+| **ALG-P2-03** | 邻道 / 同 SW 插值初值（慎用） | 讨论中 | 初值来自相邻已校准通道；须符合 INV-06 稀疏 merge，避免污染未校准槽位 |
 
-**���۵�**��
+**讨论点**：
 
-- P2-01 �����Ƿ����� `9999`�����ǻ�ͨ���б������ּ��� backup��  
-- P2-02 ����˭ά�������� / ���������Ƿ���汾������  
-- P2-03 �Ƿ���ܡ������ڵ���������ϵͳ�Է��գ�
+- P2-01 首轮是否仍用 `9999`，还是坏通道列表内首轮即用 backup？  
+- P2-02 配置谁维护（工艺 / 软件）？是否进版本管理？  
+- P2-03 是否接受「借用邻道」带来的系统性风险？
 
-**��ڴ��루ʵʩʱ��**��`RunRecal1DSweepWithPeakRecenterRetry` �� `initialMovingBase`��PM/PD ��ѭ���� `M576_RECAL_FW_READ_BASE_DAC` ��ʹ�ô���
+**入口代码（实施时）**：`RunRecal1DSweepWithPeakRecenterRetry` 的 `initialMovingBase`；PM/PD 主循环中 `M576_RECAL_FW_READ_BASE_DAC` 的使用处。
 
 ---
 
-### P3 �� �㷨����΢������ CrossPeakTest + INV ͬ����
+### P3 — 算法门限微调（须 CrossPeakTest + INV 同步）
 
-| ID | ���� | ״̬ | ˵�� |
+| ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
-| **ALG-P3-00** | PeakFinder ��ͻ���� + �Գ���ϴ� + INI ���� `MinProminenceDb` | **��ʵʩ** | `Peak1DDbToRawDelta` ������**2026-07 �ſ�**��0.3 dB ��Ԥ����ǰȫ���� span Ӳ�ܣ�����ѡ����L523/step7 ��� Ok��CrossPeakTest �ع� |
-| **ALG-P3-05** | JumpFlatMax@200 ��ɨ�ڷ��Ϸ� �� FineRefine | **��ʵʩ** | `M576_PEAK1D_COARSE_MIN_SPAN_DB`��0.5 dB����`IsCoarseExpandedInteriorPeak`��`Peak1DArgmaxHasLeft/RightProminence`��step7 att2 ���� / att3 ����Strict ��ɨ�Կ� fail |
-| **ALG-P3-06** | Flat@200 FlatAtMaxShift ping-pong ������խ��Χ�� | **��ʵʩ** | �� Flat@max��`IsInteriorPeakHint`��hint ���ģ�`DetectSweepRecenterOscillation`��FineRefine��Mono/ShiftOnly ��ع飻CrossPeakTest frozen + step7 |
-| **ALG-P3-07** | planner 早退 GiveUp -> INV-12 fallback 打满 12 次 | **已实施** | `SuggestFallbackSweepRetryPlan`；`IsFlatSweepFailure` 含 VOR/EdgeNotAllowed；`PmRangeMismatch` 唯一业务早退；CrossPeakTest `RunMaxAttemptsFallbackSelfTests` + vor-diag |
-| **ALG-P3-08** | 拼接式扫频 pipeline 替换 INV-10/11/12 planner | **已实施** | `Peak1DSweepPipeline`；64→200→交替拼接→精扫半宽；FATAL `peak-pipeline`；`RunSweepPipelineSelfTests`；产线 Dlg 不再调用 `PlanNextRecal1DSweepAttempt` |
-| **ALG-P3-01** | ����ͨ����`M576_PEAK1D_MIN_SPAN_DB` / `FLAT_REL_SPAN_FRAC` | ������ | �� span �Խ��ܷ� �� �������� recenter������������������� |
-| **ALG-P3-02** | ��� / �԰꣺outlier �� `MAX_STRICT_LOCAL_MAXIMA` | ������ | `OUTLIER_MULT`��`OUTLIER_LOCAL_HALF` �� |
-| **ALG-P3-03** | Recenter �����ȣ�`SWEEP_RECENTER_*_FRAC` ϵ�� | ������ | `TSTAR_WEIGHT`��`STAGNATION_GAIN` �ȶ�����ͨ����Ӱ�� |
-| **ALG-P3-04** | �������ԣ��Ƿ����� 2D ���������ͣ��ǵ�ǰ��·���� | ������ | ��ǰΪ���� 1D ���棻�� 2D ��������������������̼�ɨƵģ�� |
+| **ALG-P3-00** | PeakFinder 峰突出度 + 对称拟合窗 + INI 可配 `MinProminenceDb` | **已实施** | `M576_PEAK1D_MIN_PROMINENCE_DB`、`Peak1DGetMinProminenceDb`、`M576Calibrator.ini`；CrossPeakTest 回归全绿 |
+| **ALG-P3-01** | 弱峰通道：`M576_PEAK1D_MIN_SPAN_DB` / `FLAT_REL_SPAN_FRAC` | 讨论中 | 低 span 仍接受峰 → 可能增加 recenter；过低则误接受噪声峰 |
+| **ALG-P3-02** | 多峰 / 旁瓣：outlier 与 `MAX_STRICT_LOCAL_MAXIMA` | 讨论中 | `OUTLIER_MULT`、`OUTLIER_LOCAL_HALF` 等 |
+| **ALG-P3-03** | Recenter 激进度：`SWEEP_RECENTER_*_FRAC` 系列 | 讨论中 | `TSTAR_WEIGHT`、`STAGNATION_GAIN` 等对贴边通道的影响 |
+| **ALG-P3-04** | 交叉峰策略：是否引入 2D 邻域能量和（非当前主路径） | 讨论中 | 当前为两轴 1D 交叉；真 2D 曲面最优需评估算力与固件扫频模型 |
 
-**Լ��**���� `M576Peak1DConstants.h` ������ `CrossPeakTest` Release\|Win32���漰 Flat/mono ��������� INV-10/11������ `INVARIANTS.md` �� `.cursor/rules/m576-peak-recal.mdc`��
+**约束**：改 `M576Peak1DConstants.h` 必须跑 `CrossPeakTest` Release\|Win32；涉及 Flat/mono 语义须对照 INV-10/11，更新 `INVARIANTS.md` 与 `.cursor/rules/m576-peak-recal.mdc`。
 
-**���۵�**��P3 �Ƿ��� P2����ʽ base����Ч����������������ڸǳ�ֵ���⣿
+**讨论点**：P3 是否在 P2（显式 base）见效后再做，避免调参掩盖初值问题？
 
 ---
 
-### P4 �� ������������ޣ�PRD FR-07 ���룬���߶��ף�
+### P4 — 定标后验收门限（PRD FR-07 对齐，产线兜底）
 
-| ID | ���� | ״̬ | ˵�� |
+| ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
-| **ALG-P4-01** | ��ɹ� �� �ϸ񣺵������� / IL ���� | ������ | �����ɹ��󸴺˹��ʻ� IL��������д LUT���� `CalibPathFailCategory` ����� |
-| **ALG-P4-02** | �ظ��Բ��ԣ�FR-07�� | ������ | PRD Ҫ��У׼���ظ��� OK ����¼����ǰ App ���ȷ�������� |
-| **ALG-P4-03** | Write Bin ǰ������������ | ������ | �� `M576RunPathSummaryDlg`��failure CSV ��������ѡ����ʧ�����ֹ��¼������ |
+| **ALG-P4-01** | 峰成功 ≠ 合格：单步功率 / IL 门限 | 讨论中 | 交叉峰成功后复核功率或 IL；超差则不写 LUT，记 `CalibPathFailCategory` 新类别 |
+| **ALG-P4-02** | 重复性测试（FR-07） | 讨论中 | PRD 要求校准后重复性 OK 才烧录；当前 App 侧待确认完整度 |
+| **ALG-P4-03** | Write Bin 前坏步汇总拦截 | 讨论中 | 与 `M576RunPathSummaryDlg`、failure CSV 联动；可选「有失败则禁止烧录」策略 |
 
-**���۵�**��IL / �ظ�����ֵ������Ժι����Ϊ׼������ʧ���� skip ������· path ʧ�ܣ�
+**讨论点**：IL / 重复性阈值与次数以何规格书为准？单步失败是 skip 还是整路 path 失败？
 
 ---
 
-### P5 �� Session ���ԣ����̼���
+### P5 — Session 策略（流程级）
 
-| ID | ���� | ״̬ | ˵�� |
+| ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
-| **ALG-P5-01** | ���˶��� | ������ | ��һ��д��ͨ�� �� Write/Burn���� RAM ��Ч���� �ڶ���ר�ܻ�ͨ���Ӽ������ø��º� Flash ��ֵ |
-| **ALG-P5-02** | Diagnosis ģʽ���ڹҲ⸴�� | ������ | ���� `DiagnosisSession` �Ƿ���չΪ������� |
-| **ALG-P5-03** | ��ͨ����·�� CSV | ������ | ������ `path_bad_steps.csv` �г��Ĳ������̲���ʱ�� |
+| **ALG-P5-01** | 两趟定标 | 讨论中 | 第一趟写好通道 → Write/Burn（或 RAM 生效）→ 第二趟专跑坏通道子集，利用更新后 Flash 初值 |
+| **ALG-P5-02** | Diagnosis 模式用于挂测复核 | 讨论中 | 现有 `DiagnosisSession` 是否扩展为定标后抽检 |
+| **ALG-P5-03** | 坏通道子路径 CSV | 讨论中 | 仅重跑 `path_bad_steps.csv` 列出的步，缩短产线时间 |
 
 ---
 
-### P6 �� �̼� / Ӳ���߽磨��λ�������޷��պϣ�
+### P6 — 固件 / 硬件边界（上位机单独无法闭合）
 
-| ID | ���� | ״̬ | ˵�� |
+| ID | 事项 | 状态 | 说明 |
 |----|------|------|------|
-| **ALG-P6-01** | `9999` �� DAC ʱ����һ���� | ��̼�ȷ�� | ��ֵ���������� Flash ��̼�������� |
-| **ALG-P6-02** | �̼������ɨƵ���� 2D ɨ | ��̼����� | X/Y ǿ������ʱ������ 1D �����ȫ������ |
-| **ALG-P6-03** | MEMS settle�����ʼƵ�λ | ��Ӳ��/�̼� | �� INV-16/17��delay ������� |
+| **ALG-P6-01** | `9999` 读 DAC 时机与一致性 | 需固件确认 | 初值质量上限由 Flash 与固件语义决定 |
+| **ALG-P6-02** | 固件侧更宽扫频或真 2D 扫 | 需固件评估 | X/Y 强非正交时，两次 1D 交叉非全局最优 |
+| **ALG-P6-03** | MEMS settle、功率计档位 | 需硬件/固件 | 与 INV-16/17、delay 参数相关 |
 
 ---
 
-## 3. ����ʵʩ˳�������ã��ǳ�ŵ��
+## 3. 建议实施顺序（讨论用，非承诺）
 
 ```text
-P0 ������ط� �� P1 ɨƵ����ʵ������ �� P2 backup base / ��ͨ������
-    �� P4 �������ޣ�����߹����룩�� P3 ����΢������ comm ֤��������
-    �� P5 ���˶��� �� P6 �̼�Эͬ�����и��٣�
+P0 分型与回放 → P1 扫频参数实机矩阵 → P2 backup base / 难通道配置
+    → P4 验收门限（与产线规格对齐）→ P3 门限微调（有 comm 证据再做）
+    → P5 两趟定标 → P6 固件协同（并行跟踪）
 ```
 
-**ԭ��**���� `m576-global.mdc` һ�£���
+**原则**（与 `m576-global.mdc` 一致）：
 
-- ����Ŀ�꣺��������ÿ��У׼�ɹ������Ǳ߽����������� skip��  
-- �����ԡ��ɻָ�����׷�ݡ��ɵ��⣨`CrossPeakTest`����  
-- ���ڸǹ̼�ȱ�ڣ�ע�ͻ� INVARIANTS д�塸��λ����ʲô���̼����뱣֤ʲô����
-
----
-
-## 4. �������⣨���������嵥��
-
-1. ��ͨ������ռ�ȣ�Ѱ��ʧ�� vs Ѱ��ɹ� IL �  
-2. �Ƿ���ܡ���ͨ�����ñ�������ά����ά�����������̣�  
-3. Retry �� backup DAC �� base������ `9999` �Ƿ�����  
-4. IL / �ظ��Ժϸ��׼����ֵ�����������ķݹ��Ϊ׼��  
-5. ��������ʧ�ܣ�skip������ N �Ρ�����ͣ��· path��  
-6. 2#MCS slot2 �ȸ߷�������·/ӳ��/�̼��Ƿ�����֪ϵͳ��ԭ��  
-7. ���˶����Ƿ�ɽ��ܲ��߽������ӣ��ڶ����Ƿ������¼�м� bin��  
-8. �Ƿ��� P2 ��Чǰ���� P3 ��Χ���޸Ķ������� overfit ��̨�豸 comm��
+- 产线目标：尽可能让每次校准成功，而非边界数据上轻易 skip。  
+- 可重试、可恢复、可追溯、可单测（`CrossPeakTest`）。  
+- 不掩盖固件缺口：注释或 INVARIANTS 写清「上位机补什么、固件仍须保证什么」。
 
 ---
 
-## 5. ʵʩǰ��飨��������ʱ��
+## 4. 开放问题（会议讨论清单）
 
-- [ ] P0 ����Դ����豸����N ̨�����ֻ�ͨ������  
-- [ ] `CrossPeakTest` ȫ�� + ���� comm �طŶԱ�  
-- [ ] �Ķ����� INV-10..19 ʱ���� [`INVARIANTS.md`](INVARIANTS.md)  
-- [ ] ʵ��С������֤ IL �ֲ������  
-- [ ] �û��ֲ� / ���� SOP ͬ�������� UI �����̣�
+1. 坏通道主因占比：寻峰失败 vs 寻峰成功 IL 差？  
+2. 是否接受「难通道配置表」长期维护？维护方与变更流程？  
+3. Retry 用 backup DAC 作 base：首轮 `9999` 是否保留？  
+4. IL / 重复性合格标准（数值、次数）以哪份规格为准？  
+5. 单步验收失败：skip、重试 N 次、还是停整路 path？  
+6. 2#MCS slot2 等高发区：光路/映射/固件是否有已知系统性原因？  
+7. 两趟定标是否可接受产线节拍增加？第二趟是否必须烧录中间 bin？  
+8. 是否在 P2 见效前冻结 P3 大范围门限改动，避免 overfit 单台设备 comm？
 
 ---
 
-## 6. �޶���¼
+## 5. 实施前检查（将来立项时）
 
-| ���� | ˵�� |
+- [ ] P0 报告对代表设备（≥N 台）复现坏通道分型  
+- [ ] `CrossPeakTest` 全绿 + 坏步 comm 回放对比  
+- [ ] 改动触及 INV-10..19 时更新 [`INVARIANTS.md`](INVARIANTS.md)  
+- [ ] 实机小批量验证 IL 分布与节拍  
+- [ ] 用户手册 / 产线 SOP 同步（若改 UI 或流程）
+
+---
+
+## 6. 修订记录
+
+| 日期 | 说明 |
 |------|------|
-| 2026-06-18 | ���壺���� 1310 ���� IL �� comm ��������������״̬��Ϊ�������С�δʵʩ�� |
+| 2026-06-18 | 初稿：基于 1310 产线 IL 与 comm 分析讨论整理，状态均为「讨论中、未实施」 |

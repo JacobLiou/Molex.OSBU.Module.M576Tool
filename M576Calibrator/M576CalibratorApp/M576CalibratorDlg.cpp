@@ -876,7 +876,7 @@ void M576LogPeakPipelineFatal(
 		return;
 	CString uiLine;
 	uiLine.Format(
-		_T("[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%hs code=%hs anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.4g kneeL=%d kneeR=%d t*=%.2f"),
+		_T("[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%hs code=%hs anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.4g t*=%.2f"),
 		recalStageLabel,
 		axisTag,
 		pathLine1Based,
@@ -887,14 +887,12 @@ void M576LogPeakPipelineFatal(
 		report.sweepCount,
 		report.lastStitchK,
 		report.mergedSpanRaw,
-		report.mergeKneeLeft,
-		report.mergeKneeRight,
 		report.mergeTPeak);
 	dlg->SafeAppendLog(uiLine);
 
 	CStringA fatalBlock;
 	fatalBlock.Format(
-		"[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%s code=%s anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.6g kneeL=%d kneeR=%d t*=%.6g\n",
+		"[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%s code=%s anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.6g t*=%.6g\n",
 		CStringA(recalStageLabel).GetString(),
 		CStringA(axisTag).GetString(),
 		pathLine1Based,
@@ -905,8 +903,6 @@ void M576LogPeakPipelineFatal(
 		report.sweepCount,
 		report.lastStitchK,
 		report.mergedSpanRaw,
-		report.mergeKneeLeft,
-		report.mergeKneeRight,
 		report.mergeTPeak);
 	M576AppendFatalLogUtf8(fatalBlock.GetString());
 	for (size_t si = 0; si < report.segments.size(); ++si)
@@ -1162,12 +1158,12 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			SafeAppendLog(strictGateLine);
 		}
 
-		if (pipe.lastStitchMesaBypass
+		if (pipe.lastStitchSymmetricTrioMerge
 			&& pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
 		{
 			CString bypassLine;
 			bypassLine.Format(
-				_T("  stitch_k%d symmetric trio mesa bypass strict gate -> dual_knee"),
+				_T("  stitch_k%d symmetric trio merge relaxed (strict segment bypass)"),
 				pipe.lastStitchK);
 			SafeAppendLog(bypassLine);
 		}
@@ -1182,28 +1178,13 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 					pipe.lastStitchK);
 				SafeAppendLog(skipLine);
 			}
-			if (pipe.hasLastMergePlateau)
-			{
-				CString plateauLine;
-				plateauLine.Format(
-					_T("  plateau dual_knee iL=%d iR=%d t*=%.2f merged_span=%.4g -> fineRefine"),
-					pipe.lastMergeKneeLeft,
-					pipe.lastMergeKneeRight,
-					pipe.lastMergeTPeak,
-					pipe.mergedSpanRaw);
-				SafeAppendLog(plateauLine);
-			}
-			else
-			{
-				CString relaxedLine;
-				relaxedLine.Format(
-					_T("  merged unimodal relaxed t*=%.2f merged_span=%.4g stitch_k=%d -> fineRefine"),
-					pipe.lastMergeTPeak,
-					pipe.mergedSpanRaw,
-					pipe.lastStitchK);
-				SafeAppendLog(relaxedLine);
-			}
-			pipe.hasLastMergePlateau = false;
+			CString relaxedLine;
+			relaxedLine.Format(
+				_T("  merged unimodal relaxed t*=%.2f merged_span=%.4g stitch_k=%d -> fineRefine"),
+				pipe.lastMergeTPeak,
+				pipe.mergedSpanRaw,
+				pipe.lastStitchK);
+			SafeAppendLog(relaxedLine);
 		}
 
 		if (pipe.phase == M576::Recal1DPipelinePhase::Succeeded)

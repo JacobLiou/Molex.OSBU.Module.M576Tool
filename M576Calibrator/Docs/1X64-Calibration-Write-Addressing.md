@@ -1,60 +1,60 @@
-# M576 ÉÏÎ»»ú£º1¡Á64 MEMS Ğ£×¼Êı¾İĞ´ÈëµØÖ·ËµÃ÷
+# M576 ä¸Šä½æœºï¼š1Ã—64 MEMS æ ¡å‡†æ•°æ®å†™å…¥åœ°å€è¯´æ˜
 
-±¾ÎÄµµ¹©Óë¹Ì¼şÍ¬ÊÂ»áÒé¶ÔÆëÊ¹ÓÃ£¬ËµÃ÷ **1310 nm PM ¶¨±êÁ÷³ÌÖĞ£¬1¡Á64 Ñ°·åµÃµ½µÄ DAC Ğ´Èë bin/ÄÚ´æ µÄÑ°Ö·¹æÔò**¡£ÊµÏÖÒÔÔ´ÂëÎª×¼£¬Â·¾¶¾ùÏà¶ÔÓÚ `M576Calibrator` ¹¤³Ì¡£
+æœ¬æ–‡æ¡£ä¾›ä¸å›ºä»¶åŒäº‹ä¼šè®®å¯¹é½ä½¿ç”¨ï¼Œè¯´æ˜ **1310 nm PM å®šæ ‡æµç¨‹ä¸­ï¼Œ1Ã—64 å¯»å³°å¾—åˆ°çš„ DAC å†™å…¥ bin/å†…å­˜ çš„å¯»å€è§„åˆ™**ã€‚å®ç°ä»¥æºç ä¸ºå‡†ï¼Œè·¯å¾„å‡ç›¸å¯¹äº `M576Calibrator` å·¥ç¨‹ã€‚
 
 ---
 
-## 1. ·¶Î§ÓëÇ°Ìá
+## 1. èŒƒå›´ä¸å‰æ
 
-| ÏîÄ¿ | ËµÃ÷ |
+| é¡¹ç›® | è¯´æ˜ |
 |------|------|
-| Êı¾İÄÚÈİ | ¶şÎ¬Ñ°·åºóµÄ **DAC X / DAC Y**£¨¾­ int16 Ç¯Î»ºóÒÔ `short` / 16 Î»ÓĞ·ûºÅÄ£Ê½ÂäÅÌ£© |
-| ÎÂ¶È²Û | **½öµÍÎÂµµ**£º`stCalibDAC[0]`£¨Óë MCS LUT µÄ `IDX_TEMP_LOW == 0` ¶ÔÓ¦£© |
-| Ğ­Òé²à RECAL | PM Ê¹ÓÃ `RECAL 1`£»Â·¾¶ CSV ÖĞ `target_index` + `ch1..ch4` Óë Z4744 Ò»ÖÂ |
-| ½á¹¹Ìå²¼¾Ö | Óë 126S `tagMemsSwCoef` ¶ÔÆë£¬¼û `Z4671Core/M576OneX64Coef.h` |
+| æ•°æ®å†…å®¹ | äºŒç»´å¯»å³°åçš„ **DAC X / DAC Y**ï¼ˆç» int16 é’³ä½åä»¥ `short` / 16 ä½æœ‰ç¬¦å·æ¨¡å¼è½ç›˜ï¼‰ |
+| æ¸©åº¦æ§½ | **ä»…ä½æ¸©æ¡£**ï¼š`stCalibDAC[0]`ï¼ˆä¸ MCS LUT çš„ `IDX_TEMP_LOW == 0` å¯¹åº”ï¼‰ |
+| åè®®ä¾§ RECAL | PM ä½¿ç”¨ `RECAL 1`ï¼›è·¯å¾„ CSV ä¸­ `target_index` + `ch1..ch4` ä¸ Z4744 ä¸€è‡´ |
+| ç»“æ„ä½“å¸ƒå±€ | ä¸ 126S `tagMemsSwCoef` å¯¹é½ï¼Œè§ `Z4671Core/M576OneX64Coef.h` |
 
-**²»ÔÚ±¾ÎÄÕ¹¿ª**£ºÍ¸´«¶Á Flash¡¢XMODEM ÉÕÂ¼ÃüÁîĞòÁĞ£»½öÃèÊö **Âß¼­¶Ë¿Ú / Ó³Éä±í ¡ú ½á¹¹Ìå×Ö¶Î ¡ú ×Ö½ÚÆ«ÒÆ** µÄ¶ÔÓ¦¹ØÏµ¡£
-
----
-
-## 2. ÎïÀíÓëÈí¼ş·Ö²ã£¨±ãÓÚ»áÒé¶ÔÆëÊõÓï£©
-
-- Ò»¿é **1¡Á64 trans**£¨²ÛÎ» 3 »ò 4£©ÔÚÄÚ´æ/±¸·İÖĞ¶ÔÓ¦ **`stM576OneX64MemsSwCoef` Êı×é `[4]`**£º¼´ **4 Æ¬ MEMS ¿ª¹ØÏµÊı**£¨³£³Æ sw1¡«sw4£©£¬Ã¿Æ¬×î¶à **36** ¸ö `stChnDAC` ²ÛÎ»£¨ºê `M576_1X64_MAX_CHANNEL_NUM`£©£¬PM Ó³Éä±íµ±Ç°Ê¹ÓÃ **CH_y 1¡«17**¡£
-- Ã¿Æ¬ÔÚ´ÅÅÌÉÏÍ¨³£Îª **¶ÀÁ¢ bin**£º`sizeof(stM576OneX64MemsSwCoef) == 2208`£¨160 B `BUNDLEHEADER` + 2048 B body£©¡£
-- ¹Ì¼ş **MEM ¶Á 8 KB** Ê±£¬¶àÎª **4¡Á2048 B body Á¬ĞøÆ´½Ó**£¨ÔÙºÏ³É´øÍ·µÄ 4 ¸ö 2208 B ÎÄ¼ş£©£¬ÓëÏÂÎÄ **¡¸8K ÄÚÆ«ÒÆ¡¹** Ò»ÖÂ¡£
+**ä¸åœ¨æœ¬æ–‡å±•å¼€**ï¼šé€ä¼ è¯» Flashã€XMODEM çƒ§å½•å‘½ä»¤åºåˆ—ï¼›ä»…æè¿° **é€»è¾‘ç«¯å£ / æ˜ å°„è¡¨ â†’ ç»“æ„ä½“å­—æ®µ â†’ å­—èŠ‚åç§»** çš„å¯¹åº”å…³ç³»ã€‚
 
 ---
 
-## 3. ºËĞÄ¹æÔò£ºË­¾ö¶¨Ğ´ÄÄÒ»ÉÈÇø
+## 2. ç‰©ç†ä¸è½¯ä»¶åˆ†å±‚ï¼ˆä¾¿äºä¼šè®®å¯¹é½æœ¯è¯­ï¼‰
 
-### 3a. PM£¨¹¦ÂÊ¼Æ£©µ±Ç°ÊµÏÖ£º¹Ì¼şÓ³Éä±í
+- ä¸€å— **1Ã—64 trans**ï¼ˆæ§½ä½ 3 æˆ– 4ï¼‰åœ¨å†…å­˜/å¤‡ä»½ä¸­å¯¹åº” **`stM576OneX64MemsSwCoef` æ•°ç»„ `[4]`**ï¼šå³ **4 ç‰‡ MEMS å¼€å…³ç³»æ•°**ï¼ˆå¸¸ç§° sw1ï½sw4ï¼‰ï¼Œæ¯ç‰‡æœ€å¤š **36** ä¸ª `stChnDAC` æ§½ä½ï¼ˆå® `M576_1X64_MAX_CHANNEL_NUM`ï¼‰ï¼ŒPM æ˜ å°„è¡¨å½“å‰ä½¿ç”¨ **CH_y 1ï½17**ã€‚
+- æ¯ç‰‡åœ¨ç£ç›˜ä¸Šé€šå¸¸ä¸º **ç‹¬ç«‹ bin**ï¼š`sizeof(stM576OneX64MemsSwCoef) == 2208`ï¼ˆ160 B `BUNDLEHEADER` + 2048 B bodyï¼‰ã€‚
+- å›ºä»¶ **MEM è¯» 8 KB** æ—¶ï¼Œå¤šä¸º **4Ã—2048 B body è¿ç»­æ‹¼æ¥**ï¼ˆå†åˆæˆå¸¦å¤´çš„ 4 ä¸ª 2208 B æ–‡ä»¶ï¼‰ï¼Œä¸ä¸‹æ–‡ **ã€Œ8K å†…åç§»ã€** ä¸€è‡´ã€‚
 
-**Trans ²Û 3/4** ÅÜ `pm_1x64_*.csv` Ê±£¬MEMS µÍÎÂĞ´Ö·ÓÉ **`pm_1x64_*Mapping.csv`** ¾ö¶¨£¨Óë PM CSV **Í¬ĞĞĞò**£»Ç°ÎåÁĞ±ØĞëÓë PM ĞĞÍêÈ«Ò»ÖÂ£©¡£
+---
 
-| ÏîÄ¿ | ËµÃ÷ |
+## 3. æ ¸å¿ƒè§„åˆ™ï¼šè°å†³å®šå†™å“ªä¸€æ‰‡åŒº
+
+### 3a. PMï¼ˆåŠŸç‡è®¡ï¼‰å½“å‰å®ç°ï¼šå›ºä»¶æ˜ å°„è¡¨
+
+**Trans æ§½ 3/4** è·‘ `pm_1x64_*.csv` æ—¶ï¼ŒMEMS ä½æ¸©å†™å€ç”± **`pm_1x64_*Mapping.csv`** å†³å®šï¼ˆä¸ PM CSV **åŒè¡Œåº**ï¼›å‰äº”åˆ—å¿…é¡»ä¸ PM è¡Œå®Œå…¨ä¸€è‡´ï¼‰ã€‚
+
+| é¡¹ç›® | è¯´æ˜ |
 |------|------|
-| Ó³ÉäÂ·¾¶ | ÓÉ PM CSV ÍÆµ¼£º`xxx\pm_1x64_1.csv` ¡ú `xxx\pm_1x64_1Mapping.csv`£¨ÔÚÀ©Õ¹ÃûÇ°²åÈë `Mapping`£© |
-| ¼ÓÔØÓëĞ£Ñé | `Pm1x64Mapping.cpp`£º`LoadPm1x64MappingCsv`¡¢`ValidatePmStepsAgainstMapping` |
-| Ğ´ MEMS | `WriteMems1x64LowTempDacPair`£º`block = SW_x - 1`£¬`inBlk = CH_y - 1`£¨±íÖĞ `CH_y` Îª 1-based£© |
-| Í³¼Æ CSV Æ«ÒÆ | `CalibBuildStatRowPmMemsMapped`£¨ÄÚ²¿ `Mems1x64OffsetsIn8k(block, inBlk)`£© |
+| æ˜ å°„è·¯å¾„ | ç”± PM CSV æ¨å¯¼ï¼š`xxx\pm_1x64_1.csv` â†’ `xxx\pm_1x64_1Mapping.csv`ï¼ˆåœ¨æ‰©å±•åå‰æ’å…¥ `Mapping`ï¼‰ |
+| åŠ è½½ä¸æ ¡éªŒ | `Pm1x64Mapping.cpp`ï¼š`LoadPm1x64MappingCsv`ã€`ValidatePmStepsAgainstMapping` |
+| å†™ MEMS | `WriteMems1x64LowTempDacPair`ï¼š`block = SW_x - 1`ï¼Œ`inBlk = CH_y - 1`ï¼ˆè¡¨ä¸­ `CH_y` ä¸º 1-basedï¼‰ |
+| ç»Ÿè®¡ CSV åç§» | `CalibBuildStatRowPmMemsMapped`ï¼ˆå†…éƒ¨ `Mems1x64OffsetsIn8k(block, inBlk)`ï¼‰ |
 
-Ó³ÉäÈ±Ê§»òÓë PM Ç°ÎåÁĞ²»Ò»ÖÂÊ±£¬**Ìø¹ı¸Ã²ÛÕû¶Î PM**£¨²»´ò¾²Ä¬´íÎó bin£©¡£
+æ˜ å°„ç¼ºå¤±æˆ–ä¸ PM å‰äº”åˆ—ä¸ä¸€è‡´æ—¶ï¼Œ**è·³è¿‡è¯¥æ§½æ•´æ®µ PM**ï¼ˆä¸æ‰“é™é»˜é”™è¯¯ binï¼‰ã€‚
 
-### 3b. ÒÅÁô¹æÔò£¨`ApplyRecalPeakToMems1x64`£©
+### 3b. é—ç•™è§„åˆ™ï¼ˆ`ApplyRecalPeakToMems1x64`ï¼‰
 
-`ApplyRecalPeakToMems1x64` ÈÔ±£ÁôÔÚ `LutPeakApply.cpp`£¨°´ `ch1`/`ch4` ×ö `/16`¡¢`%16`£©¡£**PM trans3/4 ÒÑ²»ÔÙµ÷ÓÃ**£»**PD** ÈÔÊ¹ÓÃ `ApplyRecalPeakToMems1x64Pd`£¨°´¶Ë¿ÚÍÆµ¼£¬±¾ÂÖÎ´ÒıÈë PD Ó³Éä±í£©¡£
+`ApplyRecalPeakToMems1x64` ä»ä¿ç•™åœ¨ `LutPeakApply.cpp`ï¼ˆæŒ‰ `ch1`/`ch4` åš `/16`ã€`%16`ï¼‰ã€‚**PM trans3/4 å·²ä¸å†è°ƒç”¨**ï¼›**PD** ä»ä½¿ç”¨ `ApplyRecalPeakToMems1x64Pd`ï¼ˆæŒ‰ç«¯å£æ¨å¯¼ï¼Œæœ¬è½®æœªå¼•å…¥ PD æ˜ å°„è¡¨ï¼‰ã€‚
 
-| `target_index` | ÒÅÁô MEMS Ğ´Ö·ËùÓÃµÄÂß¼­¶Ë¿Ú |
+| `target_index` | é—ç•™ MEMS å†™å€æ‰€ç”¨çš„é€»è¾‘ç«¯å£ |
 |----------------|------------------------------|
-| **1¡¢2** | **`ch1`** |
-| **5¡¢6** | **`ch4`** |
-| **3¡¢4** | ×ß MCS LUT£¬²»Ğ´±¾ MEMS ½á¹¹ |
+| **1ã€2** | **`ch1`** |
+| **5ã€6** | **`ch4`** |
+| **3ã€4** | èµ° MCS LUTï¼Œä¸å†™æœ¬ MEMS ç»“æ„ |
 
 ---
 
-## 4. ÒÅÁô¹«Ê½£º¶Ë¿Ú 1¡«64 ¡ú div16 ¡ú `stChnDAC`
+## 4. é—ç•™å…¬å¼ï¼šç«¯å£ 1ï½64 â†’ div16 â†’ `stChnDAC`
 
-¶ÔÑ¡¶¨µÄ `ch`£¨`ch1` »ò `ch4`£©£º
+å¯¹é€‰å®šçš„ `ch`ï¼ˆ`ch1` æˆ– `ch4`ï¼‰ï¼š
 
 ```text
 ch0   = ch - 1          // 0..63
@@ -62,42 +62,42 @@ block = ch0 / 16        // 0..3
 inBlk = ch0 % 16        // 0..15
 ```
 
-**ÔËĞĞÊ±Ğ´ÈëÎ»ÖÃ**£¨µÍÎÂ£©£º
+**è¿è¡Œæ—¶å†™å…¥ä½ç½®**ï¼ˆä½æ¸©ï¼‰ï¼š
 
 ```text
 m_mems1x64[transIndex][block].stCalibDAC[0].stChnDAC[inBlk].sDACx
 m_mems1x64[transIndex][block].stCalibDAC[0].stChnDAC[inBlk].sDACy
 ```
 
-- `transIndex`£º`fileSlot - 2`¡£PM ÏÂ target 1¡¢2 ¡ú trans ²ÛÎ»Ë÷Òı 2£»target 5¡¢6 ¡ú ²ÛÎ» 3£¨¼û `TransLutRoute.cpp`£©¡£
-- **X/Y**£ºÑ°·å **Y ¡ú `sDACx`**£¬**X ¡ú `sDACy`**¡£
-- **`wValid`**£ºÃ¿Æ¬ switch¡¢µÍÎÂ²Û `stCalibDAC[0]` Ò»¸ö `WORD`£»`WriteMems1x64DacPair` ÔÚ `calibSlot==0` Ğ´ DAC ºóÖÃ **1**£¨Óë 126S/ÁíÒ»ÉÏÎ»»úÒ»ÖÂ£©¡£µ¥ÎÄ¼ş body ÄÚÆ«ÒÆ **1024**£¬ÎÄ¼ş¾ø¶ÔÆ«ÒÆ **1184 (0x4A0)**£¬Ğ¡¶Ë `01 00`¡£
-- **Write BIN ºÏ²¢**£º`MergeMems1310LowTempSlot` ½ö°Ñ»á»°ÖĞ **`stChnDAC[0..16]`**£¨CH_y 1..17£©Ğ´Èë±¸·İ£»**`stChnDAC[17]`£¨µÚ 18 Â·£©¼° `stChnDAC[18..35]`¡¢`stMidDAC[]` Ê¼ÖÕ±£Áô±¸·İ bin**£¬²»»á±»»á»°ÖĞµÄ 0 ¸²¸Ç¡£
+- `transIndex`ï¼š`fileSlot - 2`ã€‚PM ä¸‹ target 1ã€2 â†’ trans æ§½ä½ç´¢å¼• 2ï¼›target 5ã€6 â†’ æ§½ä½ 3ï¼ˆè§ `TransLutRoute.cpp`ï¼‰ã€‚
+- **X/Y**ï¼šå¯»å³° **Y â†’ `sDACx`**ï¼Œ**X â†’ `sDACy`**ã€‚
+- **`wValid`**ï¼šæ¯ç‰‡ switchã€ä½æ¸©æ§½ `stCalibDAC[0]` ä¸€ä¸ª `WORD`ï¼›`WriteMems1x64DacPair` åœ¨ `calibSlot==0` å†™ DAC åç½® **1**ï¼ˆä¸ 126S/å¦ä¸€ä¸Šä½æœºä¸€è‡´ï¼‰ã€‚å•æ–‡ä»¶ body å†…åç§» **1024**ï¼Œæ–‡ä»¶ç»å¯¹åç§» **1184 (0x4A0)**ï¼Œå°ç«¯ `01 00`ã€‚
+- **Write BIN åˆå¹¶**ï¼š`MergeMems1310LowTempSlot` ä»…æŠŠä¼šè¯ä¸­ **`stChnDAC[0..16]`**ï¼ˆCH_y 1..17ï¼‰å†™å…¥å¤‡ä»½ï¼›**`stChnDAC[17]`ï¼ˆç¬¬ 18 è·¯ï¼‰åŠ `stChnDAC[18..35]`ã€`stMidDAC[]` å§‹ç»ˆä¿ç•™å¤‡ä»½ bin**ï¼Œä¸ä¼šè¢«ä¼šè¯ä¸­çš„ 0 è¦†ç›–ã€‚
 
 ---
 
-## 5. ×Ö½ÚÆ«ÒÆ£¨Í³¼Æ CSV / Óë¹Ì¼ş¶Ô hex£©
+## 5. å­—èŠ‚åç§»ï¼ˆç»Ÿè®¡ CSV / ä¸å›ºä»¶å¯¹ hexï¼‰
 
-`CalibWriteMeta.cpp` ¡ú `Mems1x64OffsetsIn8k(block, inBlk, oX, oY)`£º¼ÆËã **8K body Æ´½Ó²¼¾Ö** ÏÂ `sDACx`/`sDACy` µÄ×Ö½ÚÆ«ÒÆ¡£
+`CalibWriteMeta.cpp` â†’ `Mems1x64OffsetsIn8k(block, inBlk, oX, oY)`ï¼šè®¡ç®— **8K body æ‹¼æ¥å¸ƒå±€** ä¸‹ `sDACx`/`sDACy` çš„å­—èŠ‚åç§»ã€‚
 
-PM Ó³ÉäÄ£Ê½ÏÂ£¬`CalibBuildStatRowPmMemsMapped` Ê¹ÓÃÓ³Éä¸ø³öµÄ `block`/`inBlk`£¨¼´ `CH_y-1`£©¡£
+PM æ˜ å°„æ¨¡å¼ä¸‹ï¼Œ`CalibBuildStatRowPmMemsMapped` ä½¿ç”¨æ˜ å°„ç»™å‡ºçš„ `block`/`inBlk`ï¼ˆå³ `CH_y-1`ï¼‰ã€‚
 
 ---
 
-## 6. Ô´ÂëË÷Òı
+## 6. æºç ç´¢å¼•
 
-| ÄÚÈİ | ÎÄ¼ş |
+| å†…å®¹ | æ–‡ä»¶ |
 |------|------|
-| Ó³Éä CSV | `M576CalibratorApp/Pm1x64Mapping.cpp` |
-| °´²ÛĞ´ MEMS | `M576CalibratorApp/LutPeakApply.cpp`£¨`WriteMems1x64LowTempDacPair`£© |
-| PM Â·¾¶¼¯³É | `M576CalibratorApp/M576CalibratorDlg.cpp`£¨`RunPathPowerMeterFile`£¬`fileSlot >= 2`£© |
-| Í³¼ÆĞĞ | `M576CalibratorApp/CalibWriteMeta.cpp` |
-| ½á¹¹Ìå | `Z4671Core/M576OneX64Coef.h` |
+| æ˜ å°„ CSV | `M576CalibratorApp/Pm1x64Mapping.cpp` |
+| æŒ‰æ§½å†™ MEMS | `M576CalibratorApp/LutPeakApply.cpp`ï¼ˆ`WriteMems1x64LowTempDacPair`ï¼‰ |
+| PM è·¯å¾„é›†æˆ | `M576CalibratorApp/M576CalibratorDlg.cpp`ï¼ˆ`RunPathPowerMeterFile`ï¼Œ`fileSlot >= 2`ï¼‰ |
+| ç»Ÿè®¡è¡Œ | `M576CalibratorApp/CalibWriteMeta.cpp` |
+| ç»“æ„ä½“ | `Z4671Core/M576OneX64Coef.h` |
 
 ---
 
-## 7. ĞŞ¶©¼ÇÂ¼
+## 7. ä¿®è®¢è®°å½•
 
-| ÈÕÆÚ | ËµÃ÷ |
+| æ—¥æœŸ | è¯´æ˜ |
 |------|------|
-| 2026-05-01 | PM£º`pm_1x64_*Mapping.csv` + `WriteMems1x64LowTempDacPair`£»PD ÈÔ°´¶Ë¿ÚÍÆµ¼¡£ |
+| 2026-05-01 | PMï¼š`pm_1x64_*Mapping.csv` + `WriteMems1x64LowTempDacPair`ï¼›PD ä»æŒ‰ç«¯å£æ¨å¯¼ã€‚ |

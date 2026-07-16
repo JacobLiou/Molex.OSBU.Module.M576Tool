@@ -1,0 +1,1708 @@
+[
+  {
+    "il_max_min": 3.5917,
+    "ch1_1x64": 28,
+    "ch2_mcs1": 8,
+    "ch3_mcs2": 8,
+    "ch4_1x64": 60,
+    "run_path_step": 494,
+    "mpo_in": "MPO42-2",
+    "mpo_out": "MPO90-2",
+    "recal1_slot1": "RECAL 1 3 28 8 8 60",
+    "recal1_slot2": "RECAL 1 4 28 8 8 60",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 1072,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "480",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1073,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "1980",
+        "cmd": "RECAL 3 1 9999 536 64 4 80"
+      },
+      {
+        "csv_line": 2367,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-147",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2368,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-283",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 2369,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-683",
+        "cmd": "RECAL 3 0 9999 -483 200 4 80"
+      },
+      {
+        "csv_line": 2370,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "117",
+        "cmd": "RECAL 3 0 9999 317 200 4 80"
+      },
+      {
+        "csv_line": 2371,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2131",
+        "cmd": "RECAL 3 1 9999 -463 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 2.9899,
+    "ch1_1x64": 31,
+    "ch2_mcs1": 11,
+    "ch3_mcs2": 11,
+    "ch4_1x64": 63,
+    "run_path_step": 551,
+    "mpo_in": "MPO46-11",
+    "mpo_out": "MPO94-11",
+    "recal1_slot1": "RECAL 1 3 31 11 11 63",
+    "recal1_slot2": "RECAL 1 4 31 11 11 63",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 1193,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "478",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1194,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2232",
+        "cmd": "RECAL 3 1 9999 539 64 4 80"
+      },
+      {
+        "csv_line": 2501,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-179",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2502,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-315",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 2503,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-715",
+        "cmd": "RECAL 3 0 9999 -515 200 4 80"
+      },
+      {
+        "csv_line": 2504,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "85",
+        "cmd": "RECAL 3 0 9999 285 200 4 80"
+      },
+      {
+        "csv_line": 2505,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2223",
+        "cmd": "RECAL 3 1 9999 -495 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 2.353,
+    "ch1_1x64": 14,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 46,
+    "run_path_step": 241,
+    "mpo_in": "MPO21-1",
+    "mpo_out": "MPO69-1",
+    "recal1_slot1": "RECAL 1 3 14 7 7 46",
+    "recal1_slot2": "RECAL 1 4 14 7 7 46",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 513,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-922",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 514,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2811",
+        "cmd": "RECAL 3 1 9999 -868 64 4 80"
+      },
+      {
+        "csv_line": 1798,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-111",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1799,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "VertexOutOfRange",
+        "col0": "-247",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 1800,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-647",
+        "cmd": "RECAL 3 0 9999 -447 200 4 80"
+      },
+      {
+        "csv_line": 1801,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "153",
+        "cmd": "RECAL 3 0 9999 353 200 4 80"
+      },
+      {
+        "csv_line": 1802,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2725",
+        "cmd": "RECAL 3 1 9999 -427 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 2.2313,
+    "ch1_1x64": 25,
+    "ch2_mcs1": 12,
+    "ch3_mcs2": 12,
+    "ch4_1x64": 57,
+    "run_path_step": 444,
+    "mpo_in": "MPO37-12",
+    "mpo_out": "MPO85-12",
+    "recal1_slot1": "RECAL 1 3 25 12 12 57",
+    "recal1_slot2": "RECAL 1 4 25 12 12 57",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 960,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-711",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 961,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2886",
+        "cmd": "RECAL 3 1 9999 -649 64 4 80"
+      },
+      {
+        "csv_line": 2258,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-140",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2259,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-276",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 2260,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-676",
+        "cmd": "RECAL 3 0 9999 -476 200 4 80"
+      },
+      {
+        "csv_line": 2261,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "124",
+        "cmd": "RECAL 3 0 9999 324 200 4 80"
+      },
+      {
+        "csv_line": 2262,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2760",
+        "cmd": "RECAL 3 1 9999 -455 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 2.2015,
+    "ch1_1x64": 26,
+    "ch2_mcs1": 8,
+    "ch3_mcs2": 8,
+    "ch4_1x64": 58,
+    "run_path_step": 458,
+    "mpo_in": "MPO39-2",
+    "mpo_out": "MPO87-2",
+    "recal1_slot1": "RECAL 1 3 26 8 8 58",
+    "recal1_slot2": "RECAL 1 4 26 8 8 58",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 991,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-104",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 992,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-240",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 993,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-640",
+        "cmd": "RECAL 3 0 9999 -440 200 4 80"
+      },
+      {
+        "csv_line": 994,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "160",
+        "cmd": "RECAL 3 0 9999 360 200 4 80"
+      },
+      {
+        "csv_line": 995,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2201",
+        "cmd": "RECAL 3 1 9999 -420 64 4 80"
+      },
+      {
+        "csv_line": 2289,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "734",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2290,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2137",
+        "cmd": "RECAL 3 1 9999 798 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 1.9543,
+    "ch1_1x64": 31,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 63,
+    "run_path_step": 547,
+    "mpo_in": "MPO46-7",
+    "mpo_out": "MPO94-7",
+    "recal1_slot1": "RECAL 1 3 31 7 7 63",
+    "recal1_slot2": "RECAL 1 4 31 7 7 63",
+    "sweep_count": 9,
+    "sweep_fail_count": 5,
+    "sweeps": [
+      {
+        "csv_line": 1180,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-117",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1181,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-253",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 1182,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-653",
+        "cmd": "RECAL 3 0 9999 -453 200 4 80"
+      },
+      {
+        "csv_line": 1183,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "147",
+        "cmd": "RECAL 3 0 9999 347 200 4 80"
+      },
+      {
+        "csv_line": 1184,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2686",
+        "cmd": "RECAL 3 1 9999 -433 64 4 80"
+      },
+      {
+        "csv_line": 2489,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "239",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2490,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "103",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 2491,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "233",
+        "cmd": "RECAL 3 0 9999 297 64 4 80"
+      },
+      {
+        "csv_line": 2492,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2796",
+        "cmd": "RECAL 3 1 9999 297 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 1.6695,
+    "ch1_1x64": 32,
+    "ch2_mcs1": 12,
+    "ch3_mcs2": 12,
+    "ch4_1x64": 64,
+    "run_path_step": 570,
+    "mpo_in": "MPO48-6",
+    "mpo_out": "MPO96-6",
+    "recal1_slot1": "RECAL 1 3 32 12 12 64",
+    "recal1_slot2": "RECAL 1 4 32 12 12 64",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 1237,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-101",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1238,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-237",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 1239,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-637",
+        "cmd": "RECAL 3 0 9999 -437 200 4 80"
+      },
+      {
+        "csv_line": 1240,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "163",
+        "cmd": "RECAL 3 0 9999 363 200 4 80"
+      },
+      {
+        "csv_line": 1241,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2847",
+        "cmd": "RECAL 3 1 9999 -417 64 4 80"
+      },
+      {
+        "csv_line": 2542,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-805",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2543,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2896",
+        "cmd": "RECAL 3 1 9999 -737 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 1.1819,
+    "ch1_1x64": 19,
+    "ch2_mcs1": 8,
+    "ch3_mcs2": 8,
+    "ch4_1x64": 51,
+    "run_path_step": 332,
+    "mpo_in": "MPO28-8",
+    "mpo_out": "MPO76-8",
+    "recal1_slot1": "RECAL 1 3 19 8 8 51",
+    "recal1_slot2": "RECAL 1 4 19 8 8 51",
+    "sweep_count": 9,
+    "sweep_fail_count": 5,
+    "sweeps": [
+      {
+        "csv_line": 711,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "212",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 712,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "76",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 713,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "190",
+        "cmd": "RECAL 3 0 9999 254 64 4 80"
+      },
+      {
+        "csv_line": 714,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2113",
+        "cmd": "RECAL 3 1 9999 253 64 4 80"
+      },
+      {
+        "csv_line": 2009,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-34",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2010,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-170",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 2011,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-570",
+        "cmd": "RECAL 3 0 9999 -370 200 4 80"
+      },
+      {
+        "csv_line": 2012,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "230",
+        "cmd": "RECAL 3 0 9999 430 200 4 80"
+      },
+      {
+        "csv_line": 2013,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "1976",
+        "cmd": "RECAL 3 1 9999 -350 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 1.0814,
+    "ch1_1x64": 30,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 62,
+    "run_path_step": 529,
+    "mpo_in": "MPO45-1",
+    "mpo_out": "MPO93-1",
+    "recal1_slot1": "RECAL 1 3 30 7 7 62",
+    "recal1_slot2": "RECAL 1 4 30 7 7 62",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 1144,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "804",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1145,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2722",
+        "cmd": "RECAL 3 1 9999 860 64 4 80"
+      },
+      {
+        "csv_line": 2444,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-74",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2445,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-210",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 2446,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-610",
+        "cmd": "RECAL 3 0 9999 -410 200 4 80"
+      },
+      {
+        "csv_line": 2447,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "190",
+        "cmd": "RECAL 3 0 9999 390 200 4 80"
+      },
+      {
+        "csv_line": 2448,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2854",
+        "cmd": "RECAL 3 1 9999 -389 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.9973,
+    "ch1_1x64": 11,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 43,
+    "run_path_step": 187,
+    "mpo_in": "MPO16-7",
+    "mpo_out": "MPO64-7",
+    "recal1_slot1": "RECAL 1 3 11 7 7 43",
+    "recal1_slot2": "RECAL 1 4 11 7 7 43",
+    "sweep_count": 9,
+    "sweep_fail_count": 5,
+    "sweeps": [
+      {
+        "csv_line": 394,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-70",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 395,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-206",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 396,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-606",
+        "cmd": "RECAL 3 0 9999 -406 200 4 80"
+      },
+      {
+        "csv_line": 397,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "194",
+        "cmd": "RECAL 3 0 9999 394 200 4 80"
+      },
+      {
+        "csv_line": 398,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2787",
+        "cmd": "RECAL 3 1 9999 -385 64 4 80"
+      },
+      {
+        "csv_line": 1681,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "290",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1682,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "154",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 1683,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "268",
+        "cmd": "RECAL 3 0 9999 332 64 4 80"
+      },
+      {
+        "csv_line": 1684,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2760",
+        "cmd": "RECAL 3 1 9999 331 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.7323,
+    "ch1_1x64": 4,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 36,
+    "run_path_step": 61,
+    "mpo_in": "MPO06-1",
+    "mpo_out": "MPO54-1",
+    "recal1_slot1": "RECAL 1 3 4 7 7 36",
+    "recal1_slot2": "RECAL 1 4 4 7 7 36",
+    "sweep_count": 9,
+    "sweep_fail_count": 5,
+    "sweeps": [
+      {
+        "csv_line": 126,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-373",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 127,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-509",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 128,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-355",
+        "cmd": "RECAL 3 0 9999 -291 64 4 80"
+      },
+      {
+        "csv_line": 129,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2597",
+        "cmd": "RECAL 3 1 9999 -291 64 4 80"
+      },
+      {
+        "csv_line": 1384,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-68",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1385,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "VertexOutOfRange",
+        "col0": "-204",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 1386,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-604",
+        "cmd": "RECAL 3 0 9999 -404 200 4 80"
+      },
+      {
+        "csv_line": 1387,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "196",
+        "cmd": "RECAL 3 0 9999 396 200 4 80"
+      },
+      {
+        "csv_line": 1388,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2686",
+        "cmd": "RECAL 3 1 9999 -384 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.6051,
+    "ch1_1x64": 13,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 45,
+    "run_path_step": 223,
+    "mpo_in": "MPO19-7",
+    "mpo_out": "MPO67-7",
+    "recal1_slot1": "RECAL 1 3 13 7 7 45",
+    "recal1_slot2": "RECAL 1 4 13 7 7 45",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 477,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "843",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 478,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2768",
+        "cmd": "RECAL 3 1 9999 874 64 4 80"
+      },
+      {
+        "csv_line": 1757,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-103",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1758,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-239",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 1759,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-639",
+        "cmd": "RECAL 3 0 9999 -439 200 4 80"
+      },
+      {
+        "csv_line": 1760,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "161",
+        "cmd": "RECAL 3 0 9999 361 200 4 80"
+      },
+      {
+        "csv_line": 1761,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2926",
+        "cmd": "RECAL 3 1 9999 -418 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.5321,
+    "ch1_1x64": 26,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 58,
+    "run_path_step": 457,
+    "mpo_in": "MPO39-1",
+    "mpo_out": "MPO87-1",
+    "recal1_slot1": "RECAL 1 3 26 7 7 58",
+    "recal1_slot2": "RECAL 1 4 26 7 7 58",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 986,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-119",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 987,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-255",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 988,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-655",
+        "cmd": "RECAL 3 0 9999 -455 200 4 80"
+      },
+      {
+        "csv_line": 989,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "145",
+        "cmd": "RECAL 3 0 9999 345 200 4 80"
+      },
+      {
+        "csv_line": 990,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2830",
+        "cmd": "RECAL 3 1 9999 -435 64 4 80"
+      },
+      {
+        "csv_line": 2287,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "753",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2288,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2718",
+        "cmd": "RECAL 3 1 9999 820 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.5017,
+    "ch1_1x64": 15,
+    "ch2_mcs1": 7,
+    "ch3_mcs2": 7,
+    "ch4_1x64": 47,
+    "run_path_step": 259,
+    "mpo_in": "MPO22-7",
+    "mpo_out": "MPO70-7",
+    "recal1_slot1": "RECAL 1 3 15 7 7 47",
+    "recal1_slot2": "RECAL 1 4 15 7 7 47",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 549,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-74",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 550,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-210",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 551,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-610",
+        "cmd": "RECAL 3 0 9999 -410 200 4 80"
+      },
+      {
+        "csv_line": 552,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "190",
+        "cmd": "RECAL 3 0 9999 390 200 4 80"
+      },
+      {
+        "csv_line": 553,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2816",
+        "cmd": "RECAL 3 1 9999 -390 64 4 80"
+      },
+      {
+        "csv_line": 1841,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "1101",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1842,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2724",
+        "cmd": "RECAL 3 1 9999 1165 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.3002,
+    "ch1_1x64": 19,
+    "ch2_mcs1": 11,
+    "ch3_mcs2": 11,
+    "ch4_1x64": 51,
+    "run_path_step": 335,
+    "mpo_in": "MPO28-11",
+    "mpo_out": "MPO76-11",
+    "recal1_slot1": "RECAL 1 3 19 11 11 51",
+    "recal1_slot2": "RECAL 1 4 19 11 11 51",
+    "sweep_count": 7,
+    "sweep_fail_count": 4,
+    "sweeps": [
+      {
+        "csv_line": 719,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-1",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 720,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 2,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-137",
+        "cmd": "RECAL 3 0 9999 9999 200 4 80"
+      },
+      {
+        "csv_line": 721,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 3,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "-537",
+        "cmd": "RECAL 3 0 9999 -337 200 4 80"
+      },
+      {
+        "csv_line": 722,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 4,
+        "peak_ok": 0,
+        "code": "ParabolaNotDownward",
+        "col0": "263",
+        "cmd": "RECAL 3 0 9999 463 200 4 80"
+      },
+      {
+        "csv_line": 723,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2315",
+        "cmd": "RECAL 3 1 9999 -317 64 4 80"
+      },
+      {
+        "csv_line": 2022,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-581",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 2023,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2336",
+        "cmd": "RECAL 3 1 9999 -509 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.2707,
+    "ch1_1x64": 5,
+    "ch2_mcs1": 13,
+    "ch3_mcs2": 13,
+    "ch4_1x64": 37,
+    "run_path_step": 85,
+    "mpo_in": "MPO08-1",
+    "mpo_out": "MPO56-1",
+    "recal1_slot1": "RECAL 1 3 5 13 13 37",
+    "recal1_slot2": "RECAL 1 4 5 13 13 37",
+    "sweep_count": 4,
+    "sweep_fail_count": 0,
+    "sweeps": [
+      {
+        "csv_line": 176,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2084",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 177,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2769",
+        "cmd": "RECAL 3 1 9999 -2024 64 4 80"
+      },
+      {
+        "csv_line": 1449,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2238",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1450,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2733",
+        "cmd": "RECAL 3 1 9999 -2172 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.2545,
+    "ch1_1x64": 5,
+    "ch2_mcs1": 16,
+    "ch3_mcs2": 16,
+    "ch4_1x64": 37,
+    "run_path_step": 88,
+    "mpo_in": "MPO08-4",
+    "mpo_out": "MPO56-4",
+    "recal1_slot1": "RECAL 1 3 5 16 16 37",
+    "recal1_slot2": "RECAL 1 4 5 16 16 37",
+    "sweep_count": 4,
+    "sweep_fail_count": 0,
+    "sweeps": [
+      {
+        "csv_line": 182,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2159",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 183,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "1132",
+        "cmd": "RECAL 3 1 9999 -2099 64 4 80"
+      },
+      {
+        "csv_line": 1455,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2319",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1456,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "1160",
+        "cmd": "RECAL 3 1 9999 -2257 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.2404,
+    "ch1_1x64": 6,
+    "ch2_mcs1": 2,
+    "ch3_mcs2": 2,
+    "ch4_1x64": 38,
+    "run_path_step": 92,
+    "mpo_in": "MPO08-8",
+    "mpo_out": "MPO56-8",
+    "recal1_slot1": "RECAL 1 3 6 2 2 38",
+    "recal1_slot2": "RECAL 1 4 6 2 2 38",
+    "sweep_count": 4,
+    "sweep_fail_count": 0,
+    "sweeps": [
+      {
+        "csv_line": 190,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2294",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 191,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2106",
+        "cmd": "RECAL 3 1 9999 2356 64 4 80"
+      },
+      {
+        "csv_line": 1463,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2140",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1464,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2286",
+        "cmd": "RECAL 3 1 9999 2203 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.2094,
+    "ch1_1x64": 5,
+    "ch2_mcs1": 18,
+    "ch3_mcs2": 18,
+    "ch4_1x64": 37,
+    "run_path_step": 90,
+    "mpo_in": "MPO08-6",
+    "mpo_out": "MPO56-6",
+    "recal1_slot1": "RECAL 1 3 5 18 18 37",
+    "recal1_slot2": "RECAL 1 4 5 18 18 37",
+    "sweep_count": 4,
+    "sweep_fail_count": 0,
+    "sweeps": [
+      {
+        "csv_line": 186,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2052",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 187,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2610",
+        "cmd": "RECAL 3 1 9999 -1995 64 4 80"
+      },
+      {
+        "csv_line": 1459,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2255",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1460,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2608",
+        "cmd": "RECAL 3 1 9999 -2192 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.1885,
+    "ch1_1x64": 6,
+    "ch2_mcs1": 6,
+    "ch3_mcs2": 6,
+    "ch4_1x64": 38,
+    "run_path_step": 96,
+    "mpo_in": "MPO08-12",
+    "mpo_out": "MPO56-12",
+    "recal1_slot1": "RECAL 1 3 6 6 6 38",
+    "recal1_slot2": "RECAL 1 4 6 6 6 38",
+    "sweep_count": 4,
+    "sweep_fail_count": 0,
+    "sweeps": [
+      {
+        "csv_line": 198,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2300",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 199,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2605",
+        "cmd": "RECAL 3 1 9999 2362 64 4 80"
+      },
+      {
+        "csv_line": 1471,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2284",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1472,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "2742",
+        "cmd": "RECAL 3 1 9999 2347 64 4 80"
+      }
+    ]
+  },
+  {
+    "il_max_min": 0.1696,
+    "ch1_1x64": 5,
+    "ch2_mcs1": 15,
+    "ch3_mcs2": 15,
+    "ch4_1x64": 37,
+    "run_path_step": 87,
+    "mpo_in": "MPO08-3",
+    "mpo_out": "MPO56-3",
+    "recal1_slot1": "RECAL 1 3 5 15 15 37",
+    "recal1_slot2": "RECAL 1 4 5 15 15 37",
+    "sweep_count": 4,
+    "sweep_fail_count": 0,
+    "sweeps": [
+      {
+        "csv_line": 180,
+        "slot": 1,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2163",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 181,
+        "slot": 1,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-1323",
+        "cmd": "RECAL 3 1 9999 -2104 64 4 80"
+      },
+      {
+        "csv_line": 1453,
+        "slot": 2,
+        "axis": "Y",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-2251",
+        "cmd": "RECAL 3 0 9999 9999 64 4 80"
+      },
+      {
+        "csv_line": 1454,
+        "slot": 2,
+        "axis": "X",
+        "attempt": 1,
+        "peak_ok": 1,
+        "code": "Ok",
+        "col0": "-1279",
+        "cmd": "RECAL 3 1 9999 -2186 64 4 80"
+      }
+    ]
+  }
+]

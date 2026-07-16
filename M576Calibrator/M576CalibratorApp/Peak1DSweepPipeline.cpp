@@ -1,4 +1,4 @@
-#include "Peak1DSweepPipeline.h"
+﻿#include "Peak1DSweepPipeline.h"
 #include "M576Peak1DConstants.h"
 #include "PeakFinder2D.h"
 
@@ -94,16 +94,6 @@ namespace M576
 				&& SegmentsHaveStitchK(segments, 2);
 		}
 
-		static bool SegmentsHaveExploreSweep(const std::vector<Recal1DSweepSegment>& segments)
-		{
-			for (const Recal1DSweepSegment& seg : segments)
-			{
-				if (seg.stitchK >= 3)
-					return true;
-			}
-			return false;
-		}
-
 		static bool EvaluateLatestStitchSegmentStrict(
 			const Recal1DSweepPipelineState& state,
 			Peak1DValidateCode& outCode)
@@ -126,19 +116,6 @@ namespace M576
 			return outCode == Peak1DValidateCode::Ok;
 		}
 
-		static bool MergedSymmetricTrioIsMesa(
-			const Recal1DSweepPipelineState& state,
-			int dacStep)
-		{
-			if (!SegmentsHaveSymmetricTrio(state.segments))
-				return false;
-			double col0 = 0.0;
-			std::vector<double> merged;
-			if (!MergeRecal1DSweepSegments(state.segments, dacStep, col0, merged))
-				return false;
-			return IsMergedMesaProfile(merged);
-		}
-
 		static bool BeginFineRefineFromMergedPeak(
 			Recal1DSweepPipelineState& state,
 			double peakDac)
@@ -154,18 +131,18 @@ namespace M576
 		static bool TryMergeAndBeginFineRefine(Recal1DSweepPipelineState& state, int dacStep)
 		{
 			state.lastStitchStrictGateFailed = false;
-			state.lastStitchMesaBypass = false;
+			state.lastStitchSymmetricTrioMerge = false;
 			Peak1DValidateCode segCode = Peak1DValidateCode::Empty;
 			if (!EvaluateLatestStitchSegmentStrict(state, segCode))
 			{
 				const Recal1DSweepSegment& seg = state.segments.back();
-				if (seg.stitchK != 2 || !MergedSymmetricTrioIsMesa(state, dacStep))
+				if (seg.stitchK != 2 || !SegmentsHaveSymmetricTrio(state.segments))
 				{
 					state.lastStitchStrictGateFailed = true;
 					state.lastCode = segCode;
 					return false;
 				}
-				state.lastStitchMesaBypass = true;
+				state.lastStitchSymmetricTrioMerge = true;
 			}
 
 			double peakDac = 0.0;
@@ -173,7 +150,6 @@ namespace M576
 			int idxMerged = 0;
 			Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
 			double spanRaw = 0.0;
-			Peak1DPlateauTrace plateauTrace = {};
 			if (!FindPeakDacOnMerged(
 					state.segments,
 					dacStep,
@@ -182,43 +158,17 @@ namespace M576
 					idxMerged,
 					mergeCode,
 					nullptr,
-					spanRaw,
-					&plateauTrace))
+					spanRaw))
 			{
 				state.mergedSpanRaw = spanRaw;
 				state.lastCode = mergeCode;
-				state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
-				state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
 				state.lastMergeTPeak = tMerged;
-				state.hasLastMergePlateau = plateauTrace.usedDualKnee;
 				return false;
 			}
 
 			state.mergedSpanRaw = spanRaw;
 			state.lastCode = Peak1DValidateCode::Ok;
-			state.lastMergeKneeLeft = plateauTrace.kneeLeftIdx;
-			state.lastMergeKneeRight = plateauTrace.kneeRightIdx;
 			state.lastMergeTPeak = tMerged;
-			state.hasLastMergePlateau = plateauTrace.usedDualKnee;
-			double mCol0 = 0.0;
-			std::vector<double> merged;
-			if (!MergeRecal1DSweepSegments(state.segments, dacStep, mCol0, merged))
-				return false;
-
-			if (plateauTrace.usedDualKnee && !ValidateMergedYPowerAtPeak(merged, tMerged))
-			{
-				state.lastMergeCol0 = mCol0;
-				state.lastMergePow = merged;
-				state.lastCode = Peak1DValidateCode::LowSpan;
-				return false;
-			}
-
-			if (plateauTrace.usedDualKnee)
-			{
-				state.lastMergeCol0 = mCol0;
-				state.lastMergePow = merged;
-			}
-
 			return BeginFineRefineFromMergedPeak(state, peakDac);
 		}
 
@@ -368,16 +318,13 @@ namespace M576
 		int& outPeakIdx,
 		Peak1DValidateCode& outCode,
 		Peak1DFitTrace* trace,
-		double& outMergedSpanRaw,
-		Peak1DPlateauTrace* plateauTrace)
+		double& outMergedSpanRaw)
 	{
 		outMergedSpanRaw = 0.0;
 		outPeakDac = 0.0;
 		outTPeak = 0.0;
 		outPeakIdx = 0;
 		outCode = Peak1DValidateCode::Empty;
-		if (plateauTrace != nullptr)
-			*plateauTrace = Peak1DPlateauTrace();
 
 		double col0 = 0.0;
 		std::vector<double> merged;
@@ -390,35 +337,17 @@ namespace M576
 			return false;
 		}
 
-		Peak1DPlateauTrace localPlateau = {};
-		Peak1DPlateauTrace* pt = plateauTrace ? plateauTrace : &localPlateau;
 		double tMerged = 0.0;
-		const bool forceRelaxed = SegmentsHaveExploreSweep(segments);
-		const bool symmetricTrio = SegmentsHaveSymmetricTrio(segments);
-		const bool useDualKnee = !forceRelaxed && symmetricTrio && IsMergedMesaProfile(merged);
-
-		if (useDualKnee)
+		if (!FindPeakOnPow(
+				merged,
+				Peak1DFitPolicy::FineRefineRelaxed,
+				outPeakIdx,
+				tMerged,
+				outCode,
+				trace)
+			|| outCode != Peak1DValidateCode::Ok)
 		{
-			if (!FindPlateauDualKneePeak1D(merged, tMerged, outCode, pt)
-				|| outCode != Peak1DValidateCode::Ok)
-			{
-				return false;
-			}
-		}
-		else
-		{
-			pt->usedDualKnee = false;
-			if (!FindPeakOnPow(
-					merged,
-					Peak1DFitPolicy::FineRefineRelaxed,
-					outPeakIdx,
-					tMerged,
-					outCode,
-					trace)
-				|| outCode != Peak1DValidateCode::Ok)
-			{
-				return false;
-			}
+			return false;
 		}
 
 		outTPeak = tMerged;
@@ -613,8 +542,6 @@ namespace M576
 		r.failedPhase = state.failedPhaseTag;
 		r.lastStitchK = state.lastStitchK;
 		r.mergedSpanRaw = state.mergedSpanRaw;
-		r.mergeKneeLeft = state.lastMergeKneeLeft;
-		r.mergeKneeRight = state.lastMergeKneeRight;
 		r.mergeTPeak = state.lastMergeTPeak;
 		r.segments = state.segments;
 		return r;
