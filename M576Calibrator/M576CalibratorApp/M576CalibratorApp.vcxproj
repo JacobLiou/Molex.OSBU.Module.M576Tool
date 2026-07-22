@@ -156,6 +156,8 @@
     <ClInclude Include="M576Version.h" />
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576BurnSelectDlg.h" />
+    <ClInclude Include="M576FineTuneDlg.h" />
+    <ClInclude Include="FineTuneBinPatch.h" />
     <ClInclude Include="M576OutputArchive.h" />
     <ClInclude Include="M576RecalSweepCsv.h" />
     <ClInclude Include="M576RecoverSelectDlg.h" />
@@ -193,6 +195,8 @@
     <ClCompile Include="M576AppConfig.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576BurnSelectDlg.cpp" />
+    <ClCompile Include="M576FineTuneDlg.cpp" />
+    <ClCompile Include="FineTuneBinPatch.cpp" />
     <ClCompile Include="M576OutputArchive.cpp" />
     <ClCompile Include="M576RecalSweepCsv.cpp" />
     <ClCompile Include="M576RecoverSelectDlg.cpp" />

@@ -26,7 +26,7 @@ void RawCrossPeakDacToU16Pair(double rawDacX, double rawDacY, unsigned short& ou
 }
 
 // Logical cross-peak dacX/dacY from RECAL0/1 sweeps. Firmware: [0] and sDACx hold Y; [1] and sDACy hold X.
-static void WriteDacPair(
+void WriteMcsLutDacPair(
 	stLutSettingZ4671& lut,
 	int swIdx,
 	int chIdx,
@@ -42,6 +42,17 @@ static void WriteDacPair(
 		return;
 	lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][0] = dacY;
 	lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][1] = dacX;
+}
+
+static void WriteDacPair(
+	stLutSettingZ4671& lut,
+	int swIdx,
+	int chIdx,
+	int tempIdx,
+	unsigned short dacX,
+	unsigned short dacY)
+{
+	WriteMcsLutDacPair(lut, swIdx, chIdx, tempIdx, dacX, dacY);
 }
 
 void ApplyRecalPeakToLut(

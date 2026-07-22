@@ -8,6 +8,15 @@
 /// `rawDacX` / `rawDacY` (lrounded linear DAC; CSV raw columns) -> int16 U16. MCS: Y at wCalibPtrDAC[][0], X at [][1]. Mems: Y in sDACx, X in sDACy.
 void RawCrossPeakDacToU16Pair(double rawDacX, double rawDacY, unsigned short& outDacX, unsigned short& outDacY);
 
+/// MCS LUT: Y at wCalibPtrDAC[][0], X at [][1] (same as ApplyRecalPeakToLut).
+void WriteMcsLutDacPair(
+	stLutSettingZ4671& lut,
+	int swIdx,
+	int chIdx,
+	int tempIdx,
+	unsigned short dacX,
+	unsigned short dacY);
+
 void ApplyRecalPeakToLut(
 	const SPathStep& step,
 	int occTarget3,

@@ -5,6 +5,7 @@
 #include "M576RunPathSummaryDlg.h"
 #include "M576BurnSelectDlg.h"
 #include "M576RecoverSelectDlg.h"
+#include "M576FineTuneDlg.h"
 #include "LutMerge1310.h"
 #include "LutMerge1550.h"
 #include "CalibWavelengthPolicy.h"
@@ -1348,13 +1349,14 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_CLEAR_LOG, &CM576CalibratorDlg::OnBnClickedClearLog)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_MAKE_BIN, &CM576CalibratorDlg::OnBnClickedMakeBin)
+	ON_BN_CLICKED(IDC_BTN_FINE_TUNE, &CM576CalibratorDlg::OnBnClickedFineTune)
+	ON_BN_CLICKED(IDC_BTN_IL_TEST, &CM576CalibratorDlg::OnBnClickedIlTest)
 	ON_BN_CLICKED(IDC_BTN_READ_ALL_SN, &CM576CalibratorDlg::OnBnClickedReadAllSn)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_RECOVER_FLASH, &CM576CalibratorDlg::OnBnClickedRecoverFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
 	ON_BN_CLICKED(IDC_BTN_RUN_DIAG, &CM576CalibratorDlg::OnBnClickedRunDiag)
 	ON_BN_CLICKED(IDC_BTN_STOP_DIAG, &CM576CalibratorDlg::OnBnClickedStopDiag)
-	ON_BN_CLICKED(IDC_BTN_EXPORT_CALIB_STATS, &CM576CalibratorDlg::OnBnClickedExportCalibStats)
 	ON_WM_SYSCOMMAND()
 	ON_WM_DESTROY()
 	ON_MESSAGE(WM_M576_PATH_LOG_FLUSH, &CM576CalibratorDlg::OnPathLogFlush)
@@ -1755,6 +1757,10 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 	if (CWnd* p = GetDlgItem(IDC_BTN_GEN_BIN))
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_MAKE_BIN))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_FINE_TUNE))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_IL_TEST))
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_FLASH))
 		p->EnableWindow(enable);
@@ -5715,6 +5721,59 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		SafeSetProgressPos(globalProgress);
 	}
 	(void)globalTotal;
+}
+
+void CM576CalibratorDlg::OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path)
+{
+	if (sync.isMcs)
+	{
+		if (sync.mcsTransIndex >= 0 && sync.mcsTransIndex < 2)
+			memcpy(&m_lutByTrans[sync.mcsTransIndex], &sync.lut, sizeof(sync.lut));
+	}
+	else if (sync.oneX64Dev >= 0 && sync.oneX64Dev < 2
+		&& sync.oneX64Sw >= 0 && sync.oneX64Sw < 4)
+	{
+		memcpy(&m_mems1x64[sync.oneX64Dev][sync.oneX64Sw], &sync.mems, sizeof(sync.mems));
+	}
+	CString m;
+	m.Format(_T("FineTune: patched %s"), path ? path : _T("(null)"));
+	AppendLog(m);
+}
+
+void CM576CalibratorDlg::OnBnClickedFineTune()
+{
+	if (m_pathRunning.load() || m_burnFlashRunning.load() || m_burnBoardRunning.load()
+		|| m_readBackupRunning.load() || m_readSnRunning.load())
+	{
+		MessageBoxM576(_T("Another operation is running; wait before FineTune."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
+	{
+		AppendLog(snErr);
+		MessageBoxM576(
+			snErr + _T("\n\nRun Read All SN first, then FineTune."),
+			MB_OK | MB_ICONWARNING);
+		return;
+	}
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
+	{
+		MessageBoxM576(_T("BIN output directory is empty."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CM576FineTuneDlg dlg(this, absOutDir, m_snInfo, this);
+	dlg.DoModal();
+}
+
+void CM576CalibratorDlg::OnBnClickedIlTest()
+{
+	// Stub: IL Test flow to be implemented later.
+	AppendLog(_T("IL Test: not implemented yet (stub)."));
+	MessageBoxM576(_T("IL Test is not implemented yet."), MB_OK | MB_ICONINFORMATION);
 }
 
 // --- 生成 BIN：MCS 为 Z4671 包，1x64 为四路 2K Mems（m_lut / m_mems1x64 合并 1310）---

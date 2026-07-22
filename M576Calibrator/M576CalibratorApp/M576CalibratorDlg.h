@@ -27,6 +27,7 @@
 #include "Peak1DSweepPipeline.h"
 #include "Board439fFwBurnTransport.h"
 #include "M576OutputArchive.h"
+#include "FineTuneBinPatch.h"
 
 namespace M576 { struct Peak1DFitTrace; struct PeakPipelineFailureReport; }
 
@@ -38,6 +39,9 @@ public:
 	enum { IDD = IDD_M576CALIBRATOR_DIALOG };
 
 	CM576CalibratorDlg(CWnd* pParent = NULL);
+
+	/// Called from FineTune dialog after a successful single-file DAC patch.
+	void OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path);
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -299,6 +303,8 @@ private:
 	afx_msg void OnBnClickedClearLog();
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedMakeBin();
+	afx_msg void OnBnClickedFineTune();
+	afx_msg void OnBnClickedIlTest();
 	afx_msg void OnBnClickedReadAllSn();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedRecoverFlash();

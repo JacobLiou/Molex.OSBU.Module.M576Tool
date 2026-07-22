@@ -12,6 +12,7 @@
 #define IDD_M576_BURN_SELECT            110
 #define IDD_M576_RECOVER_SELECT         111
 #define IDD_M576_RUN_PATH_SUMMARY       112
+#define IDD_M576_FINE_TUNE              113
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -50,6 +51,8 @@
 #define IDC_BTN_FLASH                   1014
 #define IDC_BTN_STOP                    1015
 #define IDC_BTN_MAKE_BIN                1016
+#define IDC_BTN_FINE_TUNE               2185
+#define IDC_BTN_IL_TEST                 2186
 #define IDC_BTN_RECOVER_FLASH           1042
 #define IDC_STATIC_LABEL_COM            1017
 #define IDC_GROUP_CONN                  1018
@@ -130,6 +133,26 @@
 #define IDC_RUNPATH_CATEGORY_TEXT      2181
 #define IDC_RUNPATH_FAILURE_LIST       2182
 #define IDC_RUNPATH_BTN_EXPORT         2183
+#define IDC_FT_COMBO_ROLE              2190
+#define IDC_FT_RADIO_MCS1              2191
+#define IDC_FT_RADIO_MCS2              2192
+#define IDC_FT_RADIO_1X64_1            2193
+#define IDC_FT_RADIO_1X64_2            2194
+#define IDC_FT_STATIC_MCS_BLOCK        2195
+#define IDC_FT_EDIT_MCS_BLOCK          2196
+#define IDC_FT_STATIC_MCS_CH           2197
+#define IDC_FT_EDIT_MCS_CH             2198
+#define IDC_FT_STATIC_SW               2199
+#define IDC_FT_EDIT_SW                 2200
+#define IDC_FT_STATIC_CHY              2201
+#define IDC_FT_EDIT_CHY                2202
+#define IDC_FT_EDIT_CUR_DACX           2203
+#define IDC_FT_EDIT_CUR_DACY           2204
+#define IDC_FT_EDIT_NEW_DACX           2205
+#define IDC_FT_EDIT_NEW_DACY           2206
+#define IDC_FT_STATIC_PATH             2207
+#define IDC_FT_BTN_REFRESH             2208
+#define IDC_FT_BTN_WRITE               2209
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -635,9 +658,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        113
+#define _APS_NEXT_RESOURCE_VALUE        114
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2185
+#define _APS_NEXT_CONTROL_VALUE         2211
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
