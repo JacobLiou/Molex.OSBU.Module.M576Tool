@@ -13,6 +13,7 @@
 #define IDD_M576_RECOVER_SELECT         111
 #define IDD_M576_RUN_PATH_SUMMARY       112
 #define IDD_M576_FINE_TUNE              113
+#define IDD_M576_IL_TEST                114
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -153,6 +154,17 @@
 #define IDC_FT_STATIC_PATH             2207
 #define IDC_FT_BTN_REFRESH             2208
 #define IDC_FT_BTN_WRITE               2209
+#define IDC_IL_RADIO_SFP1550           2210
+#define IDC_IL_RADIO_SFP1310           2211
+#define IDC_IL_RADIO_LASER1310         2212
+#define IDC_IL_EDIT_THRESHOLD          2213
+#define IDC_IL_BTN_START               2214
+#define IDC_IL_BTN_STOP                2215
+#define IDC_IL_STATIC_STATUS           2216
+#define IDC_IL_LIST                    2217
+#define IDC_IL_EDIT_LOG                2218
+#define IDC_IL_EDIT_ABS_MIN            2219
+#define IDC_IL_EDIT_ABS_MAX            2220
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -658,9 +670,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        114
+#define _APS_NEXT_RESOURCE_VALUE        115
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2211
+#define _APS_NEXT_CONTROL_VALUE         2221
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

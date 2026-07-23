@@ -43,6 +43,12 @@ public:
 	/// Called from FineTune dialog after a successful single-file DAC patch.
 	void OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path);
 
+	/// IL Test dialog: open port if needed, lock mutual exclusion, return output\ dir.
+	BOOL BeginIlTestSession(CString& outDirAbs, CString& err);
+	void EndIlTestSession();
+	CDiagnosisSession* GetDiagnosisSessionForIlTest();
+	BOOL IsBackgroundBusyForIlTest() const;
+
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
 	virtual BOOL OnInitDialog();
@@ -118,6 +124,7 @@ private:
 	std::atomic<bool> m_burnFlashRunning{ false };
 	std::atomic<bool> m_burnBoardRunning{ false };
 	std::atomic<bool> m_diagRunning{ false };
+	std::atomic<bool> m_ilTestRunning{ false };
 	volatile BOOL m_diagStop{ FALSE };
 	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
 	int m_diagFinishFullLaps{ 0 };

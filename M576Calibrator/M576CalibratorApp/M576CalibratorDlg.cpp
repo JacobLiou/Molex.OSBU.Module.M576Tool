@@ -6,6 +6,7 @@
 #include "M576BurnSelectDlg.h"
 #include "M576RecoverSelectDlg.h"
 #include "M576FineTuneDlg.h"
+#include "M576IlTestDlg.h"
 #include "LutMerge1310.h"
 #include "LutMerge1550.h"
 #include "CalibWavelengthPolicy.h"
@@ -2721,6 +2722,11 @@ void CM576CalibratorDlg::OnBnClickedRunDiag()
 	if (m_diagRunning.load())
 	{
 		AppendLog(_T("Diagnosis: already running."));
+		return;
+	}
+	if (m_ilTestRunning.load())
+	{
+		AppendLog(_T("Diagnosis: IL Test is running; stop it first."));
 		return;
 	}
 	const BOOL otherBusy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
@@ -5769,11 +5775,82 @@ void CM576CalibratorDlg::OnBnClickedFineTune()
 	dlg.DoModal();
 }
 
+BOOL CM576CalibratorDlg::IsBackgroundBusyForIlTest() const
+{
+	return m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load()
+		|| m_diagRunning.load() || m_ilTestRunning.load();
+}
+
+BOOL CM576CalibratorDlg::BeginIlTestSession(CString& outDirAbs, CString& err)
+{
+	err.Empty();
+	outDirAbs.Empty();
+	if (m_ilTestRunning.load())
+	{
+		err = _T("IL Test is already running.");
+		return FALSE;
+	}
+	if (IsBackgroundBusyForIlTest())
+	{
+		err = _T("Another background task is running; wait for it to finish.");
+		return FALSE;
+	}
+	if (!IsSerialPortOpen())
+	{
+		AppendLog(_T("IL Test: opening port…"));
+		if (!OpenPort())
+		{
+			err = _T("Failed to open serial port.");
+			return FALSE;
+		}
+		SyncSerialPortUi();
+	}
+	if (m_pDiag == NULL)
+	{
+		err = _T("Diagnosis session is not available.");
+		return FALSE;
+	}
+	const CString exeFolder = GetExeFolder();
+	EnsureOutputFolderUnderExe(exeFolder);
+	outDirAbs = exeFolder + _T("\\output");
+	m_ilTestRunning = true;
+	SetPathActionButtonsEnabled(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
+		p->EnableWindow(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
+		p->EnableWindow(FALSE);
+	return TRUE;
+}
+
+void CM576CalibratorDlg::EndIlTestSession()
+{
+	m_ilTestRunning = false;
+	if (!m_pathRunning.load() && !m_diagRunning.load() && !m_burnFlashRunning.load()
+		&& !m_burnBoardRunning.load() && !m_readBackupRunning.load() && !m_readSnRunning.load())
+	{
+		SetPathActionButtonsEnabled(TRUE);
+	}
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
+		p->EnableWindow(!m_diagRunning.load() && !m_ilTestRunning.load());
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
+		p->EnableWindow(m_diagRunning.load());
+}
+
+CDiagnosisSession* CM576CalibratorDlg::GetDiagnosisSessionForIlTest()
+{
+	return m_pDiag.get();
+}
+
 void CM576CalibratorDlg::OnBnClickedIlTest()
 {
-	// Stub: IL Test flow to be implemented later.
-	AppendLog(_T("IL Test: not implemented yet (stub)."));
-	MessageBoxM576(_T("IL Test is not implemented yet."), MB_OK | MB_ICONINFORMATION);
+	if (IsBackgroundBusyForIlTest())
+	{
+		MessageBoxM576(_T("Another operation is running; wait before IL Test."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CM576IlTestDlg dlg(this, this);
+	dlg.DoModal();
 }
 
 // --- 生成 BIN：MCS 为 Z4671 包，1x64 为四路 2K Mems（m_lut / m_mems1x64 合并 1310）---

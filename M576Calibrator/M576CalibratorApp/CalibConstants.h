@@ -32,6 +32,17 @@
 #ifndef M576_DIAG_SWL_TLS_SOURCE
 #define M576_DIAG_SWL_TLS_SOURCE 8
 #endif
+/// IL Test hang-up: pass when rolling MAX(IL)-MIN(IL) <= this (dB).
+#ifndef M576_IL_TEST_DEFAULT_SPAN_DB
+#define M576_IL_TEST_DEFAULT_SPAN_DB 0.15
+#endif
+/// Absolute IL window (Pref-Pout): fail if current IL outside [min, max] dB.
+#ifndef M576_IL_TEST_DEFAULT_ABS_MIN_DB
+#define M576_IL_TEST_DEFAULT_ABS_MIN_DB 0.0
+#endif
+#ifndef M576_IL_TEST_DEFAULT_ABS_MAX_DB
+#define M576_IL_TEST_DEFAULT_ABS_MAX_DB 3.0
+#endif
 /// RECAL 0: wavelength (nm, int), PRD 850~1650.
 // RECAL 0 波长（nm 整数，PRD 约 850~1650）。
 #ifndef M576_MIN_WAVELENGTH_NM
