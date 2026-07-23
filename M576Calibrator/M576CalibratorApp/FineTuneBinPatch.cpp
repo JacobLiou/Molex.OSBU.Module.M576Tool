@@ -4,6 +4,7 @@
 #include "LutBinWriter.h"
 #include "Mems1x64LutBinWriter.h"
 #include "LutPeakApply.h"
+#include <shlwapi.h>
 
 namespace {
 
@@ -253,4 +254,93 @@ BOOL FineTuneWriteDac(
 		pSyncOut->mems = mems;
 	}
 	return TRUE;
+}
+
+BOOL FineTuneMcsRecalIndexToBlockCh(int index0, int& block1to32Out, int& ch1to18Out)
+{
+	block1to32Out = 0;
+	ch1to18Out = 0;
+	if (index0 < 0 || index0 >= kFineTuneMcsRecalCount)
+		return FALSE;
+	block1to32Out = (index0 / 18) + 1;
+	ch1to18Out = (index0 % 18) + 1;
+	return TRUE;
+}
+
+CString FineTuneFormatMcsRecalLabel(BOOL isMcs1, int index0)
+{
+	int block = 0, ch = 0;
+	if (!FineTuneMcsRecalIndexToBlockCh(index0, block, ch))
+		return CString();
+	const int target = isMcs1 ? 3 : 4;
+	const int c4 = block + 32;
+	CString s;
+	s.Format(
+		_T("%03d/%d  RECAL 1 %d %d %d %d %d"),
+		index0 + 1,
+		kFineTuneMcsRecalCount,
+		target,
+		block,
+		ch,
+		ch,
+		c4);
+	return s;
+}
+
+BOOL FineTuneResolve1x64MappingPath(FineTuneDeviceKind device, CString& mappingPathOut, CString& errMsg)
+{
+	mappingPathOut.Empty();
+	errMsg.Empty();
+	int slot = -1;
+	if (device == FineTuneDeviceKind::OneX64_1)
+		slot = 2;
+	else if (device == FineTuneDeviceKind::OneX64_2)
+		slot = 3;
+	else
+	{
+		errMsg = _T("Device is not 1x64.");
+		return FALSE;
+	}
+
+	TCHAR szExe[MAX_PATH] = {};
+	const DWORD n = GetModuleFileName(NULL, szExe, MAX_PATH);
+	if (n == 0 || n >= MAX_PATH)
+	{
+		errMsg = _T("Cannot resolve exe folder for Mapping.csv.");
+		return FALSE;
+	}
+	CString exeDir(szExe);
+	const int slash = exeDir.ReverseFind(_T('\\'));
+	if (slash > 0)
+		exeDir = exeDir.Left(slash);
+
+	CString combined = exeDir + _T("\\") + g_m576DefaultPmCsvRel[slot];
+	TCHAR absPm[MAX_PATH] = {};
+	CString pmAbs = PathCanonicalize(absPm, combined.GetString()) ? CString(absPm) : combined;
+
+	CString mapPath;
+	if (!Pm1x64ResolveMappingPath(pmAbs, mapPath) || mapPath.IsEmpty())
+	{
+		errMsg = _T("Cannot derive Mapping.csv path from PM CSV.");
+		return FALSE;
+	}
+	mappingPathOut = mapPath;
+	return TRUE;
+}
+
+CString FineTuneFormat1x64RecalLabel(const SMems1x64PmMapRow& row, int index1based, int total)
+{
+	CString s;
+	s.Format(
+		_T("%03d/%d  RECAL 1 %d %d %d %d %d  -> SW%d CH_y%d"),
+		index1based,
+		total,
+		row.targetSwitchIndex,
+		row.c1,
+		row.c2,
+		row.c3,
+		row.c4,
+		row.sw1to4,
+		row.chY1based);
+	return s;
 }

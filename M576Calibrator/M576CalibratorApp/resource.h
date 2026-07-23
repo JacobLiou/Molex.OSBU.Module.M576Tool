@@ -154,6 +154,8 @@
 #define IDC_FT_STATIC_PATH             2207
 #define IDC_FT_BTN_REFRESH             2208
 #define IDC_FT_BTN_WRITE               2209
+#define IDC_FT_STATIC_RECAL            2221
+#define IDC_FT_COMBO_RECAL             2222
 #define IDC_IL_RADIO_SFP1550           2210
 #define IDC_IL_RADIO_SFP1310           2211
 #define IDC_IL_RADIO_LASER1310         2212
@@ -672,7 +674,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        115
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2221
+#define _APS_NEXT_CONTROL_VALUE         2223
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

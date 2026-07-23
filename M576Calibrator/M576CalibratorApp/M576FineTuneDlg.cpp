@@ -20,6 +20,7 @@ void CM576FineTuneDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_FT_COMBO_ROLE, m_comboRole);
+	DDX_Control(pDX, IDC_FT_COMBO_RECAL, m_comboRecal);
 }
 
 BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
@@ -30,6 +31,7 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_1, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_2, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_CBN_SELCHANGE(IDC_FT_COMBO_ROLE, &CM576FineTuneDlg::OnRoleChanged)
+	ON_CBN_SELCHANGE(IDC_FT_COMBO_RECAL, &CM576FineTuneDlg::OnRecalSelChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_SW, &CM576FineTuneDlg::OnRoleChanged)
 END_MESSAGE_MAP()
 
@@ -49,6 +51,7 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	SetDlgItemText(IDC_FT_EDIT_NEW_DACX, _T("0"));
 	SetDlgItemText(IDC_FT_EDIT_NEW_DACY, _T("0"));
 	SyncAddressVisibility();
+	RebuildRecalCombo();
 	CString err;
 	(void)ResolveAndShowPath(err);
 	return TRUE;
@@ -59,23 +62,22 @@ M576BinFileRole CM576FineTuneDlg::SelectedRole() const
 	return (m_comboRole.GetCurSel() == 1) ? M576BinFileRole::Standard : M576BinFileRole::Backup;
 }
 
+FineTuneDeviceKind CM576FineTuneDlg::SelectedDevice() const
+{
+	if (IsDlgButtonChecked(IDC_FT_RADIO_MCS2) == BST_CHECKED)
+		return FineTuneDeviceKind::Mcs2;
+	if (IsDlgButtonChecked(IDC_FT_RADIO_1X64_1) == BST_CHECKED)
+		return FineTuneDeviceKind::OneX64_1;
+	if (IsDlgButtonChecked(IDC_FT_RADIO_1X64_2) == BST_CHECKED)
+		return FineTuneDeviceKind::OneX64_2;
+	return FineTuneDeviceKind::Mcs1;
+}
+
 FineTuneAddress CM576FineTuneDlg::CollectAddress(CString& errMsg) const
 {
 	FineTuneAddress addr;
 	errMsg.Empty();
-	if (IsDlgButtonChecked(IDC_FT_RADIO_MCS1) == BST_CHECKED)
-		addr.device = FineTuneDeviceKind::Mcs1;
-	else if (IsDlgButtonChecked(IDC_FT_RADIO_MCS2) == BST_CHECKED)
-		addr.device = FineTuneDeviceKind::Mcs2;
-	else if (IsDlgButtonChecked(IDC_FT_RADIO_1X64_1) == BST_CHECKED)
-		addr.device = FineTuneDeviceKind::OneX64_1;
-	else if (IsDlgButtonChecked(IDC_FT_RADIO_1X64_2) == BST_CHECKED)
-		addr.device = FineTuneDeviceKind::OneX64_2;
-	else
-	{
-		errMsg = _T("Select a device.");
-		return addr;
-	}
+	addr.device = SelectedDevice();
 
 	BOOL ok = FALSE;
 	addr.mcsBlock1to32 = (int)GetDlgItemInt(IDC_FT_EDIT_MCS_BLOCK, &ok, FALSE);
@@ -117,6 +119,75 @@ void CM576FineTuneDlg::SyncAddressVisibility()
 		p->ShowWindow(show1x64);
 }
 
+void CM576FineTuneDlg::RebuildRecalCombo()
+{
+	m_rebuildingRecal = TRUE;
+	m_comboRecal.ResetContent();
+	m_map1x64Rows.RemoveAll();
+
+	const FineTuneDeviceKind device = SelectedDevice();
+	const BOOL isMcs = (device == FineTuneDeviceKind::Mcs1 || device == FineTuneDeviceKind::Mcs2);
+
+	if (isMcs)
+	{
+		const BOOL isMcs1 = (device == FineTuneDeviceKind::Mcs1);
+		for (int i = 0; i < kFineTuneMcsRecalCount; ++i)
+			m_comboRecal.AddString(FineTuneFormatMcsRecalLabel(isMcs1, i));
+		m_comboRecal.SetCurSel(0);
+		m_rebuildingRecal = FALSE;
+		ApplyRecalSelection(FALSE);
+		return;
+	}
+
+	CString mapPath, err;
+	if (!FineTuneResolve1x64MappingPath(device, mapPath, err)
+		|| !LoadPm1x64MappingCsv(mapPath, m_map1x64Rows, err))
+	{
+		m_comboRecal.AddString(err.IsEmpty() ? _T("(Mapping.csv missing)") : err);
+		m_comboRecal.SetCurSel(0);
+		m_rebuildingRecal = FALSE;
+		SetDlgItemText(IDC_FT_STATIC_PATH, err.IsEmpty() ? _T("Mapping.csv missing") : err);
+		return;
+	}
+
+	const int n = (int)m_map1x64Rows.GetSize();
+	for (int i = 0; i < n; ++i)
+		m_comboRecal.AddString(FineTuneFormat1x64RecalLabel(m_map1x64Rows[i], i + 1, n));
+	m_comboRecal.SetCurSel(0);
+	m_rebuildingRecal = FALSE;
+	ApplyRecalSelection(FALSE);
+}
+
+void CM576FineTuneDlg::ApplyRecalSelection(BOOL doRefresh)
+{
+	const int sel = m_comboRecal.GetCurSel();
+	if (sel < 0)
+		return;
+
+	const FineTuneDeviceKind device = SelectedDevice();
+	if (device == FineTuneDeviceKind::Mcs1 || device == FineTuneDeviceKind::Mcs2)
+	{
+		int block = 0, ch = 0;
+		if (!FineTuneMcsRecalIndexToBlockCh(sel, block, ch))
+			return;
+		SetDlgItemInt(IDC_FT_EDIT_MCS_BLOCK, block, FALSE);
+		SetDlgItemInt(IDC_FT_EDIT_MCS_CH, ch, FALSE);
+	}
+	else
+	{
+		if (sel >= m_map1x64Rows.GetSize())
+			return;
+		const SMems1x64PmMapRow& row = m_map1x64Rows[sel];
+		SetDlgItemInt(IDC_FT_EDIT_SW, row.sw1to4, FALSE);
+		SetDlgItemInt(IDC_FT_EDIT_CHY, row.chY1based, FALSE);
+	}
+
+	CString err;
+	(void)ResolveAndShowPath(err);
+	if (doRefresh)
+		OnBnClickedRefresh();
+}
+
 BOOL CM576FineTuneDlg::ResolveAndShowPath(CString& errMsg)
 {
 	FineTuneAddress addr = CollectAddress(errMsg);
@@ -139,6 +210,7 @@ BOOL CM576FineTuneDlg::ResolveAndShowPath(CString& errMsg)
 void CM576FineTuneDlg::OnDeviceRadioChanged()
 {
 	SyncAddressVisibility();
+	RebuildRecalCombo();
 	CString err;
 	(void)ResolveAndShowPath(err);
 }
@@ -147,6 +219,13 @@ void CM576FineTuneDlg::OnRoleChanged()
 {
 	CString err;
 	(void)ResolveAndShowPath(err);
+}
+
+void CM576FineTuneDlg::OnRecalSelChanged()
+{
+	if (m_rebuildingRecal)
+		return;
+	ApplyRecalSelection(TRUE);
 }
 
 void CM576FineTuneDlg::OnBnClickedRefresh()
@@ -185,6 +264,7 @@ void CM576FineTuneDlg::OnBnClickedRefresh()
 
 void CM576FineTuneDlg::OnBnClickedWrite()
 {
+	// Stay open after success so the operator can patch another Address slot.
 	CString err;
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())

@@ -3,10 +3,12 @@
 #include "resource.h"
 #include "FineTuneBinPatch.h"
 #include "McsFwTransport.h"
+#include "Pm1x64Mapping.h"
 
 class CM576CalibratorDlg;
 
 /// Manual low-temp DAC patch for one Backup/Standard burn file (A/B experiment).
+/// Write Bin does not close the dialog — change Address and write additional slots in one session.
 class CM576FineTuneDlg : public CDialogEx
 {
 public:
@@ -28,13 +30,20 @@ private:
 	CString m_outDirAbs;
 	M576TransSnPnInfo m_snInfo;
 	CComboBox m_comboRole;
+	CComboBox m_comboRecal;
+	CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> m_map1x64Rows;
+	BOOL m_rebuildingRecal = FALSE;
 
 	FineTuneAddress CollectAddress(CString& errMsg) const;
+	FineTuneDeviceKind SelectedDevice() const;
 	M576BinFileRole SelectedRole() const;
 	void SyncAddressVisibility();
+	void RebuildRecalCombo();
+	void ApplyRecalSelection(BOOL doRefresh);
 	BOOL ResolveAndShowPath(CString& errMsg);
 	afx_msg void OnBnClickedRefresh();
 	afx_msg void OnBnClickedWrite();
 	afx_msg void OnDeviceRadioChanged();
 	afx_msg void OnRoleChanged();
+	afx_msg void OnRecalSelChanged();
 };

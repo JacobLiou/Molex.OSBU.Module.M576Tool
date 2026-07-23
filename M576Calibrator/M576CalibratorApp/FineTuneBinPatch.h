@@ -1,8 +1,10 @@
 #pragma once
 // Fine-tune a single Backup/Standard burn file: patch 1310 low-temp DAC and write back.
+// Write Bin keeps the dialog open so multiple Address slots can be patched in one session.
 
 #include "McsFwTransport.h"
 #include "M576OneX64Coef.h"
+#include "Pm1x64Mapping.h"
 #include "Z4767StructDefine.h"
 
 enum class FineTuneDeviceKind
@@ -63,3 +65,14 @@ BOOL FineTuneWriteDac(
 	short dacY,
 	FineTuneSyncPayload* pSyncOut,
 	CString& errMsg);
+
+/// MCS RECAL picker: 32 blocks x 18 CH = 576 (same order as pm_mcs*.csv).
+inline constexpr int kFineTuneMcsRecalCount = 32 * 18;
+
+BOOL FineTuneMcsRecalIndexToBlockCh(int index0, int& block1to32Out, int& ch1to18Out);
+CString FineTuneFormatMcsRecalLabel(BOOL isMcs1, int index0);
+
+/// Resolve exe-relative Mapping.csv for 1X64_1 / 1X64_2 (same as PM path write-bin).
+BOOL FineTuneResolve1x64MappingPath(FineTuneDeviceKind device, CString& mappingPathOut, CString& errMsg);
+
+CString FineTuneFormat1x64RecalLabel(const SMems1x64PmMapRow& row, int index1based, int total);
