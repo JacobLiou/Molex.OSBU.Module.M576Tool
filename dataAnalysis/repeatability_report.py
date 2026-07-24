@@ -90,11 +90,12 @@ def is_valid_raw(v: int) -> bool:
 
 
 def compute_il(pd_raw: int, pm_raw: int) -> float:
-    """IL_dB = Pref - Pout (Z4671 TestIL).
+    """IL_dB = OPM - PD (align FIM ILTest: pScanData - pScanADCData).
 
-    Pref = Power Monitor (pd_raw / 100), Pout = OPM/Sensor Head (pm_raw / 10000).
+    PD = pd_raw / 100, OPM/PM = pm_raw / 10000.
     """
-    return pd_raw / 100.0 - pm_raw / 10000.0
+    return pm_raw / 10000.0 - pd_raw / 100.0
+
 
 
 
@@ -168,7 +169,7 @@ def write_xlsx(path: Path, agg: Dict[str, Dict[str, WlStats]]) -> None:
     c1.font = FONT_HEADER
     c1.alignment = Alignment(horizontal="center", vertical="center")
 
-    ws["A2"] = "IL = Pref(Power_PD) - Pout(Power_PM)"
+    ws["A2"] = "IL = OPM(Power_PM) - PD(Power_PD)  [FIM]"
     ws["A2"].font = FONT_BOLD
 
     ws["B3"] = "SFP_1550"

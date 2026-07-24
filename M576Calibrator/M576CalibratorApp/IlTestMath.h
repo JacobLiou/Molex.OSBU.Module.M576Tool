@@ -24,6 +24,7 @@ inline LPCTSTR IlTestWlLabel(IlTestWlKind k)
 	}
 }
 
+/// 1x8 source port (FIM SetTestWL / DriveNewBox1X8Switch): 1550->1, 1310 SFP->4, Laser/Ext->8.
 inline int IlTestSw3Third(IlTestWlKind k)
 {
 	switch (k)
@@ -35,6 +36,12 @@ inline int IlTestSw3Third(IlTestWlKind k)
 	}
 }
 
+/// Same port as IlTestSw3Third — FIM SetNewBoxWavelength: `SWL <port> <nm>`.
+inline int IlTestSwlChannel(IlTestWlKind k)
+{
+	return IlTestSw3Third(k);
+}
+
 inline int IlTestWavelengthNm(IlTestWlKind k)
 {
 	return (k == IlTestWlKind::Sfp1550) ? 1550 : 1310;
@@ -43,14 +50,18 @@ inline int IlTestWavelengthNm(IlTestWlKind k)
 /// Parse Diagnosis pd/opm reply as signed integer (trims whitespace).
 BOOL IlTestParseIntReply(const CStringA& reply, int& outVal);
 
-/// Pref (Power Monitor / pd) and Pout (OPM) in dBm from raw replies.
-inline double IlTestPrefDbm(int pdRaw) { return (double)pdRaw / 100.0; }
-inline double IlTestPoutDbm(int opmRaw) { return (double)opmRaw / 10000.0; }
+/// PD monitor and OPM in dBm (same scales as FIM GetSacnResultData).
+inline double IlTestPdDbm(int pdRaw) { return (double)pdRaw / 100.0; }
+inline double IlTestOpmDbm(int opmRaw) { return (double)opmRaw / 10000.0; }
 
-/// IL_dB = Pref - Pout (Z4671 TestIL; topology Power Monitor -> Sensor Head).
+/// Compatibility aliases (historical Pref/Pout naming).
+inline double IlTestPrefDbm(int pdRaw) { return IlTestPdDbm(pdRaw); }
+inline double IlTestPoutDbm(int opmRaw) { return IlTestOpmDbm(opmRaw); }
+
+/// IL_dB = OPM - PD (align FIM CTestTaskManager::ILTest: pScanData - pScanADCData).
 inline double IlTestComputeIlDb(int pdRaw, int opmRaw)
 {
-	return IlTestPrefDbm(pdRaw) - IlTestPoutDbm(opmRaw);
+	return IlTestOpmDbm(opmRaw) - IlTestPdDbm(pdRaw);
 }
 
 /// Parse "CH70" / "70" -> 1..576. Returns 0 if invalid.
@@ -60,19 +71,22 @@ int IlTestParseChannelIndex(const CString& channelLabel);
 /// idx0=(k-1); mpo=idx0/12+1; fiber=idx0%12+1; outMpo=mpo+48.
 BOOL IlTestChannelToMpoPath(int channel1to576, CString& outPath);
 
+/// CH k (1..576) -> InPort "MPOa-b", OutPort "MPOc-b" (same packing as IlTestChannelToMpoPath).
+BOOL IlTestChannelToMpoPorts(int channel1to576, CString& inPort, CString& outPort);
+
 struct IlTestGateParams
 {
-	double spanMaxDb = 0.15;
-	double absIlMinDb = 0.0;
-	double absIlMaxDb = 3.0;
+	double absIlMinDb = -5.0;
+	double absIlMaxDb = 5.0;
+	double spanMaxDb = 0.15; // fail if rolling (Max-Min) across laps exceeds this
 };
 
-/// PASS when span OK and current IL within absolute window.
-inline BOOL IlTestJudgePass(double currentIlDb, double spanDb, const IlTestGateParams& gate)
+/// PASS when absIlMin <= IL <= absIlMax and rolling Span=Max-Min <= spanMaxDb.
+inline BOOL IlTestJudgePass(double currentIlDb, double rollingSpanDb, const IlTestGateParams& gate)
 {
-	if (!(spanDb <= gate.spanMaxDb))
-		return FALSE;
 	if (currentIlDb < gate.absIlMinDb || currentIlDb > gate.absIlMaxDb)
+		return FALSE;
+	if (rollingSpanDb > gate.spanMaxDb)
 		return FALSE;
 	return TRUE;
 }

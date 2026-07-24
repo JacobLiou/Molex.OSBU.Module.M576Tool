@@ -30,6 +30,7 @@
 #include "FineTuneBinPatch.h"
 
 namespace M576 { struct Peak1DFitTrace; struct PeakPipelineFailureReport; }
+class CM576IlTestDlg;
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
@@ -44,10 +45,17 @@ public:
 	void OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path);
 
 	/// IL Test dialog: open port if needed, lock mutual exclusion, return output\ dir.
+	/// Also redirects Diagnosis Session comm log to `output\ILTestCommLog_YYYY-MM-DD.log`.
 	BOOL BeginIlTestSession(CString& outDirAbs, CString& err);
 	void EndIlTestSession();
 	CDiagnosisSession* GetDiagnosisSessionForIlTest();
 	BOOL IsBackgroundBusyForIlTest() const;
+	/// Absolute path of the active IL Test comm log (empty when not in session).
+	CString GetIlTestCommLogPathAbs() const { return m_ilTestCommLogPathAbs; }
+	/// IL Test dialog registers itself so CommLog lines mirror into its Log edit.
+	void SetActiveIlTestDlg(CM576IlTestDlg* p) { m_pActiveIlTestDlg = p; }
+	/// MCS1 SN sanitized for filenames (`SN_*.csv`); empty UI SN -> `unknown`.
+	CString GetMcs1SnSanitizedForFilename() const;
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -125,6 +133,10 @@ private:
 	std::atomic<bool> m_burnBoardRunning{ false };
 	std::atomic<bool> m_diagRunning{ false };
 	std::atomic<bool> m_ilTestRunning{ false };
+	/// While IL Test runs: DIAG SEND/RECV go here (not main `comm_YYYY-MM-DD.log`).
+	CString m_ilTestCommLogPathAbs;
+	/// Non-owning; set while `CM576IlTestDlg` modal is open.
+	CM576IlTestDlg* m_pActiveIlTestDlg = nullptr;
 	volatile BOOL m_diagStop{ FALSE };
 	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
 	int m_diagFinishFullLaps{ 0 };
@@ -295,6 +307,8 @@ private:
 	// 进度回调节点，调用约定须与 McsFwProgressCb 一致（__cdecl）。
 	static void ProgressThunk(int cur, int total, void* user);
 	static void __cdecl CommLogThunk(LPCTSTR line, void* user);
+	/// IL Test hang-up: write DiagnosisSession traces to ILTestCommLog_*.log only (no UI flood).
+	static void __cdecl IlTestCommLogThunk(LPCTSTR line, void* user);
 
 	// --- 按钮与自定义消息（路径日志/进度/完成）---
 	afx_msg void OnBnClickedOpenPorts();

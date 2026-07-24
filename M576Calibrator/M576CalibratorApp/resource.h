@@ -167,6 +167,7 @@
 #define IDC_IL_EDIT_LOG                2218
 #define IDC_IL_EDIT_ABS_MIN            2219
 #define IDC_IL_EDIT_ABS_MAX            2220
+#define IDC_IL_EDIT_SPAN_MAX           2223
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -674,7 +675,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        115
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2223
+#define _APS_NEXT_CONTROL_VALUE         2224
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

@@ -7,6 +7,7 @@
 #include "M576RecoverSelectDlg.h"
 #include "M576FineTuneDlg.h"
 #include "M576IlTestDlg.h"
+#include "IlTestCsv.h"
 #include "LutMerge1310.h"
 #include "LutMerge1550.h"
 #include "CalibWavelengthPolicy.h"
@@ -2512,6 +2513,21 @@ void __cdecl CM576CalibratorDlg::CommLogThunk(LPCTSTR line, void* user)
 	if (!dlg || !::IsWindow(dlg->m_hWnd))
 		return;
 	dlg->SafeAppendLog(line);
+}
+
+void __cdecl CM576CalibratorDlg::IlTestCommLogThunk(LPCTSTR line, void* user)
+{
+	CM576CalibratorDlg* dlg = (CM576CalibratorDlg*)user;
+	if (!dlg || !line)
+		return;
+	if (!dlg->m_ilTestCommLogPathAbs.IsEmpty())
+	{
+		CString err;
+		(void)M576AppendIlTestCommLogLine(dlg->m_ilTestCommLogPathAbs, line, err);
+	}
+	// Mirror into IL Test dialog Log (not main UI log).
+	if (dlg->m_pActiveIlTestDlg)
+		dlg->m_pActiveIlTestDlg->PostCommLogLine(line);
 }
 
 void CM576CalibratorDlg::OnBnClickedOpenPorts()
@@ -5782,6 +5798,14 @@ BOOL CM576CalibratorDlg::IsBackgroundBusyForIlTest() const
 		|| m_diagRunning.load() || m_ilTestRunning.load();
 }
 
+CString CM576CalibratorDlg::GetMcs1SnSanitizedForFilename() const
+{
+	CString sn = M576SanitizeSnForFilename(m_snInfo.mcsSn[0]);
+	if (sn.IsEmpty())
+		sn = _T("unknown");
+	return sn;
+}
+
 BOOL CM576CalibratorDlg::BeginIlTestSession(CString& outDirAbs, CString& err)
 {
 	err.Empty();
@@ -5798,7 +5822,6 @@ BOOL CM576CalibratorDlg::BeginIlTestSession(CString& outDirAbs, CString& err)
 	}
 	if (!IsSerialPortOpen())
 	{
-		AppendLog(_T("IL Test: opening port…"));
 		if (!OpenPort())
 		{
 			err = _T("Failed to open serial port.");
@@ -5814,6 +5837,22 @@ BOOL CM576CalibratorDlg::BeginIlTestSession(CString& outDirAbs, CString& err)
 	const CString exeFolder = GetExeFolder();
 	EnsureOutputFolderUnderExe(exeFolder);
 	outDirAbs = exeFolder + _T("\\output");
+	m_ilTestCommLogPathAbs = M576GetIlTestCommLogPath(outDirAbs);
+	// Route ALL session CommLog away from main UI (DIAG / Z4671 / Recal).
+	const M576CommLogTarget ilLog(&CM576CalibratorDlg::IlTestCommLogThunk, this);
+	m_dev429f.SetCommLogTarget(ilLog);
+	if (m_pRecal)
+		m_pRecal->SetCommLogTarget(ilLog);
+	if (m_pDiag)
+		m_pDiag->SetCommLogTarget(ilLog);
+	{
+		CString errLog;
+		CString openNote;
+		openNote.Format(_T("[ILTEST] session start; DIAG SEND/RECV -> %s"), m_ilTestCommLogPathAbs.GetString());
+		(void)M576AppendIlTestCommLogLine(m_ilTestCommLogPathAbs, openNote, errLog);
+		if (m_pActiveIlTestDlg)
+			m_pActiveIlTestDlg->PostCommLogLine(openNote);
+	}
 	m_ilTestRunning = true;
 	SetPathActionButtonsEnabled(FALSE);
 	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
@@ -5825,6 +5864,22 @@ BOOL CM576CalibratorDlg::BeginIlTestSession(CString& outDirAbs, CString& err)
 
 void CM576CalibratorDlg::EndIlTestSession()
 {
+	if (!m_ilTestCommLogPathAbs.IsEmpty())
+	{
+		CString errLog;
+		const CString endNote = _T("[ILTEST] session end");
+		(void)M576AppendIlTestCommLogLine(m_ilTestCommLogPathAbs, endNote, errLog);
+		if (m_pActiveIlTestDlg)
+			m_pActiveIlTestDlg->PostCommLogLine(endNote);
+	}
+	m_ilTestCommLogPathAbs.Empty();
+	// Restore main-UI CommLog target for normal operations.
+	const M576CommLogTarget mainLog(&CM576CalibratorDlg::CommLogThunk, this);
+	m_dev429f.SetCommLogTarget(mainLog);
+	if (m_pRecal)
+		m_pRecal->SetCommLogTarget(mainLog);
+	if (m_pDiag)
+		m_pDiag->SetCommLogTarget(mainLog);
 	m_ilTestRunning = false;
 	if (!m_pathRunning.load() && !m_diagRunning.load() && !m_burnFlashRunning.load()
 		&& !m_burnBoardRunning.load() && !m_readBackupRunning.load() && !m_readSnRunning.load())

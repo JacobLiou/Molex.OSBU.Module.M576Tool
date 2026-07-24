@@ -47,15 +47,27 @@ int IlTestParseChannelIndex(const CString& channelLabel)
 	return v;
 }
 
-BOOL IlTestChannelToMpoPath(int channel1to576, CString& outPath)
+BOOL IlTestChannelToMpoPorts(int channel1to576, CString& inPort, CString& outPort)
 {
-	outPath.Empty();
+	inPort.Empty();
+	outPort.Empty();
 	if (channel1to576 < 1 || channel1to576 > 576)
 		return FALSE;
 	const int idx0 = channel1to576 - 1;
 	const int mpoIn = idx0 / 12 + 1;
 	const int fiber = idx0 % 12 + 1;
 	const int mpoOut = mpoIn + 48;
-	outPath.Format(_T("MPO%d-%d->MPO%d-%d"), mpoIn, fiber, mpoOut, fiber);
+	inPort.Format(_T("MPO%d-%d"), mpoIn, fiber);
+	outPort.Format(_T("MPO%d-%d"), mpoOut, fiber);
+	return TRUE;
+}
+
+BOOL IlTestChannelToMpoPath(int channel1to576, CString& outPath)
+{
+	outPath.Empty();
+	CString inPort, outPort;
+	if (!IlTestChannelToMpoPorts(channel1to576, inPort, outPort))
+		return FALSE;
+	outPath.Format(_T("%s->%s"), inPort.GetString(), outPort.GetString());
 	return TRUE;
 }
