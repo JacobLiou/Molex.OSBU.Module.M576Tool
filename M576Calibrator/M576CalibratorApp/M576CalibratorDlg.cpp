@@ -7,6 +7,7 @@
 #include "M576RecoverSelectDlg.h"
 #include "M576FineTuneDlg.h"
 #include "M576IlTestDlg.h"
+#include "M576FimIlTestDlg.h"
 #include "IlTestCsv.h"
 #include "LutMerge1310.h"
 #include "LutMerge1550.h"
@@ -1353,6 +1354,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_MAKE_BIN, &CM576CalibratorDlg::OnBnClickedMakeBin)
 	ON_BN_CLICKED(IDC_BTN_FINE_TUNE, &CM576CalibratorDlg::OnBnClickedFineTune)
 	ON_BN_CLICKED(IDC_BTN_IL_TEST, &CM576CalibratorDlg::OnBnClickedIlTest)
+	ON_BN_CLICKED(IDC_BTN_FIM_IL, &CM576CalibratorDlg::OnBnClickedFimIl)
 	ON_BN_CLICKED(IDC_BTN_READ_ALL_SN, &CM576CalibratorDlg::OnBnClickedReadAllSn)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_RECOVER_FLASH, &CM576CalibratorDlg::OnBnClickedRecoverFlash)
@@ -5905,6 +5907,17 @@ void CM576CalibratorDlg::OnBnClickedIlTest()
 		return;
 	}
 	CM576IlTestDlg dlg(this, this);
+	dlg.DoModal();
+}
+
+void CM576CalibratorDlg::OnBnClickedFimIl()
+{
+	if (IsBackgroundBusyForIlTest())
+	{
+		MessageBoxM576(_T("Another operation is running; wait before FIM IL."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CM576FimIlTestDlg dlg(this, this);
 	dlg.DoModal();
 }
 

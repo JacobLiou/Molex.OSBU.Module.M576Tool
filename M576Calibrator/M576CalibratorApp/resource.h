@@ -14,6 +14,7 @@
 #define IDD_M576_RUN_PATH_SUMMARY       112
 #define IDD_M576_FINE_TUNE              113
 #define IDD_M576_IL_TEST                114
+#define IDD_M576_FIM_IL_TEST            115
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -54,7 +55,19 @@
 #define IDC_BTN_MAKE_BIN                1016
 #define IDC_BTN_FINE_TUNE               2185
 #define IDC_BTN_IL_TEST                 2186
+#define IDC_BTN_FIM_IL                  2187
 #define IDC_BTN_RECOVER_FLASH           1042
+#define IDC_FIM_IL_RADIO_SFP1550        2230
+#define IDC_FIM_IL_RADIO_SFP1310        2231
+#define IDC_FIM_IL_RADIO_LASER1310      2232
+#define IDC_FIM_IL_EDIT_ABS_MIN         2233
+#define IDC_FIM_IL_EDIT_ABS_MAX         2234
+#define IDC_FIM_IL_EDIT_SPAN_MAX        2240
+#define IDC_FIM_IL_BTN_START            2235
+#define IDC_FIM_IL_BTN_STOP             2236
+#define IDC_FIM_IL_STATIC_STATUS        2237
+#define IDC_FIM_IL_LIST                 2238
+#define IDC_FIM_IL_EDIT_LOG             2239
 #define IDC_STATIC_LABEL_COM            1017
 #define IDC_GROUP_CONN                  1018
 #define IDC_GROUP_PATHS                 1019
@@ -673,9 +686,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        115
+#define _APS_NEXT_RESOURCE_VALUE        116
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2224
+#define _APS_NEXT_CONTROL_VALUE         2241
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

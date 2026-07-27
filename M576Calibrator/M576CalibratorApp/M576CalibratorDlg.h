@@ -326,6 +326,7 @@ private:
 	afx_msg void OnBnClickedMakeBin();
 	afx_msg void OnBnClickedFineTune();
 	afx_msg void OnBnClickedIlTest();
+	afx_msg void OnBnClickedFimIl();
 	afx_msg void OnBnClickedReadAllSn();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedRecoverFlash();

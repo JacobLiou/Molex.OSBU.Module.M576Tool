@@ -158,6 +158,7 @@
     <ClInclude Include="M576BurnSelectDlg.h" />
     <ClInclude Include="M576FineTuneDlg.h" />
     <ClInclude Include="M576IlTestDlg.h" />
+    <ClInclude Include="M576FimIlTestDlg.h" />
     <ClInclude Include="FineTuneBinPatch.h" />
     <ClInclude Include="IlTestMath.h" />
     <ClInclude Include="IlTestCsv.h" />
@@ -200,6 +201,7 @@
     <ClCompile Include="M576BurnSelectDlg.cpp" />
     <ClCompile Include="M576FineTuneDlg.cpp" />
     <ClCompile Include="M576IlTestDlg.cpp" />
+    <ClCompile Include="M576FimIlTestDlg.cpp" />
     <ClCompile Include="FineTuneBinPatch.cpp" />
     <ClCompile Include="IlTestMath.cpp" />
     <ClCompile Include="IlTestCsv.cpp" />
