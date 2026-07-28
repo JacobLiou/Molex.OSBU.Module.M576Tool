@@ -72,6 +72,7 @@ void CM576IlTestDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CM576IlTestDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_IL_BTN_START, &CM576IlTestDlg::OnBnClickedStart)
 	ON_BN_CLICKED(IDC_IL_BTN_STOP, &CM576IlTestDlg::OnBnClickedStop)
+	ON_WM_TIMER()
 	ON_NOTIFY(LVN_GETDISPINFO, IDC_IL_LIST, &CM576IlTestDlg::OnGetDispInfo)
 	ON_MESSAGE(WM_M576_IL_LOG, &CM576IlTestDlg::OnUiLog)
 	ON_MESSAGE(WM_M576_IL_ROW_FLUSH, &CM576IlTestDlg::OnUiRowFlush)
@@ -112,7 +113,55 @@ BOOL CM576IlTestDlg::OnInitDialog()
 
 	if (CWnd* p = GetDlgItem(IDC_IL_BTN_STOP))
 		p->EnableWindow(FALSE);
+	SetDlgItemText(IDC_IL_STATIC_ELAPSED, _T("00:00:00"));
 	return TRUE;
+}
+
+namespace
+{
+constexpr UINT_PTR kIlHangupTimerId = 1;
+}
+
+void CM576IlTestDlg::UpdateHangupClockText()
+{
+	ULONGLONG sec = 0;
+	if (m_hangupStartTick != 0)
+	{
+		const ULONGLONG now = GetTickCount64();
+		sec = (now >= m_hangupStartTick) ? ((now - m_hangupStartTick) / 1000ull) : 0;
+	}
+	const unsigned h = (unsigned)(sec / 3600ull);
+	const unsigned m = (unsigned)((sec % 3600ull) / 60ull);
+	const unsigned s = (unsigned)(sec % 60ull);
+	CString t;
+	t.Format(_T("%02u:%02u:%02u"), h, m, s);
+	SetDlgItemText(IDC_IL_STATIC_ELAPSED, t);
+}
+
+void CM576IlTestDlg::StartHangupClock()
+{
+	StopHangupClock();
+	m_hangupStartTick = GetTickCount64();
+	UpdateHangupClockText();
+	SetTimer(kIlHangupTimerId, 1000, NULL);
+	m_hangupTimerOn = true;
+}
+
+void CM576IlTestDlg::StopHangupClock()
+{
+	if (m_hangupTimerOn)
+	{
+		KillTimer(kIlHangupTimerId);
+		m_hangupTimerOn = false;
+	}
+	UpdateHangupClockText();
+}
+
+void CM576IlTestDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == kIlHangupTimerId)
+		UpdateHangupClockText();
+	CDialogEx::OnTimer(nIDEvent);
 }
 
 IlTestWlKind CM576IlTestDlg::SelectedWl() const
@@ -395,6 +444,7 @@ void CM576IlTestDlg::OnBnClickedStart()
 	m_stop = FALSE;
 	m_running = true;
 	SetControlsRunning(TRUE);
+	StartHangupClock();
 
 	const CString mcs1Sn = m_pOwner->GetMcs1SnSanitizedForFilename();
 	const CString commLogPath = m_pOwner->GetIlTestCommLogPathAbs();
@@ -443,6 +493,7 @@ void CM576IlTestDlg::OnCancel()
 	{
 		m_worker.join();
 	}
+	StopHangupClock();
 	if (m_pOwner)
 		m_pOwner->SetActiveIlTestDlg(NULL);
 	CDialogEx::OnCancel();
@@ -891,6 +942,7 @@ LRESULT CM576IlTestDlg::OnUiFinished(WPARAM wParam, LPARAM lParam)
 	if (m_worker.joinable())
 		m_worker.join();
 	m_running = false;
+	StopHangupClock();
 	SetControlsRunning(FALSE);
 	if (m_pOwner)
 		m_pOwner->EndIlTestSession();

@@ -58,6 +58,8 @@ private:
 	std::thread m_worker;
 	std::atomic<bool> m_running{ false };
 	volatile BOOL m_stop{ FALSE };
+	ULONGLONG m_hangupStartTick = 0;
+	bool m_hangupTimerOn = false;
 
 	std::mutex m_uiRowMutex;
 	std::vector<M576IlTestUiRow> m_uiRows;       // current lap only
@@ -78,6 +80,9 @@ private:
 	void BeginLapUi(int channelCount, int lap);
 	void QueueLapRow(int channelIndex0, M576IlTestUiRow row);
 	void FlushPendingUiRows();
+	void StartHangupClock();
+	void StopHangupClock();
+	void UpdateHangupClockText();
 	void WorkerEntry(
 		std::vector<M576DiagnosisRow> rows,
 		CString outDir,
@@ -87,6 +92,7 @@ private:
 
 	afx_msg void OnBnClickedStart();
 	afx_msg void OnBnClickedStop();
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
 	afx_msg void OnGetDispInfo(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg LRESULT OnUiLog(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnUiRowFlush(WPARAM wParam, LPARAM lParam);

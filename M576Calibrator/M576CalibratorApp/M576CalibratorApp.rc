@@ -13,7 +13,7 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// 中文(简体，中国) resources
+// ????(???壬?й?) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
 LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
@@ -234,6 +234,7 @@ BEGIN
     LTEXT           "dB",-1,440,12,12,8
     PUSHBUTTON      "Start",IDC_IL_BTN_START,458,8,44,14
     PUSHBUTTON      "Stop",IDC_IL_BTN_STOP,506,8,44,14
+    LTEXT           "00:00:00",IDC_IL_STATIC_ELAPSED,554,11,46,10
     PUSHBUTTON      "Close",IDCANCEL,603,8,50,14
     LTEXT           "",IDC_IL_STATIC_STATUS,11,28,654,10
     CONTROL         "",IDC_IL_LIST,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_OWNERDATA | WS_BORDER | WS_TABSTOP,10,42,648,220
@@ -260,6 +261,7 @@ BEGIN
     LTEXT           "dB",-1,440,12,12,8
     PUSHBUTTON      "Start",IDC_FIM_IL_BTN_START,458,8,44,14
     PUSHBUTTON      "Stop",IDC_FIM_IL_BTN_STOP,506,8,44,14
+    LTEXT           "00:00:00",IDC_FIM_IL_STATIC_ELAPSED,554,11,46,10
     PUSHBUTTON      "Close",IDCANCEL,603,8,50,14
     LTEXT           "",IDC_FIM_IL_STATIC_STATUS,11,28,654,10
     CONTROL         "",IDC_FIM_IL_LIST,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_OWNERDATA | WS_BORDER | WS_TABSTOP,10,42,648,220
@@ -362,7 +364,7 @@ BEGIN
     0
 END
 
-#endif    // 中文(简体，中国) resources
+#endif    // ????(???壬?й?) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

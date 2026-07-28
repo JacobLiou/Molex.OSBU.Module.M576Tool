@@ -68,6 +68,7 @@
 #define IDC_FIM_IL_STATIC_STATUS        2237
 #define IDC_FIM_IL_LIST                 2238
 #define IDC_FIM_IL_EDIT_LOG             2239
+#define IDC_FIM_IL_STATIC_ELAPSED       2241
 #define IDC_STATIC_LABEL_COM            1017
 #define IDC_GROUP_CONN                  1018
 #define IDC_GROUP_PATHS                 1019
@@ -181,6 +182,7 @@
 #define IDC_IL_EDIT_ABS_MIN            2219
 #define IDC_IL_EDIT_ABS_MAX            2220
 #define IDC_IL_EDIT_SPAN_MAX           2223
+#define IDC_IL_STATIC_ELAPSED          2224
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102
@@ -688,7 +690,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        116
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2241
+#define _APS_NEXT_CONTROL_VALUE         2242
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

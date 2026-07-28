@@ -1226,14 +1226,14 @@ void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, c
 	if (tr.globalMaxIndex >= 0)
 	{
 		CString line;
-		line.Format(_T("  %s全局最大点: 下标=%d 功率=%.12g"), stageTag, tr.globalMaxIndex, tr.globalMaxY);
+		line.Format(_T("  %sglobal max: index=%d power=%.12g"), stageTag, tr.globalMaxIndex, tr.globalMaxY);
 		dlg->SafeAppendLog(line);
 	}
 	const size_t nf = tr.fitIndex.size();
 	if (nf == 0 || tr.fitY.size() != nf)
 	{
 		CString line;
-		line.Format(_T("  %s拟合点: (无，预处理未产出)"), stageTag);
+		line.Format(_T("  %sfit points: (none, preprocess produced none)"), stageTag);
 		dlg->SafeAppendLog(line);
 		return;
 	}
@@ -1260,7 +1260,7 @@ void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, c
 			appendOne(k, true);
 	}
 	CString full;
-	full.Format(_T("  %s拟合点(共%zu个): "), stageTag, nf);
+	full.Format(_T("  %sfit points (%zu): "), stageTag, nf);
 	full += seg;
 	dlg->SafeAppendLog(full);
 }
@@ -4073,7 +4073,7 @@ void CM576CalibratorDlg::AbortRunPathPreloadFailed(const CString& errMsg)
 	SafeAppendLog(errMsg);
 	CString box;
 	box.Format(
-		_T("备份 BIN 预载失败，已停止 Run Path。\n\n%s\n\n请先 Read Flash 或检查 Backup BIN 路径。"),
+		_T("Failed to preload backup BIN; Run Path stopped.\n\n%s\n\nPlease Read Flash first or check Backup BIN path."),
 		errMsg.GetString());
 	MessageBoxM576(box, MB_OK | MB_ICONERROR);
 	m_pathShowFinishInfoBox = FALSE;
@@ -4699,7 +4699,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					(int)powY.size(), xFixedDac);
 				SafeAppendLog(msg);
 			}
-			M576AppendPeakFitTraceLog(this, _T("RECAL3 Y预瞄(PM) "), yPreTracePm);
+			M576AppendPeakFitTraceLog(this, _T("RECAL3 Y pre-aim (PM) "), yPreTracePm);
 			const int nY = (int)powY.size();
 			fixedY = RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, ySweepRangePm, xFixedDac);
 			{
@@ -4964,8 +4964,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 
 		if (crossOk)
 		{
-			M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 Y轴(PM) "), trCrossYPm);
-			M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 X轴(PM) "), trCrossXPm);
+			M576AppendPeakFitTraceLog(this, _T("RECAL3 cross Y-axis (PM) "), trCrossYPm);
+			M576AppendPeakFitTraceLog(this, _T("RECAL3 cross X-axis (PM) "), trCrossXPm);
 			const int nYm = (int)powY.size();
 			const int nXm = (int)powX.size();
 			const int nLut = nYm;
@@ -5431,7 +5431,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				msg.Format(_T("  RECAL 5 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), xFixedDacPd);
 				SafeAppendLog(msg);
 			}
-			M576AppendPeakFitTraceLog(this, _T("RECAL5 Y预瞄(PD) "), yPreTracePd);
+			M576AppendPeakFitTraceLog(this, _T("RECAL5 Y pre-aim (PD) "), yPreTracePd);
 			const int nYpd = (int)powY.size();
 			fixedYPd = RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, ySweepRangePd, xFixedDacPd);
 			{
@@ -5625,8 +5625,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 
 		if (crossOkPd)
 		{
-			M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 Y轴(PD) "), trCrossYPd);
-			M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 X轴(PD) "), trCrossXPd);
+			M576AppendPeakFitTraceLog(this, _T("RECAL5 cross Y-axis (PD) "), trCrossYPd);
+			M576AppendPeakFitTraceLog(this, _T("RECAL5 cross X-axis (PD) "), trCrossXPd);
 			const int nYpdLut = (int)powY.size();
 			const int nXpdLut = (int)powX.size();
 			const int nLut = nYpdLut;

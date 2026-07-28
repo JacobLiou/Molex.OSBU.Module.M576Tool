@@ -784,6 +784,7 @@ void CM576FimIlTestDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CM576FimIlTestDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_FIM_IL_BTN_START, &CM576FimIlTestDlg::OnBnClickedStart)
 	ON_BN_CLICKED(IDC_FIM_IL_BTN_STOP, &CM576FimIlTestDlg::OnBnClickedStop)
+	ON_WM_TIMER()
 	ON_NOTIFY(LVN_GETDISPINFO, IDC_FIM_IL_LIST, &CM576FimIlTestDlg::OnGetDispInfo)
 	ON_MESSAGE(WM_M576_FIM_IL_LOG, &CM576FimIlTestDlg::OnUiLog)
 	ON_MESSAGE(WM_M576_FIM_IL_ROW_FLUSH, &CM576FimIlTestDlg::OnUiRowFlush)
@@ -820,7 +821,55 @@ BOOL CM576FimIlTestDlg::OnInitDialog()
 
 	if (CWnd* p = GetDlgItem(IDC_FIM_IL_BTN_STOP))
 		p->EnableWindow(FALSE);
+	SetDlgItemText(IDC_FIM_IL_STATIC_ELAPSED, _T("00:00:00"));
 	return TRUE;
+}
+
+namespace
+{
+constexpr UINT_PTR kFimHangupTimerId = 1;
+}
+
+void CM576FimIlTestDlg::UpdateHangupClockText()
+{
+	ULONGLONG sec = 0;
+	if (m_hangupStartTick != 0)
+	{
+		const ULONGLONG now = GetTickCount64();
+		sec = (now >= m_hangupStartTick) ? ((now - m_hangupStartTick) / 1000ull) : 0;
+	}
+	const unsigned h = (unsigned)(sec / 3600ull);
+	const unsigned m = (unsigned)((sec % 3600ull) / 60ull);
+	const unsigned s = (unsigned)(sec % 60ull);
+	CString t;
+	t.Format(_T("%02u:%02u:%02u"), h, m, s);
+	SetDlgItemText(IDC_FIM_IL_STATIC_ELAPSED, t);
+}
+
+void CM576FimIlTestDlg::StartHangupClock()
+{
+	StopHangupClock();
+	m_hangupStartTick = GetTickCount64();
+	UpdateHangupClockText();
+	SetTimer(kFimHangupTimerId, 1000, NULL);
+	m_hangupTimerOn = true;
+}
+
+void CM576FimIlTestDlg::StopHangupClock()
+{
+	if (m_hangupTimerOn)
+	{
+		KillTimer(kFimHangupTimerId);
+		m_hangupTimerOn = false;
+	}
+	UpdateHangupClockText();
+}
+
+void CM576FimIlTestDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == kFimHangupTimerId)
+		UpdateHangupClockText();
+	CDialogEx::OnTimer(nIDEvent);
 }
 
 IlTestWlKind CM576FimIlTestDlg::SelectedWl() const
@@ -1075,6 +1124,7 @@ void CM576FimIlTestDlg::OnBnClickedStart()
 	}
 	m_list.SetItemCountEx(0, 0);
 	SetControlsRunning(TRUE);
+	StartHangupClock();
 	m_worker = std::thread([this, outDir, wl, gate, mcs1Sn]() {
 		WorkerEntry(outDir, wl, gate, mcs1Sn);
 	});
@@ -1103,6 +1153,7 @@ void CM576FimIlTestDlg::OnCancel()
 	{
 		m_worker.join();
 	}
+	StopHangupClock();
 	CDialogEx::OnCancel();
 }
 
@@ -1401,6 +1452,7 @@ LRESULT CM576FimIlTestDlg::OnUiFinished(WPARAM wParam, LPARAM lParam)
 	if (m_worker.joinable())
 		m_worker.join();
 	m_running = false;
+	StopHangupClock();
 	SetControlsRunning(FALSE);
 	if (m_pOwner)
 		m_pOwner->EndIlTestSession();
