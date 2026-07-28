@@ -80,11 +80,18 @@ private:
 		double hiDbm);
 	friend void M576LogPeakPipelineFatal(
 		CM576CalibratorDlg* dlg,
-		const M576::PeakPipelineFailureReport& report,
+		const M576::Recal1DSweepPipelineState& pipe,
+		BOOL isPm,
+		int pmRangeIndex,
+		int sweepMode,
+		int fixedBaseDac,
+		int lastMovingBase,
+		int dacStep,
 		LPCTSTR axisTag,
 		LPCTSTR recalStageLabel,
 		int pathLine1Based,
-		int fileSlot);
+		int fileSlot,
+		LPCTSTR routeLabel);
 	// --- UI 与路径字符串 ---
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;
@@ -259,7 +266,8 @@ private:
 		int& outDacRangeUsed,
 		CString& err,
 		int pathLine1Based = 0,
-		int fileSlot = 0);
+		int fileSlot = 0,
+		LPCTSTR routeLabel = nullptr);
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();

@@ -76,6 +76,18 @@ namespace M576
 		double mergedSpanRaw = 0.0;
 		double mergeTPeak = 0.0;
 		std::vector<Recal1DSweepSegment> segments;
+		/// Filled by App before M576LogPeakPipelineFatal (not by BuildPeakPipelineFailureReport).
+		int dacStep = 0;
+		int uiFineStep = 0;
+		int uiFineRange = 0;
+		int coarseRange = 0;
+		int sweepMode = 0;
+		int fixedBaseDac = 0;
+		int lastMovingBase = 0;
+		bool isPm = true;
+		int pmRangeIndex = -1;
+		char routeLabel[160] = {};
+		char snText[96] = {};
 	};
 
 	struct Recal1DSweepCommand

@@ -868,65 +868,163 @@ void M576AppendPmRangeRejectLog(
 }
 
 // ---------- RECAL 3/5 一维扫频 + 拼接式 pipeline（64→200→交替拼接→精扫半宽） ----------
+static CStringA M576SnTextForPathFileSlotUtf8(const M576TransSnPnInfo& sn, int fileSlot)
+{
+	CString s;
+	if (fileSlot == 0)
+		s = sn.mcsSn[0];
+	else if (fileSlot == 1)
+		s = sn.mcsSn[1];
+	else if (fileSlot == 2 || fileSlot == 3)
+	{
+		const int t = fileSlot - 2;
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			if (!sn.oneX64Sn[t][sw].IsEmpty())
+			{
+				s = sn.oneX64Sn[t][sw];
+				break;
+			}
+		}
+	}
+	s.Trim();
+	if (s.IsEmpty())
+		return CStringA("-");
+#ifdef _UNICODE
+	return CStringA(CW2A(s.GetString(), CP_UTF8));
+#else
+	return CStringA(s);
+#endif
+}
+
 void M576LogPeakPipelineFatal(
 	CM576CalibratorDlg* dlg,
-	const M576::PeakPipelineFailureReport& report,
+	const M576::Recal1DSweepPipelineState& pipe,
+	BOOL isPm,
+	int pmRangeIndex,
+	int sweepMode,
+	int fixedBaseDac,
+	int lastMovingBase,
+	int dacStep,
 	LPCTSTR axisTag,
 	LPCTSTR recalStageLabel,
 	int pathLine1Based,
-	int fileSlot)
+	int fileSlot,
+	LPCTSTR routeLabel)
 {
 	if (!dlg)
 		return;
+
+	M576::PeakPipelineFailureReport report = M576::BuildPeakPipelineFailureReport(pipe);
+	report.pathLine1Based = pathLine1Based;
+	report.fileSlot = fileSlot;
+	report.dacStep = dacStep;
+	report.uiFineStep = dlg->m_dacStep;
+	report.uiFineRange = pipe.uiFineRange;
+	report.coarseRange = pipe.coarseRange;
+	report.sweepMode = sweepMode;
+	report.fixedBaseDac = fixedBaseDac;
+	report.lastMovingBase = lastMovingBase;
+	report.isPm = (isPm != FALSE);
+	report.pmRangeIndex = pmRangeIndex;
+	{
+		const CStringA routeA = (routeLabel && routeLabel[0])
+#ifdef _UNICODE
+			? CStringA(CW2A(routeLabel, CP_UTF8))
+#else
+			? CStringA(routeLabel)
+#endif
+			: CStringA("-");
+		_snprintf_s(report.routeLabel, sizeof report.routeLabel, _TRUNCATE, "%s", routeA.GetString());
+		const CStringA snA = M576SnTextForPathFileSlotUtf8(dlg->m_snInfo, fileSlot);
+		_snprintf_s(report.snText, sizeof report.snText, _TRUNCATE, "%s", snA.GetString());
+	}
+
+	const char* phase = report.failedPhase ? report.failedPhase : "?";
+	const char* codeWhy = M576Peak1DWhy(report.lastCode);
+	const double mergedSpanDb = report.mergedSpanRaw / 10000.0;
+
+	char ts[48] = {};
+	M576FormatLocalTimestampPrefix(ts, sizeof ts, nullptr);
+
 	CString uiLine;
 	uiLine.Format(
-		_T("[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%hs code=%hs anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.4g t*=%.2f"),
-		recalStageLabel,
-		axisTag,
+		_T("%hs[FATAL][peak-pipeline] path_line=%d slot=%d %s %s phase=%hs code=%hs dac_step=%d sweeps=%d stitch_k=%d"),
+		ts,
 		pathLine1Based,
 		fileSlot,
-		report.failedPhase ? report.failedPhase : "?",
-		M576Peak1DWhy(report.lastCode),
-		report.anchorBase,
+		recalStageLabel ? recalStageLabel : _T("?"),
+		axisTag ? axisTag : _T("?"),
+		phase,
+		codeWhy,
+		dacStep,
 		report.sweepCount,
-		report.lastStitchK,
-		report.mergedSpanRaw,
-		report.mergeTPeak);
+		report.lastStitchK);
 	dlg->SafeAppendLog(uiLine);
 
-	CStringA fatalBlock;
-	fatalBlock.Format(
-		"[FATAL][peak-pipeline] %s %s step=%d slot=%d phase=%s code=%s anchor_center=%d sweeps=%d stitch_k=%d merged_span=%.6g t*=%.6g\n",
-		CStringA(recalStageLabel).GetString(),
-		CStringA(axisTag).GetString(),
+	CStringA head;
+	head.Format(
+		"%s[FATAL][peak-pipeline]\n"
+		"  path_line=%d slot=%d axis=%s stage=%s phase=%s code=%s\n"
+		"  sn=%s route=%s cal=%s pm_range=%d\n"
+		"  dac_step=%d ui_fine_step=%d ui_fine_range=%d coarse_range=%d\n"
+		"  sweep_mode=%d fixed_base=%d last_moving_base=%d anchor_center=%d sweeps=%d stitch_k=%d\n"
+		"  merged_span_raw=%.6g merged_span_db=%.6g t*=%.6g\n",
+		ts,
 		pathLine1Based,
 		fileSlot,
-		report.failedPhase ? report.failedPhase : "?",
-		M576Peak1DWhy(report.lastCode),
+		CStringA(axisTag ? axisTag : _T("?")).GetString(),
+		CStringA(recalStageLabel ? recalStageLabel : _T("?")).GetString(),
+		phase,
+		codeWhy,
+		report.snText,
+		report.routeLabel,
+		report.isPm ? "PM" : "PD",
+		report.pmRangeIndex,
+		report.dacStep,
+		report.uiFineStep,
+		report.uiFineRange,
+		report.coarseRange,
+		report.sweepMode,
+		report.fixedBaseDac,
+		report.lastMovingBase,
 		report.anchorBase,
 		report.sweepCount,
 		report.lastStitchK,
 		report.mergedSpanRaw,
+		mergedSpanDb,
 		report.mergeTPeak);
-	M576AppendFatalLogUtf8(fatalBlock.GetString());
+	M576AppendFatalLogUtf8(head.GetString());
+
 	for (size_t si = 0; si < report.segments.size(); ++si)
 	{
 		const M576::Recal1DSweepSegment& seg = report.segments[si];
 		const M576::SweepProfile prof = M576::AnalyzeRecal1DSweepProfile(seg.pow);
+		const int n = (int)seg.pow.size();
+		double peakRaw = 0.0;
+		if (prof.argmaxIndex >= 0 && prof.argmaxIndex < n)
+			peakRaw = seg.pow[(size_t)prof.argmaxIndex];
+		const double argmaxDac = SweepCol0PlusPeakOffsetDac(seg.col0, prof.argmaxIndex, n, seg.halfRange);
+		const double spanDb = prof.span / 10000.0;
 		CStringA segLine;
 		segLine.Format(
-			"  segment[%u] stitch_k=%d base=%d offset=%d col0=%.6g n=%d trend=%hs argmax=%d span=%.6g\n",
+			"  segment[%u] stitch_k=%d base=%d offset=%d col0=%.6g n=%d trend=%hs argmax=%d argmax_dac=%.4g "
+			"span_raw=%.6g span_db=%.6g peak_raw=%.6g\n",
 			(unsigned)si,
 			seg.stitchK,
 			seg.movingBase,
 			seg.halfRange,
 			seg.col0,
-			(int)seg.pow.size(),
+			n,
 			M576::SweepTrendName(prof.trend),
 			prof.argmaxIndex,
-			prof.span);
+			argmaxDac,
+			prof.span,
+			spanDb,
+			peakRaw);
 		M576AppendFatalLogUtf8(segLine.GetString());
 	}
+	M576AppendFatalLogUtf8("  note: full P1..Pn in comm_*_recal_sweeps.csv for this session\n");
 }
 
 BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
@@ -949,7 +1047,8 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	int& outDacRangeUsed,
 	CString& err,
 	int pathLine1Based,
-	int fileSlot)
+	int fileSlot,
+	LPCTSTR routeLabel)
 {
 	err.Empty();
 	outCode = M576::Peak1DValidateCode::Empty;
@@ -986,7 +1085,8 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 
 		movingBase = cmd.movingBase;
 		attemptDacRange = cmd.halfRange;
-		attemptDacStep = cmd.dacStep;
+		// Always derive from halfRange (do not trust cmd.dacStep alone — stale Debug builds / ABI drift).
+		attemptDacStep = Peak1DDacStepForHalfRange(attemptDacRange, m_dacStep);
 		outAttemptCount = pipe.sweepCount + 1;
 		attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, attemptDacStep);
 
@@ -1106,22 +1206,36 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 				{
 					M576LogPeakPipelineFatal(
 						this,
-						M576::BuildPeakPipelineFailureReport(pipe),
+						pipe,
+						isPm,
+						pmRangeIndex,
+						sweepMode,
+						fixedBaseDac,
+						movingBase,
+						attemptDacStep,
 						axisTag,
 						recalStageLabel,
 						pathLine1Based,
-						fileSlot);
+						fileSlot,
+						routeLabel);
 					return FALSE;
 				}
 				continue;
 			}
 			M576LogPeakPipelineFatal(
 				this,
-				M576::BuildPeakPipelineFailureReport(pipe),
+				pipe,
+				isPm,
+				pmRangeIndex,
+				sweepMode,
+				fixedBaseDac,
+				movingBase,
+				attemptDacStep,
 				axisTag,
 				recalStageLabel,
 				pathLine1Based,
-				fileSlot);
+				fileSlot,
+				routeLabel);
 			return FALSE;
 		}
 
@@ -1203,22 +1317,36 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 		{
 			M576LogPeakPipelineFatal(
 				this,
-				M576::BuildPeakPipelineFailureReport(pipe),
+				pipe,
+				isPm,
+				pmRangeIndex,
+				sweepMode,
+				fixedBaseDac,
+				movingBase,
+				attemptDacStep,
 				axisTag,
 				recalStageLabel,
 				pathLine1Based,
-				fileSlot);
+				fileSlot,
+				routeLabel);
 			return FALSE;
 		}
 	}
 
 	M576LogPeakPipelineFatal(
 		this,
-		M576::BuildPeakPipelineFailureReport(pipe),
+		pipe,
+		isPm,
+		pmRangeIndex,
+		sweepMode,
+		fixedBaseDac,
+		movingBase,
+		attemptDacStep,
 		axisTag,
 		recalStageLabel,
 		pathLine1Based,
-		fileSlot);
+		fileSlot,
+		routeLabel);
 	return FALSE;
 }
 
@@ -1806,6 +1934,52 @@ void CM576CalibratorDlg::PushPathFailureOutcome(const SCalibPathStepOutcome& o)
 	m_pathFailureOutcomes.push_back(o);
 }
 
+static void M576LogPathFailureSessionDigest(const SRunPathSummary& summary)
+{
+	char ts[48] = {};
+	M576FormatLocalTimestampPrefix(ts, sizeof ts, nullptr);
+	CStringA head;
+	head.Format(
+		"%s[SESSION][path-failures] cal=%s stopped=%d ok=%d fail=%d skip=%d\n",
+		ts,
+		summary.isPm ? "PM" : "PD",
+		summary.userStopped ? 1 : 0,
+		summary.successCount,
+		summary.failedCount,
+		summary.skippedCount);
+	M576AppendFatalLogUtf8(head.GetString());
+	if (summary.failureRows.empty())
+	{
+		M576AppendFatalLogUtf8("  fail=0\n");
+		return;
+	}
+	for (size_t i = 0; i < summary.failureRows.size(); ++i)
+	{
+		const SCalibPathStepOutcome& r = summary.failureRows[i];
+		CStringA line;
+		line.Format(
+			"  fail[%u] path_line=%d slot=%d route=%s category=%s stage=%s peak_code=%s attempts=%d "
+			"cross_round=%d offsetY=%d offsetX=%d baseY=%d baseX=%d samplesY=%d samplesX=%d detail=%s\n",
+			(unsigned)i,
+			r.pathLine1Based,
+			r.fileSlot,
+			r.routeLabel.empty() ? "-" : r.routeLabel.c_str(),
+			CalibPathFailCategoryLabelA(r.failCategory),
+			r.failStage.empty() ? "-" : r.failStage.c_str(),
+			r.peakCodeText.empty() ? M576Peak1DWhy(r.peakCode) : r.peakCodeText.c_str(),
+			r.peakAttempts,
+			r.crossRound,
+			r.lastOffsetY,
+			r.lastOffsetX,
+			r.lastBaseY,
+			r.lastBaseX,
+			r.sampleCountY,
+			r.sampleCountX,
+			r.commDetail.empty() ? "-" : r.commDetail.c_str());
+		M576AppendFatalLogUtf8(line.GetString());
+	}
+}
+
 void CM576CalibratorDlg::ShowRunPathSummaryDialog(BOOL userStopped)
 {
 	std::vector<SCalibPathStepOutcome> failures;
@@ -1820,6 +1994,7 @@ void CM576CalibratorDlg::ShowRunPathSummaryDialog(BOOL userStopped)
 	}
 	const SRunPathSummary summary = BuildRunPathSummary(
 		failures, successCount, m_nCalMode == 0, userStopped != FALSE);
+	M576LogPathFailureSessionDigest(summary);
 	CM576RunPathSummaryDlg dlg(summary, this);
 	dlg.DoModal();
 }
@@ -4614,6 +4789,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				SafeAppendLog(msg);
 			}
 
+			const CString routePm = CString(M576FormatPathStepRouteLabelPm(st).c_str());
 			if (!RunRecal1DSweepWithPeakRecenterRetry(
 					TRUE,
 					m_pmRangeIndex,
@@ -4634,7 +4810,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					ySweepRangePm,
 					err,
 					i + 1,
-					fileSlot))
+					fileSlot,
+					routePm))
 			{
 				if (yCrossRound == 0)
 				{
@@ -4746,7 +4923,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 						attemptDacRangeX,
 						err,
 						i + 1,
-						fileSlot))
+						fileSlot,
+						routePm))
 				{
 					if (M576CommErrIsSerialWriteFailure(err))
 					{
@@ -5378,6 +5556,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				SafeAppendLog(msg);
 			}
 
+			const CString routePd = CString(M576FormatPathStepRouteLabelPd(st).c_str());
 			if (!RunRecal1DSweepWithPeakRecenterRetry(
 					FALSE,
 					M576_MAX_PM_RANGE,
@@ -5398,7 +5577,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					ySweepRangePd,
 					err,
 					i + 1,
-					fileSlot))
+					fileSlot,
+					routePd))
 			{
 				if (yCrossRoundPd == 0)
 				{
@@ -5478,7 +5658,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 						attemptDacRangeXPd,
 						err,
 						i + 1,
-						fileSlot))
+						fileSlot,
+						routePd))
 				{
 					if (err.IsEmpty())
 						SafeAppendLog(_T("RECAL 5 1 (X sweep): pipeline failed."));

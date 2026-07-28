@@ -81,22 +81,41 @@ void M576AppendFatalLogUtf8(const char* utf8Line)
 	}
 }
 
-static void M576AppendLocalTimestampPrefix(char* buf, size_t bufSize, const char* kind)
+void M576FormatLocalTimestampPrefix(char* buf, size_t bufSize, const char* kind)
 {
+	if (!buf || bufSize == 0)
+		return;
 	SYSTEMTIME st = {};
 	GetLocalTime(&st);
-	_snprintf_s(
-		buf,
-		bufSize,
-		_TRUNCATE,
-		"[%04u-%02u-%02u %02u:%02u:%02u] [%s] ",
-		(unsigned)st.wYear,
-		(unsigned)st.wMonth,
-		(unsigned)st.wDay,
-		(unsigned)st.wHour,
-		(unsigned)st.wMinute,
-		(unsigned)st.wSecond,
-		kind);
+	if (kind != nullptr && kind[0] != '\0')
+	{
+		_snprintf_s(
+			buf,
+			bufSize,
+			_TRUNCATE,
+			"[%04u-%02u-%02u %02u:%02u:%02u] [%s] ",
+			(unsigned)st.wYear,
+			(unsigned)st.wMonth,
+			(unsigned)st.wDay,
+			(unsigned)st.wHour,
+			(unsigned)st.wMinute,
+			(unsigned)st.wSecond,
+			kind);
+	}
+	else
+	{
+		_snprintf_s(
+			buf,
+			bufSize,
+			_TRUNCATE,
+			"[%04u-%02u-%02u %02u:%02u:%02u] ",
+			(unsigned)st.wYear,
+			(unsigned)st.wMonth,
+			(unsigned)st.wDay,
+			(unsigned)st.wHour,
+			(unsigned)st.wMinute,
+			(unsigned)st.wSecond);
+	}
 }
 
 static LONG WINAPI M576SehFilter(_EXCEPTION_POINTERS* ep)
@@ -111,7 +130,7 @@ static LONG WINAPI M576SehFilter(_EXCEPTION_POINTERS* ep)
 	const void* addr = ep->ExceptionRecord->ExceptionAddress;
 	char line[1024] = {};
 	char head[80] = {};
-	M576AppendLocalTimestampPrefix(head, sizeof head, "SEH");
+	M576FormatLocalTimestampPrefix(head, sizeof head, "SEH");
 	_snprintf_s(
 		line,
 		sizeof line,
@@ -143,7 +162,7 @@ static void __cdecl M576TerminateHandler()
 {
 	char line[1024] = {};
 	char head[80] = {};
-	M576AppendLocalTimestampPrefix(head, sizeof head, "terminate");
+	M576FormatLocalTimestampPrefix(head, sizeof head, "terminate");
 	const std::exception_ptr cur = std::current_exception();
 	if (cur)
 	{
@@ -206,7 +225,7 @@ static void __cdecl M576InvalidParameter(
 	(void)expression;
 	char linebuf[2048] = {};
 	char head[80] = {};
-	M576AppendLocalTimestampPrefix(head, sizeof head, "invalid_param");
+	M576FormatLocalTimestampPrefix(head, sizeof head, "invalid_param");
 	_snprintf_s(
 		linebuf,
 		sizeof linebuf,
