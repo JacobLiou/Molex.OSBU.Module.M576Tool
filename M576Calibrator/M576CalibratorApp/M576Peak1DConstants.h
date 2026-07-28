@@ -2,6 +2,7 @@
 // 仅含 1D 寻峰/预处理与三阶拟合门限宏，无 TCHAR/MFC。供 PeakFinder2D、CrossPeakTest 与 CalibConstants 共用。
 
 /// ValidateUnimodal1DAtArgmax / recenter Flat：全序列 span=max-min 严格小于 MinProminenceDb 则 LowSpan 或 trend=Flat（见 Peak1DMinFlatSpanRaw）。
+/// Strict 拟合取窗：双侧肩相对峰顶各须掉满该值（非仅全曲线 max−min；单侧不足 → ParabolaNotDownward）。
 #ifndef M576_PEAK1D_MIN_PROMINENCE_DB
 #define M576_PEAK1D_MIN_PROMINENCE_DB 0.3
 #endif
@@ -108,6 +109,21 @@
 #ifndef M576_MAX_DAC_RANGE
 #define M576_MAX_DAC_RANGE 200
 #endif
+/// Coarse/stitch RECAL step when halfRange >= M576_MAX_DAC_RANGE (fine keeps UI step, default 4).
+#ifndef M576_PEAK1D_COARSE_DAC_STEP
+#define M576_PEAK1D_COARSE_DAC_STEP 8
+#endif
+/// Fine: uiFineStep; coarse/stitch (R>=200): max(uiFineStep, COARSE_DAC_STEP).
+inline int Peak1DDacStepForHalfRange(int halfRange, int uiFineStep)
+{
+	const int fine = (uiFineStep < 1) ? 1 : uiFineStep;
+	if (halfRange >= (int)M576_MAX_DAC_RANGE)
+	{
+		const int coarse = (int)M576_PEAK1D_COARSE_DAC_STEP;
+		return (fine > coarse) ? fine : coarse;
+	}
+	return fine;
+}
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC
 #define M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC 0.35
 #endif

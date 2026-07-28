@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Extract up to 6-device calib sweeps for bad-IL paths (K8256930)."""
+"""Extract up to 6-device calib sweeps for bad-IL paths (K7797782)."""
 import csv
 import re
 from collections import defaultdict
@@ -7,23 +7,33 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-CSV_PATH = HERE / "comm_2026-07-15_recal_sweeps.csv"
+CSV_PATH = HERE / "comm_2026-07-14_recal_sweeps.csv"
 OUT_SUMMARY = HERE / "bad_IL_calib_summary.csv"
 OUT_DETAIL = HERE / "bad_IL_calib_sweeps_extract.csv"
 OUT_MD = HERE / "bad_IL_calib_extract.md"
 MAP1 = ROOT / "M576Calibrator" / "output" / "pm_1x64_1Mapping.csv"
 MAP2 = ROOT / "M576Calibrator" / "output" / "pm_1x64_2Mapping.csv"
 
-# (il, step, mpo_in, mpo_out, c1, c2, c4)
+# (il, step, mpo_in, mpo_out, c1, c2, c4) — from 挂机不良通道SN_2026_7_20.xlsx / K7797782_1310, Span>0.15
 BAD = [
-    (0.163, 204, "MPO17-1", "MPO65-1", 12, 6, 44),
-    (0.185, 267, "MPO23-3", "MPO71-3", 15, 15, 47),
-    (0.200, 270, "MPO23-6", "MPO71-6", 15, 18, 47),
-    (0.154, 303, "MPO26-3", "MPO74-3", 17, 15, 49),
-    (0.209, 310, "MPO26-1", "MPO74-1", 18, 4, 50),
-    (0.230, 311, "MPO26-1", "MPO74-1", 18, 5, 50),
-    (0.190, 385, "MPO33-1", "MPO81-1", 22, 7, 54),
-    (0.196, 434, "MPO37-2", "MPO85-2", 25, 2, 57),
+    (1.0303, 469, "MPO40-1", "MPO88-1", 27, 1, 59),
+    (0.5817, 470, "MPO40-2", "MPO88-2", 27, 2, 59),
+    (0.2844, 471, "MPO40-3", "MPO88-3", 27, 3, 59),
+    (0.3286, 472, "MPO40-4", "MPO88-4", 27, 4, 59),
+    (1.0663, 473, "MPO40-5", "MPO88-5", 27, 5, 59),
+    (1.9068, 474, "MPO40-6", "MPO88-6", 27, 6, 59),
+    (1.9719, 475, "MPO40-7", "MPO88-7", 27, 7, 59),
+    (1.0705, 476, "MPO40-8", "MPO88-8", 27, 8, 59),
+    (0.3226, 477, "MPO40-9", "MPO88-9", 27, 9, 59),
+    (0.2104, 478, "MPO40-10", "MPO88-10", 27, 10, 59),
+    (0.5507, 479, "MPO40-11", "MPO88-11", 27, 11, 59),
+    (0.9071, 480, "MPO40-12", "MPO88-12", 27, 12, 59),
+    (1.0357, 481, "MPO41-1", "MPO89-1", 27, 13, 59),
+    (0.7990, 482, "MPO41-2", "MPO89-2", 27, 14, 59),
+    (0.6081, 483, "MPO41-3", "MPO89-3", 27, 15, 59),
+    (0.8781, 484, "MPO41-4", "MPO89-4", 27, 16, 59),
+    (1.6439, 485, "MPO41-5", "MPO89-5", 27, 17, 59),
+    (2.4622, 486, "MPO41-6", "MPO89-6", 27, 18, 59),
 ]
 
 # SW_x -> cascade RECAL 1 for 1# / 2#
@@ -208,10 +218,10 @@ def main():
     summary_rows = []
     detail_rows = []
     md = []
-    md.append("# K8256930 不良 IL 通道 — 当时定标扫频提取（六器件）")
+    md.append("# K7797782 不良 IL 通道 — 当时定标扫频提取（六器件）")
     md.append("")
     md.append(
-        "源文件：`K8256930/comm_2026-07-15_recal_sweeps.csv`"
+        "源文件：`K7797782/comm_2026-07-14_recal_sweeps.csv`"
         "（匹配 **%d** 条扫频；唯一 RECAL 1 **%d** 条）"
         % (len(matches), len(by_cmd))
     )

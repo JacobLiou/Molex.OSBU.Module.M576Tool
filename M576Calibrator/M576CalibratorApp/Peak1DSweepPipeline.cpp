@@ -367,10 +367,12 @@ namespace M576
 	void InitRecal1DSweepPipeline(
 		Recal1DSweepPipelineState& state,
 		int uiFineRange,
-		int movingBase)
+		int movingBase,
+		int uiFineStep)
 	{
 		state = {};
 		state.uiFineRange = (uiFineRange >= 1) ? uiFineRange : 1;
+		state.uiFineStep = (uiFineStep < 1) ? 1 : uiFineStep;
 		state.fineHalfRange = state.uiFineRange;
 		state.coarseRange = M576_MAX_DAC_RANGE;
 		state.movingBase = movingBase;
@@ -395,12 +397,14 @@ namespace M576
 		case Recal1DPipelinePhase::Fine64:
 			outCmd.movingBase = state.movingBase;
 			outCmd.halfRange = state.uiFineRange;
+			outCmd.dacStep = Peak1DDacStepForHalfRange(outCmd.halfRange, state.uiFineStep);
 			outCmd.fitPolicy = Peak1DFitPolicy::Strict;
 			outCmd.phaseLogTag = "fine64";
 			return true;
 		case Recal1DPipelinePhase::Coarse200:
 			outCmd.movingBase = state.movingBase;
 			outCmd.halfRange = state.coarseRange;
+			outCmd.dacStep = Peak1DDacStepForHalfRange(outCmd.halfRange, state.uiFineStep);
 			outCmd.fitPolicy = Peak1DFitPolicy::Strict;
 			outCmd.phaseLogTag = "coarse200";
 			return true;
@@ -415,6 +419,7 @@ namespace M576
 				return false;
 			outCmd.movingBase = StitchMovingBaseFromAnchor(state.anchorBase, k, state.coarseRange);
 			outCmd.halfRange = state.coarseRange;
+			outCmd.dacStep = Peak1DDacStepForHalfRange(outCmd.halfRange, state.uiFineStep);
 			outCmd.fitPolicy = Peak1DFitPolicy::Strict;
 			if (k <= (int)M576_PEAK1D_STITCH_SYMMETRIC_RETRIES)
 				outCmd.phaseLogTag = IsStitchLeft(k) ? "stitch left" : "stitch right";
@@ -425,6 +430,7 @@ namespace M576
 		case Recal1DPipelinePhase::FineRefine:
 			outCmd.movingBase = state.hasPendingFineBase ? state.pendingFineBase : state.movingBase;
 			outCmd.halfRange = state.uiFineRange;
+			outCmd.dacStep = Peak1DDacStepForHalfRange(outCmd.halfRange, state.uiFineStep);
 			outCmd.fitPolicy = Peak1DFitPolicy::FineRefineRelaxed;
 			outCmd.phaseLogTag = "fineRefine";
 			return true;

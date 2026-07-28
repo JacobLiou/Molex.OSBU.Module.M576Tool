@@ -55,7 +55,7 @@ RECAL 3 {mode} {baseX} {baseY} {offset} {step} {delay}
 | **1** | 固定 Y，扫 X | `movingBase`（可平移） | `Y@peak`（预扫结果） | X |
 
 - `offset`：半窗 DAC 范围（UI 默认 `m_dacRange`，粗扫可扩至 200）  
-- `step`：扫频步进（`m_dacStep`）  
+- `step`：扫频步进 — 精扫用 UI `m_dacStep`（默认 4）；粗扫/stitch（`offset>=200`）用 `max(m_dacStep, M576_PEAK1D_COARSE_DAC_STEP)`（默认 **8**）  
 - `delay`：每点稳定时间（`m_delayMs`）  
 
 固件返回一行：`[col0] P1 P2 ... Pn`（功率 raw 值；无效点为 `-999999` 或 `-999900`，INV-14）。
@@ -113,8 +113,8 @@ flowchart LR
 ```
 
 1. **无效功率**：`-999999` / `-999900` 不参与 span/拟合（INV-14）。  
-2. **突出度门限（Strict）**：预处理前全序列 `max−min >= MinProminenceDb`（默认 **0.3 dB**，经 `Peak1DDbToRawDelta` 换算 raw）；未达则 `ParabolaNotDownward`。运行时可由 exe 旁 `M576Calibrator.ini` 覆盖。  
-3. **预处理**：孤立尖峰剔除 → `FindProminenceSymmetricWindow` 选拟合窗（肩点失败时用固定半窗/单调包络兜底）。  
+2. **突出度门限**：预处理前全序列 `max−min >= MinProminenceDb`（默认 **0.3 dB**，经 `Peak1DDbToRawDelta` 换算 raw）；**Strict** 另要求 argmax **双侧肩各掉满** 该值，未达则 `ParabolaNotDownward`（不走半窗假 Ok）。`FineRefineRelaxed` 仍可半窗/argmax（精扫与 stitch merge）。运行时可由 exe 旁 `M576Calibrator.ini` 覆盖。  
+3. **预处理**：孤立尖峰剔除 → `FindProminenceSymmetricWindow` 选对称拟合窗；Strict 下双侧肩失败即拒收。  
 4. **三阶拟合**：`P(i) ≈ a·i³ + b·i² + c·i + d`，在拟合窗闭区间上求极大得 `t*`。  
 5. **Strict 附加拒收**（`Peak1DFitPolicy::Strict`）：  
    - 拟合窗内仍全序列单调 → `ParabolaNotDownward`  
@@ -358,7 +358,7 @@ M576Calibrator\CrossPeakTest\Release\CrossPeakTest.exe
 | `M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS` | 12 | 单轴预扫 / cross round 上限 |
 | `M576_MAX_DAC_RANGE` | 200 | 粗扫最大半窗 offset |
 | `M576_PEAK1D_COARSE_DAC_RANGE` | 200 | 粗扫标准 offset |
-| `M576_PEAK1D_MIN_PROMINENCE_DB` | 0.3 | Strict 全序列突出度下限 (dB) |
+| `M576_PEAK1D_MIN_PROMINENCE_DB` | 0.3 | 全序列 span 与双侧肩各掉满下限 (dB) |
 | `M576_PEAK1D_MIN_SPAN_DB` | 2.5 | Flat 判定 / recenter span 参考 |
 | `M576_PEAK1D_COARSE_MIN_SPAN_DB` | 0.5 | JumpFlatMax 后认粗峰 span 下限 |
 | `M576_PEAK1D_CUBIC_MIN_SAMPLES` | 4 | 三阶拟合最少样本 |

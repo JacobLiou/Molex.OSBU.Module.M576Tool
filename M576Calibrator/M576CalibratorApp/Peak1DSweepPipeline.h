@@ -29,6 +29,8 @@ namespace M576
 	struct Recal1DSweepPipelineState
 	{
 		int uiFineRange = 64;
+		/// UI fine RECAL step (default 4); coarse/stitch use Peak1DDacStepForHalfRange.
+		int uiFineStep = 4;
 		/// @deprecated FineRefine ??? uiFineRange??? m_dacRange???????????????????
 		int fineHalfRange = 64;
 		int coarseRange = 200;
@@ -80,6 +82,7 @@ namespace M576
 	{
 		int movingBase = 0;
 		int halfRange = 0;
+		int dacStep = 4;
 		Peak1DFitPolicy fitPolicy = Peak1DFitPolicy::Strict;
 		const char* phaseLogTag = "fine64";
 	};
@@ -124,7 +127,8 @@ namespace M576
 	void InitRecal1DSweepPipeline(
 		Recal1DSweepPipelineState& state,
 		int uiFineRange,
-		int movingBase);
+		int movingBase,
+		int uiFineStep = 4);
 
 	bool GetNextPipelineSweepCommand(
 		const Recal1DSweepPipelineState& state,

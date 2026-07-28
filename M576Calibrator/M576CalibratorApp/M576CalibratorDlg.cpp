@@ -969,11 +969,12 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 
 	const int uiFineRange = (initialDacRange >= M576_MIN_DAC_RANGE) ? initialDacRange : m_dacRange;
 	M576::Recal1DSweepPipelineState pipe = {};
-	M576::InitRecal1DSweepPipeline(pipe, uiFineRange, initialMovingBase);
+	M576::InitRecal1DSweepPipeline(pipe, uiFineRange, initialMovingBase, m_dacStep);
 	int movingBase = initialMovingBase;
 	int attemptDacRange = uiFineRange;
+	int attemptDacStep = Peak1DDacStepForHalfRange(attemptDacRange, m_dacStep);
 	DWORD attemptTimeout = (initialDacRange >= M576_MIN_DAC_RANGE)
-		? ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep)
+		? ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, attemptDacStep)
 		: readTimeoutMs;
 	CStringA lineY;
 
@@ -985,16 +986,17 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 
 		movingBase = cmd.movingBase;
 		attemptDacRange = cmd.halfRange;
+		attemptDacStep = cmd.dacStep;
 		outAttemptCount = pipe.sweepCount + 1;
-		attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep);
+		attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, attemptDacStep);
 
 		const int baseX = (sweepMode == 0) ? fixedBaseDac : movingBase;
 		const int baseY = (sweepMode == 0) ? movingBase : fixedBaseDac;
 		const BOOL got = isPm
 			? m_pRecal->ExchangeRecal3ReadSweep(
-				sweepMode, baseX, baseY, attemptDacRange, m_dacStep, m_delayMs, lineY, attemptTimeout, err)
+				sweepMode, baseX, baseY, attemptDacRange, attemptDacStep, m_delayMs, lineY, attemptTimeout, err)
 			: m_pRecal->ExchangeRecal5ReadSweep(
-				sweepMode, baseX, baseY, attemptDacRange, m_dacStep, m_delayMs, lineY, attemptTimeout, err);
+				sweepMode, baseX, baseY, attemptDacRange, attemptDacStep, m_delayMs, lineY, attemptTimeout, err);
 		if (!got)
 			return FALSE;
 
@@ -1074,7 +1076,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 					baseX,
 					baseY,
 					attemptDacRange,
-					m_dacStep,
+					attemptDacStep,
 					m_delayMs);
 			else
 				wireA.Format(
@@ -1083,7 +1085,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 					baseX,
 					baseY,
 					attemptDacRange,
-					m_dacStep,
+					attemptDacStep,
 					m_delayMs);
 			const BOOL csvPeakOk = (outCode == M576::Peak1DValidateCode::Ok) ? TRUE : FALSE;
 			M576RecalSweepCsvAppendRow(
@@ -1099,7 +1101,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 		{
 			if (pipe.phase == M576::Recal1DPipelinePhase::Stitch && pipe.stitchK >= 3)
 			{
-				M576::HandleStitchExplorePmRangeReject(pipe, m_dacStep);
+				M576::HandleStitchExplorePmRangeReject(pipe, attemptDacStep);
 				if (pipe.phase == M576::Recal1DPipelinePhase::Failed)
 				{
 					M576LogPeakPipelineFatal(
@@ -1127,7 +1129,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			const M576::SweepProfile prof = M576::AnalyzeRecal1DSweepProfile(outPow);
 			CString msg;
 			msg.Format(
-				_T("  %hs %s %s sweep %d/%d code=%hs trend=%hs offset=%d base=%d"),
+				_T("  %hs %s %s sweep %d/%d code=%hs trend=%hs offset=%d step=%d base=%d"),
 				cmd.phaseLogTag,
 				recalStageLabel,
 				axisTag,
@@ -1136,6 +1138,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 				M576Peak1DWhy(outCode),
 				M576::SweepTrendName(prof.trend),
 				attemptDacRange,
+				attemptDacStep,
 				movingBase);
 			SafeAppendLog(msg);
 		}
@@ -1149,7 +1152,7 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			outCode,
 			outTPeak,
 			outPeakIdx,
-			m_dacStep);
+			attemptDacStep);
 
 		if (pipe.lastStitchStrictGateFailed
 			&& pipe.phase == M576::Recal1DPipelinePhase::Stitch)

@@ -433,38 +433,14 @@ namespace M576
 					break;
 				}
 			}
-			const bool atLeftEdge = (i0 <= 0);
-			const bool atRightEdge = (i0 >= n - 1);
-			if (!leftOk && !rightOk)
+			// Bilateral shoulders required: each side must drop full minPromDb.
+			if (!leftOk || !rightOk)
 				return false;
-			if (!leftOk && !atLeftEdge)
-				return false;
-			if (!rightOk && !atRightEdge)
-				return false;
-
-			if (leftOk && rightOk)
-			{
-				outHalfW = (std::min)(i0 - leftAtThr, rightAtThr - i0);
-				if (outHalfW < 2)
-					return false;
-				outLeft = i0 - outHalfW;
-				outRight = i0 + outHalfW;
-				return true;
-			}
-			if (rightOk)
-			{
-				outHalfW = rightAtThr - i0;
-				if (outHalfW < 1)
-					return false;
-				outLeft = i0;
-				outRight = i0 + outHalfW;
-				return true;
-			}
-			outHalfW = i0 - leftAtThr;
-			if (outHalfW < 1)
+			outHalfW = (std::min)(i0 - leftAtThr, rightAtThr - i0);
+			if (outHalfW < 2)
 				return false;
 			outLeft = i0 - outHalfW;
-			outRight = i0;
+			outRight = i0 + outHalfW;
 			return true;
 		}
 
@@ -652,6 +628,15 @@ namespace M576
 			int rightAtThr = i0;
 			const bool promOk = FindProminenceSymmetricWindow(
 				pFilled, useOk, i0, peakY, minPromDb, n, promLeft, promRight, halfW);
+			// Strict: bilateral shoulders required — no one-sided / half-window fake Ok.
+			// FineRefineRelaxed: keep half-window below (fine refine + stitch merge).
+			if (!promOk && !relaxed)
+			{
+				f = Peak1DValidateCode::ParabolaNotDownward;
+				xs.clear();
+				ys.clear();
+				return false;
+			}
 			if (promOk)
 			{
 				const double thrY = peakY - Peak1DDbToRawDelta(minPromDb);
@@ -689,8 +674,6 @@ namespace M576
 						break;
 					rightExtent = j;
 				}
-				const bool oneSidedRight = (promLeft == i0 && promRight > i0);
-				const bool oneSidedLeft = (promRight == i0 && promLeft < i0);
 				auto countWindow = [&](int lo, int hi) -> int
 				{
 					int cnt = 0;
@@ -704,28 +687,11 @@ namespace M576
 					}
 					return cnt;
 				};
-				if (oneSidedRight)
-				{
-					int fitRight = promRight;
-					while (fitRight < rightExtent && countWindow(i0, fitRight) < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
-						++fitRight;
-					collectWindow(i0, fitRight);
-				}
-				else if (oneSidedLeft)
-				{
-					int fitLeft = promLeft;
-					while (fitLeft > leftExtent && countWindow(fitLeft, i0) < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
-						--fitLeft;
-					collectWindow(fitLeft, i0);
-				}
-				else
-				{
-					const int maxHalf = (std::min)(i0 - leftExtent, rightExtent - i0);
-					int fitHalf = halfW;
-					while (fitHalf < maxHalf && countWindow(i0 - fitHalf, i0 + fitHalf) < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
-						++fitHalf;
-					collectWindow(i0 - fitHalf, i0 + fitHalf);
-				}
+				const int maxHalf = (std::min)(i0 - leftExtent, rightExtent - i0);
+				int fitHalf = halfW;
+				while (fitHalf < maxHalf && countWindow(i0 - fitHalf, i0 + fitHalf) < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+					++fitHalf;
+				collectWindow(i0 - fitHalf, i0 + fitHalf);
 			}
 
 			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES && promOk)
@@ -735,29 +701,24 @@ namespace M576
 				int halfFixed = (int)std::lround((double)(n - 1) * (double)M576_PEAK1D_FIT_HALF_FRAC);
 				halfFixed = (std::max)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MIN);
 				halfFixed = (std::min)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MAX);
-				if (promOk)
+				int leftExtent = i0;
+				for (int i = i0 - 1; i >= 0; --i)
 				{
-					int leftExtent = i0;
-					for (int i = i0 - 1; i >= 0; --i)
-					{
-						if (!useOk[(size_t)i])
-							break;
-						leftExtent = i;
-					}
-					int rightExtent = i0;
-					for (int j = i0 + 1; j < n; ++j)
-					{
-						if (!useOk[(size_t)j])
-							break;
-						rightExtent = j;
-					}
-					const int maxHalf = (std::min)(i0 - leftExtent, rightExtent - i0);
-					if (i0 > 1 && i0 < n - 2)
-						halfFixed = (std::min)(halfFixed, maxHalf);
-					collectWindow(i0 - halfFixed, i0 + halfFixed);
+					if (!useOk[(size_t)i])
+						break;
+					leftExtent = i;
 				}
-				else
-					collectWindow(i0 - halfFixed, i0 + halfFixed);
+				int rightExtent = i0;
+				for (int j = i0 + 1; j < n; ++j)
+				{
+					if (!useOk[(size_t)j])
+						break;
+					rightExtent = j;
+				}
+				const int maxHalf = (std::min)(i0 - leftExtent, rightExtent - i0);
+				if (i0 > 1 && i0 < n - 2)
+					halfFixed = (std::min)(halfFixed, maxHalf);
+				collectWindow(i0 - halfFixed, i0 + halfFixed);
 			}
 			if (xs.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
 			{
@@ -1005,7 +966,9 @@ namespace M576
 		double spanAll = 0;
 		if (!Peak1DSamplesFromPreprocessed(p, spanAll, xs, ys, f, policy))
 		{
-			if (relaxed && TryFineRefineArgmaxFallback(p, spanAll, trace, outT, f))
+			// Do not argmax-escape bilateral prominence hard reject (span>=MinProminenceDb).
+			if (relaxed && f != Peak1DValidateCode::ParabolaNotDownward
+				&& TryFineRefineArgmaxFallback(p, spanAll, trace, outT, f))
 				return true;
 			return false;
 		}

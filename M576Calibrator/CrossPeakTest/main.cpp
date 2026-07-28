@@ -1352,15 +1352,12 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
-	// post-outlier flat gate: isolated spike inflates pre-outlier span; useOk span >= 0.3 dB => Strict Ok
+	// post-outlier flat gate: isolated edge spike inflates pre-outlier span; useOk span >= 0.3 dB => Strict Ok
 	{
 		std::vector<double> withSpike(9);
 		for (int i = 0; i < 9; ++i)
-		{
-			const double x = (double)(i - 4);
-			withSpike[(size_t)i] = -250000.0 - 400.0 * x * x; // span 6400 raw = 0.64 dB
-		}
-		withSpike[1] = -240000.0;
+			withSpike[(size_t)i] = SyntheticRawPeakQuad(i, 4, -250000.0, 2000.0); // bilateral >=0.3 at halfW=2
+		withSpike[0] = -230000.0; // edge outlier (must not sit on shoulder path to argmax)
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
 		if (!M576::ParabolaVertexMax1D(withSpike, t, c) || c != Peak1DValidateCode::Ok)
@@ -1370,7 +1367,7 @@ static int RunPeak1DSelfTests()
 			++fail;
 		}
 	}
-	// one-sided shoulder: global span >= 0.3 dB may Ok (shoulder trim not hard reject)
+	// one-sided shoulder: global span >= 0.3 dB but left shoulder < 0.3 => ParabolaNotDownward
 	{
 		std::vector<double> asym(9);
 		asym[4] = -250000.0;
@@ -1380,14 +1377,14 @@ static int RunPeak1DSelfTests()
 			asym[(size_t)i] = -250000.0 - 5000.0 * (double)(i - 5);
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (!M576::ParabolaVertexMax1D(asym, t, c) || c != Peak1DValidateCode::Ok)
+		if (M576::ParabolaVertexMax1D(asym, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
 		{
-			std::fprintf(stderr, "self-test: oneSidedShoulder global span ok may Ok (code=%s)\n",
+			std::fprintf(stderr, "self-test: oneSidedShoulder Strict must be ParabolaNotDownward (code=%s)\n",
 				Peak1DCodeName(c));
 			++fail;
 		}
 	}
-	// asymmetric long tail — global span large; preprocess gate passes
+	// asymmetric long tail — global span large but right shoulder < 0.3 => reject
 	{
 		static const double kAsymLongTail[] = {
 			-300000, -295000, -290000, -285000, -280000, -275000, -270000, -265000, -260000, -255000,
@@ -1396,9 +1393,23 @@ static int RunPeak1DSelfTests()
 		std::vector<double> asymTail(kAsymLongTail, kAsymLongTail + _countof(kAsymLongTail));
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (!M576::ParabolaVertexMax1D(asymTail, t, c) || c != Peak1DValidateCode::Ok)
+		if (M576::ParabolaVertexMax1D(asymTail, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
 		{
-			std::fprintf(stderr, "self-test: asymmetricLongTail global span ok may Ok (code=%s)\n",
+			std::fprintf(stderr, "self-test: asymmetricLongTail must be ParabolaNotDownward (code=%s)\n",
+				Peak1DCodeName(c));
+			++fail;
+		}
+	}
+	// bilateral shoulders each drop >= 0.3 dB => Ok
+	{
+		std::vector<double> bilat(9);
+		for (int i = 0; i < 9; ++i)
+			bilat[(size_t)i] = SyntheticRawPeakQuad(i, 4, -250000.0, 2000.0); // d=2 => 0.8 dB/side
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(bilat, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 4.0) > 0.15)
+		{
+			std::fprintf(stderr, "self-test: bilateralShoulders0.3 must Ok near t=4 (code=%s)\n",
 				Peak1DCodeName(c));
 			++fail;
 		}
@@ -2007,6 +2018,59 @@ static int RunSweepPipelineSelfTests()
 	{
 		std::fprintf(stderr, "self-test: IsStitchLeft k=1 left k=2 right\n");
 		++fail;
+	}
+	if (Peak1DDacStepForHalfRange(64, 4) != 4
+		|| Peak1DDacStepForHalfRange(200, 4) != (int)M576_PEAK1D_COARSE_DAC_STEP
+		|| Peak1DDacStepForHalfRange(200, 16) != 16)
+	{
+		std::fprintf(stderr, "self-test: Peak1DDacStepForHalfRange fine4/coarse8/ui16\n");
+		++fail;
+	}
+
+	// Coarse R=200 uses step=8 (n=51); FineRefine keeps UI step=4.
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999, 4);
+		Recal1DSweepCommand fine64Cmd = {};
+		if (!GetNextPipelineSweepCommand(st, fine64Cmd)
+			|| fine64Cmd.dacStep != 4 || fine64Cmd.halfRange != uiFine)
+		{
+			std::fprintf(stderr, "self-test: Fine64 cmd.dacStep must be 4 (step=%d range=%d)\n",
+				fine64Cmd.dacStep, fine64Cmd.halfRange);
+			++fail;
+		}
+		std::vector<double> flat33(33, -250000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(9999, uiFine), 4);
+		Recal1DSweepCommand coarseCmd = {};
+		if (!GetNextPipelineSweepCommand(st, coarseCmd)
+			|| coarseCmd.dacStep != 8 || coarseCmd.halfRange != 200
+			|| st.phase != Recal1DPipelinePhase::Coarse200)
+		{
+			std::fprintf(stderr, "self-test: Coarse200 cmd.dacStep must be 8 (step=%d range=%d phase=%d)\n",
+				coarseCmd.dacStep, coarseCmd.halfRange, (int)st.phase);
+			++fail;
+		}
+		const std::vector<double> bell51 = MakeBellPow(51, 25, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, bell51, Col0FromMovingBase(9999, 200), 8);
+		Recal1DSweepCommand fineCmd = {};
+		if (!GetNextPipelineSweepCommand(st, fineCmd)
+			|| fineCmd.dacStep != 4
+			|| fineCmd.halfRange != uiFine
+			|| st.phase != Recal1DPipelinePhase::FineRefine)
+		{
+			std::fprintf(stderr,
+				"self-test: coarse@step8 Ok -> fineRefine step=4 (step=%d range=%d phase=%d)\n",
+				fineCmd.dacStep, fineCmd.halfRange, (int)st.phase);
+			++fail;
+		}
+		const std::vector<double> bellFine8 = MakeBellPow(33, 16, -250000.0, -240000.0);
+		FeedPipelineSweepExact(st, bellFine8, Col0FromMovingBase(fineCmd.movingBase, fineCmd.halfRange), 4);
+		if (st.phase != Recal1DPipelinePhase::Succeeded)
+		{
+			std::fprintf(stderr, "self-test: coarse step8 + fine step4 must Succeeded (phase=%d)\n",
+				(int)st.phase);
+			++fail;
+		}
 	}
 
 	{
