@@ -21,6 +21,13 @@
 #ifndef M576_PEAK1D_MIN_PROMINENCE_DB_MAX
 #define M576_PEAK1D_MIN_PROMINENCE_DB_MAX 2.0
 #endif
+/// INI [PeakFinder] SweepAxisOrder 默认名：YThenX=先 mode0(Y) 后 mode1(X)；XThenY 反之。不改寻峰门限。
+#ifndef M576_PEAK1D_SWEEP_AXIS_ORDER_DEFAULT
+#define M576_PEAK1D_SWEEP_AXIS_ORDER_DEFAULT "YThenX"
+#endif
+#ifndef M576_PEAK1D_SWEEP_AXIS_ORDER_X_THEN_Y
+#define M576_PEAK1D_SWEEP_AXIS_ORDER_X_THEN_Y "XThenY"
+#endif
 /// 拟合窗 span / 全序列 span 低于本比例时视为 plateau 假峰（comm expand128 类）。
 #ifndef M576_PEAK1D_MIN_FIT_SPAN_FRAC
 #define M576_PEAK1D_MIN_FIT_SPAN_FRAC 0.05

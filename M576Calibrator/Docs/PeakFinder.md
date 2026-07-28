@@ -21,24 +21,35 @@ PM/PD Run Path 的每一步**不是**在二维 DAC 网格上做真 2D 扫描，�
 
 1. `RECAL 0` — 设置光源 / PM 挡位  
 2. `RECAL 1` — 路由到当前 MEMS 通道  
-3. **`RECAL 3` mode 0** — 固定 X（`baseX=9999`），扫 Y → **第一轴（Y 预扫）**  
-4. **`RECAL 3` mode 1** — 固定 `baseY=Y@peak`，扫 X → **第二轴（X 扫）**  
-5. **`PeakCrossFrom1DScans`** — 对两组功率序列分别做 1D 三阶拟合，得到交叉峰 `(row, col)` → DAC  
-6. 写入 LUT 对应槽位  
+3. **双轴 1D 扫频**（顺序见 INI `SweepAxisOrder`，默认 **YThenX**）  
+4. **`PeakCrossFrom1DScans(powY, powX, …)`** — 参数顺序与 LUT 轴映射**固定为物理 Y/X**，不随采集先后交换  
+5. 写入 LUT：`[0]=dacY`，`[1]=dacX`  
 
 （PD 路径使用 `RECAL 5`，语义与 `RECAL 3` 相同，见 INV-18。）
+
+**INI `[PeakFinder] SweepAxisOrder`**（重启生效；PM/PD 共用）：
+
+| 值 | 采集顺序 | 第一轴锁定 |
+|----|----------|------------|
+| **YThenX**（默认） | mode0（扫 Y）→ mode1（扫 X） | `baseY=Y@peak` |
+| **XThenY** | mode1（扫 X，`baseY=9999`）→ mode0（扫 Y） | `baseX=X@peak` |
+
+mode 物理含义不变（INV-18）：**0＝定 X 扫 Y**，**1＝定 Y 扫 X**。
 
 ```mermaid
 flowchart TD
   subgraph perStep [每个 path step]
     R0[RECAL 0 光源/PM档]
     R1[RECAL 1 路由]
-    Ypre["RECAL 3 mode 0: 固定 X, 扫 Y (第一轴)"]
-    Xsweep["RECAL 3 mode 1: Y@peak 固定, 扫 X (第二轴)"]
-    Cross[PeakCrossFrom1DScans 双轴三阶拟合]
-    LUT[写入 LUT DAC]
+    Order{SweepAxisOrder}
+    Ypre["mode0: 定 X 扫 Y"]
+    Xsweep["mode1: 定 Y 扫 X"]
+    Cross["PeakCrossFrom1DScans powY,powX"]
+    LUT["LUT uY,uX 不变"]
   end
-  R0 --> R1 --> Ypre --> Xsweep --> Cross --> LUT
+  R0 --> R1 --> Order
+  Order -->|YThenX| Ypre --> Xsweep --> Cross --> LUT
+  Order -->|XThenY| Xsweep --> Ypre --> Cross
 ```
 
 ### 1.1 固件命令格式（INV-18）
@@ -51,8 +62,8 @@ RECAL 3 {mode} {baseX} {baseY} {offset} {step} {delay}
 
 | mode | 含义 | baseX | baseY | 上位机动的轴 |
 |------|------|-------|-------|-------------|
-| **0** | 固定 X，扫 Y | `9999`（固件读当前 LUT） | `movingBase`（可平移） | Y |
-| **1** | 固定 Y，扫 X | `movingBase`（可平移） | `Y@peak`（预扫结果） | X |
+| **0** | 固定 X，扫 Y | 固定（YThenX 首轴多为 `9999`；XThenY 第二轴为 `X@peak`） | `movingBase`（可平移） | Y |
+| **1** | 固定 Y，扫 X | `movingBase`（可平移） | 固定（YThenX 第二轴为 `Y@peak`；XThenY 首轴为 `9999`） | X |
 
 - `offset`：半窗 DAC 范围（UI 默认 `m_dacRange`，粗扫可扩至 200）  
 - `step`：扫频步进 — 精扫用 UI `m_dacStep`（默认 4）；粗扫/stitch（`offset>=200`）用 `max(m_dacStep, M576_PEAK1D_COARSE_DAC_STEP)`（默认 **8**）  
@@ -62,20 +73,20 @@ RECAL 3 {mode} {baseX} {baseY} {offset} {step} {delay}
 
 ---
 
-## 2. 为何第一轴（Y 预扫）是关键
+## 2. 为何第一轴是关键（默认 Y；可选 X）
 
-在 MEMS 二维峰面上，**Y 预扫决定光路是否对准峰脊**；X 扫是在 **Y 已锁定** 条件下的精修。第一轴失败会导致整步作废或系统性偏峰。
+在 MEMS 二维峰面上，**第一轴决定锁定脊线**；第二轴是在第一轴已锁定条件下的精修。第一轴失败会导致整步作废或系统性偏峰。默认 **YThenX** 时第一轴为 Y；INI `SweepAxisOrder=XThenY` 时第一轴为 X（INV-19 外层对称）。
 
-| 环节 | 第一轴 Y 失败的影响 |
-|------|---------------------|
-| Y 预扫 `RunRecal1DSweepWithPeakRecenterRetry` 失败（`yCrossRound==0`） | `pmSkipStep=TRUE`，**不发 RECAL 3 1**，本 step 跳过，path 继续下一步 |
-| Y 预扫 Strict 已过，但交叉阶段 Y 再被拒 | `PlanRecalYCrossResweep` **重炉整段 Y**（最多 12 round），已扫的 X 数据作废 |
-| Y cross OK，仅 X cross 失败 | **只重扫 X**（`PlanNextRecal1DSweepAttempt` on X），`fixedY` 不变，不重炉 Y |
-| Y@peak 定错 | X 在错误 Y 上扫 → 交叉峰系统性偏移，LUT 写错 |
+| 环节 | 第一轴失败的影响（YThenX 示例） |
+|------|--------------------------------|
+| 第一轴预扫失败（外层 round==0） | `pmSkipStep=TRUE`，**不发第二轴扫频**，本 step 跳过 |
+| 预扫 Strict 已过，但交叉阶段第一轴再被拒 | `PlanRecalYCrossResweep` **重炉第一轴**（最多 12 round），第二轴数据作废 |
+| 第一轴 cross OK，仅第二轴 cross 失败 | **只重扫第二轴**，第一轴锁定值不变 |
+| 第一轴峰定错 | 第二轴在错误锁定下扫 → 交叉峰系统性偏移 |
 
-**结论**：产线排障应优先看 `RECAL 3 0` 的 attempt 序列、trend、baseY/offset 变化；X 问题往往在 Y 已稳定后才值得细查。
+**结论**：产线排障应优先看第一轴的 attempt / trend / base / offset；第二轴问题往往在第一轴稳定后才值得细查。`PeakCross` / LUT **始终**按物理 Y→powY、X→powX，勿因轴序改名。
 
-编排入口：`M576CalibratorDlg.cpp` 中 PM/PD 两条路径的 `yCrossRound` 外层循环 + `RunRecal1DSweepWithPeakRecenterRetry` 内层循环。
+编排入口：`M576CalibratorDlg.cpp` 中 PM/PD 的外层 cross-retry + `RunRecal1DSweepWithPeakRecenterRetry`。
 
 ---
 
@@ -264,7 +275,9 @@ flowchart TD
   end
 ```
 
-### 7.1 INV-19：Y 预扫过、交叉 Y 不过 → 重炉 Y
+### 7.1 INV-19：第一轴预扫过、交叉第一轴不过 → 重炉第一轴
+
+默认 **YThenX**：Y 预扫过、交叉 Y 不过 → 重炉 Y（mode0）。**XThenY**：对称为重炉 X（mode1）。
 
 `PlanRecalYCrossResweep` 内部复用 **同一** `PlanNextRecal1DSweepAttempt`，根据交叉失败码与已有 powY 规划下一轮 `baseY`/`offset`，然后 **重新执行整段** `RunRecal1DSweepWithPeakRecenterRetry`（不是简单重复上一刀参数）。
 
@@ -330,7 +343,7 @@ flowchart TD
 | `flat shift:` | FlatAtMaxShift |
 | `fine refine:` | 精扫回 UI range |
 | `peak retry:` / `peak retry summary:` | 预扫结束汇总 attempts |
-| `cross retry:` | INV-19 Y 重炉 |
+| `cross retry:` | INV-19 第一轴重炉（YThenX→Y / XThenY→X） |
 
 ### 9.2 comm CSV
 
@@ -404,7 +417,7 @@ M576Calibrator\CrossPeakTest\Release\CrossPeakTest.exe
 | `AnalyzeRecal1DSweepProfile` | Peak1DSweepRecenter.cpp | trend/span/argmax |
 | `PlanNextRecal1DSweepAttempt` | Peak1DSweepRecenter.cpp | 下一刀扫频规划 |
 | `SuggestFallbackSweepRetryPlan` | Peak1DSweepRecenter.cpp | INV-12 兜底三阶梯 |
-| `PlanRecalYCrossResweep` | Peak1DSweepRecenter.cpp | INV-19 Y 重炉规划 |
+| `PlanRecalYCrossResweep` | Peak1DSweepRecenter.cpp | INV-19 第一轴重炉规划（函数名历史为 Y） |
 | `RunRecal1DSweepWithPeakRecenterRetry` | M576CalibratorDlg.cpp | 单轴预扫+内层重试 |
 | `ValidatePeakPowerInPmRange` | PmRangeValidation.cpp | PM 挡位校验 |
 

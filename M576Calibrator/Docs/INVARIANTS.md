@@ -42,8 +42,8 @@
 | **INV-15** | 定标步骤失败须带可机读 `Peak1DValidateCode`（及 trend/col0/attempts 等）；禁止仅靠无码日志判成败。 |
 | **INV-16** | **PM / RECAL 3 only**：有效样本全局极大值 `dBm = raw/10000` 须在界面 `pm_range` 0..3 对应区间内；`pm_range==4`（auto）跳过。失败码 `PmRangeMismatch`，**不重试** recenter，丢弃该 path 步。PD（RECAL 5）不做挡位校验。 |
 | **INV-17** | **PM Run Path only**：`RECAL 0` 成功后须发 `opm 4 1` 与 `opm 5 1`（应答均为单行数字 0..4）；两路读回须一致，且与界面/RECAL 0 的 `pm_range` 一致（`pm_range==4` auto 仅记录读回、不比对）。不一致或通信/解析失败：**日志 + 弹窗 + 立即停止**整次 Run Path，不进入路径 CSV。 |
-| **INV-18** | **RECAL 3 / RECAL 5 扫频**须 **6 参数**：`{mode} {baseX} {baseY} {offset} {step} {delay}`。mode **0**（定 X 扫 Y）：`baseX=9999` 不变，首扫 `baseY=9999`，重试只调 `baseY`。mode **1**（定 Y 扫 X）：`baseY=Y@peak` 全程不变，首扫 `baseX=9999`，重试只调 `baseX`。`RECAL 5` 与 `RECAL 3` 同构。旧 5 参数固件/日志不再兼容。 |
-| **INV-19** | **Y 预瞄通过但 cross Y 失败**（`PeakCrossFrom1DScans` 的 Y 轴 `Peak1DValidateCode != Ok`）：须 **回炉 RECAL 3/5 mode 0** 重扫 Y（外层 round ≤ `M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS`），由 `PlanRecalYCrossResweep` 规划：Flat 或 shallow 先 **扩 offset**（INV-10），否则 **平移 baseY**（INV-11/12）；成功后重算 `Y@peak` 再扫 X。X cross 失败仍只重试 X，不回炉 Y。 |
+| **INV-18** | **RECAL 3 / RECAL 5 扫频**须 **6 参数**：`{mode} {baseX} {baseY} {offset} {step} {delay}`。**mode 语义固定**（与采集先后无关）：mode **0**＝定 X 扫 Y（`baseX` 固定、动 `baseY`）；mode **1**＝定 Y 扫 X（`baseY` 固定、动 `baseX`）。默认轴序 **YThenX**（INI `SweepAxisOrder`）：先 mode0（`baseX=9999`，首扫 `baseY=9999`）再 mode1（`baseY=Y@peak`，首扫 `baseX=9999`）。**XThenY**：先 mode1（`baseY=9999` 读当前 Y）再 mode0（`baseX=X@peak`）。`PeakCrossFrom1DScans(powY,powX)` 与 LUT `[0]=dacY/[1]=dacX` **不随轴序交换**。`RECAL 5` 与 `RECAL 3` 同构。旧 5 参数固件/日志不再兼容。 |
+| **INV-19** | **第一轴预瞄通过但 cross 第一轴失败**：须 **回炉第一轴**（外层 round ≤ `M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS`），由 `PlanRecalYCrossResweep` 规划：Flat 或 shallow 先 **扩 offset**（INV-10），否则 **平移 moving base**（INV-11/12）；成功后重算第一轴峰再扫第二轴。第二轴 cross 失败只重试第二轴，不回炉第一轴。**YThenX**（默认）：外层＝Y（mode0），第二轴＝X。**XThenY**：外层＝X（mode1），第二轴＝Y（`fixedX` 不变）。 |
 
 ---
 
