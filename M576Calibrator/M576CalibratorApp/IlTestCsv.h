@@ -7,6 +7,7 @@ struct M576IlTestLogRow
 {
 	CString timeStamp;
 	int lap = 0;
+	CString half; // IN / OUT (SW4=1 / SW4=2)
 	CString channel;
 	CString mpoPath;
 	CString wlLabel;
@@ -15,17 +16,18 @@ struct M576IlTestLogRow
 	double ilDb = 0.0;
 	double ilMax = 0.0;
 	double ilMin = 0.0;
-	double ilSpan = 0.0; // rolling Max-Min across laps for same channel+wl
+	double ilSpan = 0.0; // rolling Max-Min across same channel+wl+half
 	BOOL pass = FALSE;
 	double absIlMinDb = -5.0;
 	double absIlMaxDb = 5.0;
 	double spanMaxDb = 0.15;
 };
 
-/// One row of `{SN}_ILMax-Min_Span.csv` (final per-channel summary for trend charts).
+/// One row of `{SN}_ILMax-Min_Span.csv` (final per-channel×half summary for trend charts).
 struct M576IlTestSpanRow
 {
 	CString channel;
+	CString half; // IN / OUT
 	CString inPort;
 	CString outPort;
 	CString wlLabel;

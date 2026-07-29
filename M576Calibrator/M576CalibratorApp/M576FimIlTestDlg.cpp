@@ -149,10 +149,11 @@ struct FimTableRow
 	CString channel;
 };
 
-void BuildFimTestTableRows(BYTE port1x8, std::vector<FimTableRow>& out)
+void BuildFimTestTableRows(BYTE port1x8, BYTE sw4Port, std::vector<FimTableRow>& out)
 {
 	out.clear();
 	out.reserve((size_t)kFimChannelCount);
+	const BYTE dut = (sw4Port == 2) ? (BYTE)2 : (BYTE)1;
 	for (int sw = 1; sw <= 32; ++sw)
 	{
 		for (int ch = 1; ch <= 18; ++ch)
@@ -160,7 +161,7 @@ void BuildFimTestTableRows(BYTE port1x8, std::vector<FimTableRow>& out)
 			FimTableRow r;
 			const int pb = sw + 32;
 			r.b[0] = port1x8;
-			r.b[1] = 1; // 1x2 DUT
+			r.b[1] = dut; // 1x2 DUT: 1=IN, 2=OUT
 			r.b[2] = (BYTE)sw;
 			r.b[3] = (BYTE)pb;
 			r.b[4] = (BYTE)sw;
@@ -680,7 +681,7 @@ BOOL ReadResultIl(COpComm& comm, DWORD channelCount,
 	return FALSE;
 }
 
-BOOL AppendFimIlCsvRow(LPCTSTR path, int lap, LPCTSTR channel, LPCTSTR wl,
+BOOL AppendFimIlCsvRow(LPCTSTR path, int lap, LPCTSTR half, LPCTSTR channel, LPCTSTR wl,
 	double opm, double pd, double il, double mx, double mn, double span, BOOL pass, CString& err)
 {
 	err.Empty();
@@ -711,12 +712,12 @@ BOOL AppendFimIlCsvRow(LPCTSTR path, int lap, LPCTSTR channel, LPCTSTR wl,
 		static const unsigned char kBom[] = { 0xEF, 0xBB, 0xBF };
 		fwrite(kBom, 1, sizeof(kBom), fp);
 		static const char kHdr[] =
-			"Lap,Channel,WlLabel,OPM_dBm,PD_dBm,IL,IL_Max,IL_Min,IL_Span,Pass\r\n";
+			"Lap,Half,Channel,WlLabel,OPM_dBm,PD_dBm,IL,IL_Max,IL_Min,IL_Span,Pass\r\n";
 		fwrite(kHdr, 1, sizeof(kHdr) - 1, fp);
 	}
 	CString lineW;
-	lineW.Format(_T("%d,%s,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%s\r\n"),
-		lap, channel, wl, opm, pd, il, mx, mn, span, pass ? _T("PASS") : _T("FAIL"));
+	lineW.Format(_T("%d,%s,%s,%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%s\r\n"),
+		lap, half, channel, wl, opm, pd, il, mx, mn, span, pass ? _T("PASS") : _T("FAIL"));
 	const CStringA line(lineW);
 	fwrite(line.GetString(), 1, (size_t)line.GetLength(), fp);
 	fflush(fp);
@@ -724,6 +725,7 @@ BOOL AppendFimIlCsvRow(LPCTSTR path, int lap, LPCTSTR channel, LPCTSTR wl,
 	return TRUE;
 }
 
+/// stats sized 2*N: [0..N) = IN, [N..2N) = OUT.
 BOOL WriteFimSpanCsv(LPCTSTR path, const std::vector<FimTableRow>& table,
 	const std::vector<IlTestRollingStats>& stats, LPCTSTR wl, CString& err)
 {
@@ -737,25 +739,32 @@ BOOL WriteFimSpanCsv(LPCTSTR path, const std::vector<FimTableRow>& table,
 	static const unsigned char kBom[] = { 0xEF, 0xBB, 0xBF };
 	fwrite(kBom, 1, sizeof(kBom), fp);
 	static const char kHdr[] =
-		"Channel,InPort,OutPort,WlLabel,SampleCount,IL_Max,IL_Min,IL_Span\r\n";
+		"Channel,Half,InPort,OutPort,WlLabel,SampleCount,IL_Max,IL_Min,IL_Span\r\n";
 	fwrite(kHdr, 1, sizeof(kHdr) - 1, fp);
-	for (size_t i = 0; i < table.size() && i < stats.size(); ++i)
+	const size_t N = table.size();
+	for (int half = 1; half <= 2; ++half)
 	{
-		if (stats[i].sampleCount <= 0)
-			continue;
-		CString inPort, outPort;
-		const int chIdx = IlTestParseChannelIndex(table[i].channel);
-		if (!IlTestChannelToMpoPorts(chIdx, inPort, outPort))
+		const LPCTSTR halfLabel = IlTestHalfLabel(half);
+		const size_t base = (size_t)(half - 1) * N;
+		for (size_t i = 0; i < N; ++i)
 		{
-			inPort = _T("-");
-			outPort = _T("-");
+			const size_t si = base + i;
+			if (si >= stats.size() || stats[si].sampleCount <= 0)
+				continue;
+			CString inPort, outPort;
+			const int chIdx = IlTestParseChannelIndex(table[i].channel);
+			if (!IlTestChannelToMpoPorts(chIdx, inPort, outPort))
+			{
+				inPort = _T("-");
+				outPort = _T("-");
+			}
+			CString lineW;
+			lineW.Format(_T("%s,%s,%s,%s,%s,%d,%.6f,%.6f,%.6f\r\n"),
+				table[i].channel.GetString(), halfLabel, inPort.GetString(), outPort.GetString(), wl,
+				stats[si].sampleCount, stats[si].ilMax, stats[si].ilMin, stats[si].Span());
+			const CStringA line(lineW);
+			fwrite(line.GetString(), 1, (size_t)line.GetLength(), fp);
 		}
-		CString lineW;
-		lineW.Format(_T("%s,%s,%s,%s,%d,%.6f,%.6f,%.6f\r\n"),
-			table[i].channel.GetString(), inPort.GetString(), outPort.GetString(), wl,
-			stats[i].sampleCount, stats[i].ilMax, stats[i].ilMin, stats[i].Span());
-		const CStringA line(lineW);
-		fwrite(line.GetString(), 1, (size_t)line.GetLength(), fp);
 	}
 	fflush(fp);
 	fclose(fp);
@@ -811,16 +820,17 @@ BOOL CM576FimIlTestDlg::OnInitDialog()
 
 	m_list.ModifyStyle(0, LVS_OWNERDATA | LVS_REPORT | LVS_SINGLESEL);
 	m_list.SetExtendedStyle(m_list.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
-	m_list.InsertColumn(0, _T("Channel"), LVCFMT_LEFT, 80);
-	m_list.InsertColumn(1, _T("Wl"), LVCFMT_LEFT, 80);
-	m_list.InsertColumn(2, _T("Lap"), LVCFMT_RIGHT, 45);
-	m_list.InsertColumn(3, _T("PD_dBm"), LVCFMT_RIGHT, 80);
-	m_list.InsertColumn(4, _T("OPM_dBm"), LVCFMT_RIGHT, 85);
-	m_list.InsertColumn(5, _T("IL"), LVCFMT_RIGHT, 80);
-	m_list.InsertColumn(6, _T("Max"), LVCFMT_RIGHT, 80);
-	m_list.InsertColumn(7, _T("Min"), LVCFMT_RIGHT, 80);
-	m_list.InsertColumn(8, _T("Span"), LVCFMT_RIGHT, 80);
-	m_list.InsertColumn(9, _T("Result"), LVCFMT_RIGHT, 70);
+	m_list.InsertColumn(0, _T("Channel"), LVCFMT_LEFT, 70);
+	m_list.InsertColumn(1, _T("Half"), LVCFMT_LEFT, 45);
+	m_list.InsertColumn(2, _T("Wl"), LVCFMT_LEFT, 75);
+	m_list.InsertColumn(3, _T("Lap"), LVCFMT_RIGHT, 40);
+	m_list.InsertColumn(4, _T("PD_dBm"), LVCFMT_RIGHT, 75);
+	m_list.InsertColumn(5, _T("OPM_dBm"), LVCFMT_RIGHT, 80);
+	m_list.InsertColumn(6, _T("IL"), LVCFMT_RIGHT, 70);
+	m_list.InsertColumn(7, _T("Max"), LVCFMT_RIGHT, 70);
+	m_list.InsertColumn(8, _T("Min"), LVCFMT_RIGHT, 70);
+	m_list.InsertColumn(9, _T("Span"), LVCFMT_RIGHT, 70);
+	m_list.InsertColumn(10, _T("Result"), LVCFMT_RIGHT, 65);
 
 	if (CWnd* p = GetDlgItem(IDC_FIM_IL_BTN_STOP))
 		p->EnableWindow(FALSE);
@@ -1109,11 +1119,12 @@ void CM576FimIlTestDlg::OnBnClickedStart()
 	AppendLogLine(_T("[FIMIL] start BIN+RESULT hang-up (no diagnosis_sw.csv, no ref zero)"));
 	{
 		CString s;
-		s.Format(_T("[FIMIL] %s SWL %d %d SW4 1 OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
+		s.Format(_T("[FIMIL] %s SWL %d %d SW4 alternate IN/OUT (odd/even lap) OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
 			IlTestWlLabel(wl), IlTestSwlChannel(wl), IlTestWavelengthNm(wl),
 			gate.absIlMinDb, gate.absIlMaxDb, gate.spanMaxDb);
 		AppendLogLine(s);
 	}
+	AppendLogLine(_T("[FIMIL] Half: odd lap=IN (SW4 1 / OPLK b1=1), even lap=OUT (SW4 2 / OPLK b1=2); Span per half."));
 
 	m_stop = FALSE;
 	m_running = true;
@@ -1208,8 +1219,9 @@ void CM576FimIlTestDlg::WorkerEntry(
 	spanPath.Format(_T("%s\\%s_fim_ILMax-Min_Span.csv"), outDir.GetString(), sn.GetString());
 
 	std::vector<FimTableRow> table;
-	BuildFimTestTableRows((BYTE)port1x8, table);
-	std::vector<IlTestRollingStats> stats(table.size());
+	BuildFimTestTableRows((BYTE)port1x8, 1, table); // geometry fixed; b[1] rebuilt each lap
+	const int N = (int)table.size();
+	std::vector<IlTestRollingStats> stats((size_t)N * 2); // [0..N)=IN, [N..2N)=OUT
 
 	bool armedWl = false;
 	int fullLaps = 0;
@@ -1230,10 +1242,14 @@ void CM576FimIlTestDlg::WorkerEntry(
 			break;
 
 		++fullLaps;
-		BeginLapUi((int)table.size(), fullLaps);
+		const int half = IlTestHalfFromLap(fullLaps);
+		const CString halfLabel(IlTestHalfLabel(half));
+		BuildFimTestTableRows((BYTE)port1x8, (BYTE)half, table);
+		BeginLapUi(N, fullLaps);
 		{
 			CString note;
-			note.Format(_T("[FIMIL] --- lap %d begin (%d ch) ---"), fullLaps, (int)table.size());
+			note.Format(_T("[FIMIL] --- lap %d begin half=%s SW4 %d (%d ch) ---"),
+				fullLaps, halfLabel.GetString(), half, N);
 			PostLog(note);
 		}
 
@@ -1272,15 +1288,19 @@ void CM576FimIlTestDlg::WorkerEntry(
 			break;
 		}
 
-		// Per lap (FIM ILTest): SW 4 1 -> PD (log only) -> Sleep(50) -> BIN -> scan -> RESULT.
+		// Per lap: SW 4 {half} -> PD (log only) -> BIN (b[1]=half) -> scan -> RESULT.
 		{
 			CStringA reply;
 			DWORD ms = 0;
-			(void)session->ExchangeAsciiLine(_T("SW4"), CStringA("SW 4 1"), reply, 3000, ms, err);
+			CStringA sw4;
+			sw4.Format("SW 4 %d", half);
+			CString labelSw4;
+			labelSw4.Format(_T("SW4 %s"), halfLabel.GetString());
+			(void)session->ExchangeAsciiLine(labelSw4, sw4, reply, 3000, ms, err);
 			(void)session->ExchangeAsciiLine(_T("PD"), CStringA("pd 1"), reply, 3000, ms, err);
 			CString pdNote;
-			pdNote.Format(_T("[FIMIL] SW 4 1 + pd 1 reply=%hs (log only, not used in IL)"),
-				reply.GetString());
+			pdNote.Format(_T("[FIMIL] SW 4 %d (%s) + pd 1 reply=%hs (log only, not used in IL)"),
+				half, halfLabel.GetString(), reply.GetString());
 			PostLog(pdNote);
 		}
 		::Sleep(150); // settle after ASCII before binary fwdl 0
@@ -1297,7 +1317,8 @@ void CM576FimIlTestDlg::WorkerEntry(
 		}
 		{
 			CString s;
-			s.Format(_T("[FIMIL] wrote OPLK %s (%d rows)"), binPath.GetString(), (int)table.size());
+			s.Format(_T("[FIMIL] wrote OPLK %s half=%s (%d rows)"),
+				binPath.GetString(), halfLabel.GetString(), (int)table.size());
 			PostLog(s);
 		}
 
@@ -1354,30 +1375,33 @@ void CM576FimIlTestDlg::WorkerEntry(
 
 		std::vector<M576FimIlUiRow> uiRows(table.size());
 		int failCount = 0;
+		const size_t statsBase = (size_t)(half - 1) * (size_t)N;
 		for (size_t i = 0; i < table.size(); ++i)
 		{
 			const double il = opm[i] - pd[i];
-			stats[i].Add(il);
-			const double span = stats[i].Span();
+			IlTestRollingStats& st = stats[statsBase + i];
+			st.Add(il);
+			const double span = st.Span();
 			const BOOL pass = IlTestJudgePass(il, span, gate);
 			if (!pass)
 				++failCount;
 
 			M576FimIlUiRow& u = uiRows[i];
 			u.channel = table[i].channel;
+			u.half = halfLabel;
 			u.wl = wlLabel;
 			u.lap = fullLaps;
 			u.pdDbm = pd[i];
 			u.opmDbm = opm[i];
 			u.il = il;
-			u.mx = stats[i].ilMax;
-			u.mn = stats[i].ilMin;
+			u.mx = st.ilMax;
+			u.mn = st.ilMin;
 			u.span = span;
 			u.result = pass ? _T("PASS") : _T("FAIL");
 
 			CString csvErr;
-			(void)AppendFimIlCsvRow(csvPath, fullLaps, table[i].channel, wlLabel,
-				opm[i], pd[i], il, stats[i].ilMax, stats[i].ilMin, span, pass, csvErr);
+			(void)AppendFimIlCsvRow(csvPath, fullLaps, halfLabel, table[i].channel, wlLabel,
+				opm[i], pd[i], il, st.ilMax, st.ilMin, span, pass, csvErr);
 		}
 		QueueLapRows(uiRows);
 		// Sync paint on UI thread so ListCtrl shows RESULT before next lap / Finish.
@@ -1386,12 +1410,13 @@ void CM576FimIlTestDlg::WorkerEntry(
 
 		{
 			CString s;
-			s.Format(_T("[FIMIL] lap %d done: failGate=%d/%d (abs=[%.3f,%.3f] Span<=%.3f) csv=%s"),
-				fullLaps, failCount, (int)table.size(),
+			s.Format(_T("[FIMIL] lap %d half=%s done: failGate=%d/%d (abs=[%.3f,%.3f] Span<=%.3f) csv=%s"),
+				fullLaps, halfLabel.GetString(), failCount, (int)table.size(),
 				gate.absIlMinDb, gate.absIlMaxDb, gate.spanMaxDb, csvPath.GetString());
 			PostLog(s);
-			s.Format(_T("Lap %d | failGate=%d/%d shown=%d | Span<=%.3f"),
-				fullLaps, failCount, (int)table.size(), (int)uiRows.size(), gate.spanMaxDb);
+			s.Format(_T("Lap %d %s | failGate=%d/%d shown=%d | Span<=%.3f"),
+				fullLaps, halfLabel.GetString(), failCount, (int)table.size(),
+				(int)uiRows.size(), gate.spanMaxDb);
 			PostStatus(s);
 		}
 	}
@@ -1431,15 +1456,16 @@ void CM576FimIlTestDlg::OnGetDispInfo(NMHDR* pNMHDR, LRESULT* pResult)
 	switch (pDisp->item.iSubItem)
 	{
 	case 0: s = r.channel; break;
-	case 1: s = r.wl; break;
-	case 2: s.Format(_T("%d"), r.lap); break;
-	case 3: s.Format(_T("%.4f"), r.pdDbm); break;
-	case 4: s.Format(_T("%.4f"), r.opmDbm); break;
-	case 5: s.Format(_T("%.4f"), r.il); break;
-	case 6: s.Format(_T("%.4f"), r.mx); break;
-	case 7: s.Format(_T("%.4f"), r.mn); break;
-	case 8: s.Format(_T("%.4f"), r.span); break;
-	case 9: s = r.result; break;
+	case 1: s = r.half; break;
+	case 2: s = r.wl; break;
+	case 3: s.Format(_T("%d"), r.lap); break;
+	case 4: s.Format(_T("%.4f"), r.pdDbm); break;
+	case 5: s.Format(_T("%.4f"), r.opmDbm); break;
+	case 6: s.Format(_T("%.4f"), r.il); break;
+	case 7: s.Format(_T("%.4f"), r.mx); break;
+	case 8: s.Format(_T("%.4f"), r.mn); break;
+	case 9: s.Format(_T("%.4f"), r.span); break;
+	case 10: s = r.result; break;
 	default: s.Empty(); break;
 	}
 	_tcsncpy_s(pDisp->item.pszText, (size_t)pDisp->item.cchTextMax, s.GetString(), _TRUNCATE);

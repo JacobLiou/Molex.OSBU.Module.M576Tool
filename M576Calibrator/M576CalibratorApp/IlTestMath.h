@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DiagnosisCsv.h"
+
 #include <afxstr.h>
 #include <cmath>
 #include <limits>
@@ -47,6 +49,20 @@ inline int IlTestWavelengthNm(IlTestWlKind k)
 	return (k == IlTestWlKind::Sfp1550) ? 1550 : 1310;
 }
 
+/// Hang-up optical half from 1-based lap: odd=IN (SW4=1), even=OUT (SW4=2).
+inline int IlTestHalfFromLap(int lap1based)
+{
+	if (lap1based < 1)
+		return 1;
+	return ((lap1based - 1) % 2) + 1;
+}
+
+/// Half label for UI / CSV: 1 -> IN, 2 -> OUT.
+inline LPCTSTR IlTestHalfLabel(int half)
+{
+	return (half == 2) ? _T("OUT") : _T("IN");
+}
+
 /// Parse Diagnosis pd/opm reply as signed integer (trims whitespace).
 BOOL IlTestParseIntReply(const CStringA& reply, int& outVal);
 
@@ -73,6 +89,11 @@ BOOL IlTestChannelToMpoPath(int channel1to576, CString& outPath);
 
 /// CH k (1..576) -> InPort "MPOa-b", OutPort "MPOc-b" (same packing as IlTestChannelToMpoPath).
 BOOL IlTestChannelToMpoPorts(int channel1to576, CString& inPort, CString& outPort);
+
+/// Build one diagnosis SW group from CH k (1..576), same mapping as diagnosis_sw.csv / generate_diagnosis_sw_576.py:
+///   sw=(k-1)/18+1, mcsCh=(k-1)%18+1
+///   SW 1 1 {sw}|SW 1 2 {sw+32}|SW 2 {sw} {mcsCh}|SW 2 {sw+32} {mcsCh}
+BOOL IlTestBuildDiagnosisRowFromChannel(int ch1to576, M576DiagnosisRow& out, CString& err);
 
 struct IlTestGateParams
 {
@@ -124,10 +145,13 @@ struct IlTestRollingStats
 
 using IlTestStatsMap = std::map<CString, IlTestRollingStats>;
 
-inline CString IlTestStatsKey(const CString& channel, const CString& wlLabel)
+/// Key for rolling stats: channel|wl|half (half keeps IN/OUT Span separate).
+inline CString IlTestStatsKey(const CString& channel, const CString& wlLabel, const CString& halfLabel)
 {
 	CString k = channel;
 	k += _T('|');
 	k += wlLabel;
+	k += _T('|');
+	k += halfLabel;
 	return k;
 }

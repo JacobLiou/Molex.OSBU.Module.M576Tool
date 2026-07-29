@@ -71,3 +71,32 @@ BOOL IlTestChannelToMpoPath(int channel1to576, CString& outPath)
 	outPath.Format(_T("%s->%s"), inPort.GetString(), outPort.GetString());
 	return TRUE;
 }
+
+BOOL IlTestBuildDiagnosisRowFromChannel(int ch1to576, M576DiagnosisRow& out, CString& err)
+{
+	err.Empty();
+	out = M576DiagnosisRow{};
+	if (ch1to576 < 1 || ch1to576 > 576)
+	{
+		err.Format(_T("Channel %d out of range 1..576."), ch1to576);
+		return FALSE;
+	}
+	const int sw = (ch1to576 - 1) / 18 + 1;
+	const int mcsCh = (ch1to576 - 1) % 18 + 1;
+	const int pb = sw + 32;
+	CStringA chLabel;
+	chLabel.Format("CH%d", ch1to576);
+	out.channel = chLabel;
+	out.label = chLabel;
+
+	CStringA c1, c2, c3, c4;
+	c1.Format("SW 1 1 %d", sw);
+	c2.Format("SW 1 2 %d", pb);
+	c3.Format("SW 2 %d %d", sw, mcsCh);
+	c4.Format("SW 2 %d %d", pb, mcsCh);
+	out.swCommands.push_back(c1);
+	out.swCommands.push_back(c2);
+	out.swCommands.push_back(c3);
+	out.swCommands.push_back(c4);
+	return TRUE;
+}

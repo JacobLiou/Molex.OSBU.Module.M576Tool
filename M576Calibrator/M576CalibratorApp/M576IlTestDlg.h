@@ -15,6 +15,7 @@ class CM576CalibratorDlg;
 struct M576IlTestUiRow
 {
 	CString channel;
+	CString half; // IN / OUT
 	CString mpoPath;
 	CString wl;
 	int lap = 0;
@@ -53,6 +54,7 @@ protected:
 private:
 	CM576CalibratorDlg* m_pOwner;
 	CListCtrl m_list;
+	CListBox m_listSelCh;
 	CEdit m_editLog;
 
 	std::thread m_worker;
@@ -71,10 +73,13 @@ private:
 	std::atomic<bool> m_rowFlushScheduled{ false };
 
 	IlTestWlKind SelectedWl() const;
+	BOOL IsSelectedChannelsMode() const;
 	double ReadAbsIlMinDb() const;
 	double ReadAbsIlMaxDb() const;
 	double ReadSpanMaxDb() const;
 	BOOL ReadGateParams(IlTestGateParams& out, CString& err) const;
+	void UpdateModeControlsEnabled();
+	BOOL CollectSelectedChannelRows(std::vector<M576DiagnosisRow>& rows, CString& err) const;
 	void SetControlsRunning(BOOL running);
 	void AppendLogLine(LPCTSTR line);
 	void BeginLapUi(int channelCount, int lap);
@@ -92,6 +97,10 @@ private:
 
 	afx_msg void OnBnClickedStart();
 	afx_msg void OnBnClickedStop();
+	afx_msg void OnBnClickedModeFull();
+	afx_msg void OnBnClickedModeSel();
+	afx_msg void OnBnClickedSelAdd();
+	afx_msg void OnBnClickedSelRemove();
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
 	afx_msg void OnGetDispInfo(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg LRESULT OnUiLog(WPARAM wParam, LPARAM lParam);

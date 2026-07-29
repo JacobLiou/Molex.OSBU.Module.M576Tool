@@ -204,6 +204,12 @@
 #define IDC_IL_STATIC_ELAPSED          2224
 #define IDC_IL_STATIC_TEMPS            2260
 #define IDC_FIM_IL_STATIC_TEMPS        2261
+#define IDC_IL_RADIO_MODE_FULL         2262
+#define IDC_IL_RADIO_MODE_SEL          2263
+#define IDC_IL_EDIT_SEL_CH             2264
+#define IDC_IL_BTN_SEL_ADD             2265
+#define IDC_IL_BTN_SEL_REMOVE          2266
+#define IDC_IL_LIST_SEL_CH             2267
 #define AFX_IDC_COLOR_BLACK             1100
 #define AFX_IDC_COLOR_WHITE             1101
 #define AFX_IDC_COLOR_RED               1102

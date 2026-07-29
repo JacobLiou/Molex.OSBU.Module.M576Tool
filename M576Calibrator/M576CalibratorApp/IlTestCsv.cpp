@@ -109,7 +109,7 @@ BOOL M576WriteIlTestSpanCsv(LPCTSTR path, const std::vector<M576IlTestSpanRow>& 
 	}
 
 	static const char kHeader[] =
-		"Channel,InPort,OutPort,WlLabel,SampleCount,IL_Max,IL_Min,IL_Span\r\n";
+		"Channel,Half,InPort,OutPort,WlLabel,SampleCount,IL_Max,IL_Min,IL_Span\r\n";
 	if (fwrite(kHeader, 1, sizeof(kHeader) - 1, fp) != sizeof(kHeader) - 1)
 	{
 		err = _T("IL Span CSV: failed to write header.");
@@ -122,8 +122,9 @@ BOOL M576WriteIlTestSpanCsv(LPCTSTR path, const std::vector<M576IlTestSpanRow>& 
 		const M576IlTestSpanRow& r = rows[i];
 		CString line;
 		line.Format(
-			_T("%s,%s,%s,%s,%d,%.6f,%.6f,%.6f\r\n"),
+			_T("%s,%s,%s,%s,%s,%d,%.6f,%.6f,%.6f\r\n"),
 			r.channel.GetString(),
+			r.half.GetString(),
 			r.inPort.GetString(),
 			r.outPort.GetString(),
 			r.wlLabel.GetString(),
@@ -188,7 +189,7 @@ BOOL M576AppendIlTestLogRow(LPCTSTR path, const M576IlTestLogRow& row, CString& 
 	if (len <= 0)
 	{
 		static const char kHeader[] =
-			"Time,Lap,Channel,MpoPath,WlLabel,PdRaw,OpmRaw,IL_dB,IlMax,IlMin,IlSpan,Pass,"
+			"Time,Lap,Half,Channel,MpoPath,WlLabel,PdRaw,OpmRaw,IL_dB,IlMax,IlMin,IlSpan,Pass,"
 			"IlAbsMin_dB,IlAbsMax_dB,SpanMax_dB\r\n";
 		if (fwrite(kHeader, 1, sizeof(kHeader) - 1, fp) != (size_t)(sizeof(kHeader) - 1))
 		{
@@ -200,9 +201,10 @@ BOOL M576AppendIlTestLogRow(LPCTSTR path, const M576IlTestLogRow& row, CString& 
 
 	CStringA line;
 	line.Format(
-		"%s,%d,%s,%s,%s,%d,%d,%.6f,%.6f,%.6f,%.6f,%s,%.4f,%.4f,%.4f\r\n",
+		"%s,%d,%s,%s,%s,%s,%d,%d,%.6f,%.6f,%.6f,%.6f,%s,%.4f,%.4f,%.4f\r\n",
 		NarrowUtf8(row.timeStamp).GetString(),
 		row.lap,
+		NarrowUtf8(row.half).GetString(),
 		NarrowUtf8(row.channel).GetString(),
 		NarrowUtf8(row.mpoPath).GetString(),
 		NarrowUtf8(row.wlLabel).GetString(),

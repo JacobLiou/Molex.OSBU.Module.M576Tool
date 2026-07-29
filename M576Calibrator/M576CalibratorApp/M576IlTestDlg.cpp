@@ -68,12 +68,17 @@ void CM576IlTestDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_IL_LIST, m_list);
+	DDX_Control(pDX, IDC_IL_LIST_SEL_CH, m_listSelCh);
 	DDX_Control(pDX, IDC_IL_EDIT_LOG, m_editLog);
 }
 
 BEGIN_MESSAGE_MAP(CM576IlTestDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_IL_BTN_START, &CM576IlTestDlg::OnBnClickedStart)
 	ON_BN_CLICKED(IDC_IL_BTN_STOP, &CM576IlTestDlg::OnBnClickedStop)
+	ON_BN_CLICKED(IDC_IL_RADIO_MODE_FULL, &CM576IlTestDlg::OnBnClickedModeFull)
+	ON_BN_CLICKED(IDC_IL_RADIO_MODE_SEL, &CM576IlTestDlg::OnBnClickedModeSel)
+	ON_BN_CLICKED(IDC_IL_BTN_SEL_ADD, &CM576IlTestDlg::OnBnClickedSelAdd)
+	ON_BN_CLICKED(IDC_IL_BTN_SEL_REMOVE, &CM576IlTestDlg::OnBnClickedSelRemove)
 	ON_WM_TIMER()
 	ON_NOTIFY(LVN_GETDISPINFO, IDC_IL_LIST, &CM576IlTestDlg::OnGetDispInfo)
 	ON_MESSAGE(WM_M576_IL_LOG, &CM576IlTestDlg::OnUiLog)
@@ -89,6 +94,7 @@ BOOL CM576IlTestDlg::OnInitDialog()
 	if (m_pOwner)
 		m_pOwner->SetActiveIlTestDlg(this);
 	CheckRadioButton(IDC_IL_RADIO_SFP1550, IDC_IL_RADIO_LASER1310, IDC_IL_RADIO_LASER1310);
+	CheckRadioButton(IDC_IL_RADIO_MODE_FULL, IDC_IL_RADIO_MODE_SEL, IDC_IL_RADIO_MODE_FULL);
 	CString thr;
 	thr.Format(_T("%.2f"), (double)M576_IL_TEST_DEFAULT_ABS_MIN_DB);
 	SetDlgItemText(IDC_IL_EDIT_ABS_MIN, thr);
@@ -97,26 +103,28 @@ BOOL CM576IlTestDlg::OnInitDialog()
 	thr.Format(_T("%.2f"), (double)M576_IL_TEST_DEFAULT_SPAN_MAX_DB);
 	SetDlgItemText(IDC_IL_EDIT_SPAN_MAX, thr);
 	SetDlgItemText(IDC_IL_STATIC_STATUS,
-		_T("Idle - List=latest lap; Log=CommLog+IL summary; file=ILTestCommLog_date.log."));
+		_T("Idle - Full=CSV 576; Selected=suspect CH list only."));
 
-	// Virtual list: one lap (~576 channels) only.
+	// Virtual list: one lap (Full ~576 / Selected N) only.
 	m_list.ModifyStyle(0, LVS_OWNERDATA | LVS_REPORT | LVS_SINGLESEL);
 	m_list.SetExtendedStyle(m_list.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
-	m_list.InsertColumn(0, _T("Channel"), LVCFMT_LEFT, 85);
-	m_list.InsertColumn(1, _T("MPO Path"), LVCFMT_LEFT, 180);
-	m_list.InsertColumn(2, _T("Wl"), LVCFMT_LEFT, 85);
-	m_list.InsertColumn(3, _T("Lap"), LVCFMT_RIGHT, 50);
-	m_list.InsertColumn(4, _T("PD"), LVCFMT_RIGHT, 85);
-	m_list.InsertColumn(5, _T("OPM"), LVCFMT_RIGHT, 85);
-	m_list.InsertColumn(6, _T("IL"), LVCFMT_RIGHT, 85);
-	m_list.InsertColumn(7, _T("Max"), LVCFMT_RIGHT, 85);
-	m_list.InsertColumn(8, _T("Min"), LVCFMT_RIGHT, 85);
-	m_list.InsertColumn(9, _T("Span"), LVCFMT_RIGHT, 85);
-	m_list.InsertColumn(10, _T("Result"), LVCFMT_RIGHT, 85);
+	m_list.InsertColumn(0, _T("Channel"), LVCFMT_LEFT, 70);
+	m_list.InsertColumn(1, _T("Half"), LVCFMT_LEFT, 45);
+	m_list.InsertColumn(2, _T("MPO Path"), LVCFMT_LEFT, 160);
+	m_list.InsertColumn(3, _T("Wl"), LVCFMT_LEFT, 80);
+	m_list.InsertColumn(4, _T("Lap"), LVCFMT_RIGHT, 45);
+	m_list.InsertColumn(5, _T("PD"), LVCFMT_RIGHT, 75);
+	m_list.InsertColumn(6, _T("OPM"), LVCFMT_RIGHT, 75);
+	m_list.InsertColumn(7, _T("IL"), LVCFMT_RIGHT, 75);
+	m_list.InsertColumn(8, _T("Max"), LVCFMT_RIGHT, 75);
+	m_list.InsertColumn(9, _T("Min"), LVCFMT_RIGHT, 75);
+	m_list.InsertColumn(10, _T("Span"), LVCFMT_RIGHT, 75);
+	m_list.InsertColumn(11, _T("Result"), LVCFMT_RIGHT, 70);
 
 	if (CWnd* p = GetDlgItem(IDC_IL_BTN_STOP))
 		p->EnableWindow(FALSE);
 	SetDlgItemText(IDC_IL_STATIC_ELAPSED, _T("00:00:00"));
+	UpdateModeControlsEnabled();
 	return TRUE;
 }
 
@@ -174,6 +182,125 @@ IlTestWlKind CM576IlTestDlg::SelectedWl() const
 	if (IsDlgButtonChecked(IDC_IL_RADIO_SFP1310) == BST_CHECKED)
 		return IlTestWlKind::Sfp1310;
 	return IlTestWlKind::Laser1310;
+}
+
+BOOL CM576IlTestDlg::IsSelectedChannelsMode() const
+{
+	return IsDlgButtonChecked(IDC_IL_RADIO_MODE_SEL) == BST_CHECKED;
+}
+
+void CM576IlTestDlg::UpdateModeControlsEnabled()
+{
+	const BOOL sel = IsSelectedChannelsMode();
+	const BOOL idle = !m_running.load();
+	if (CWnd* p = GetDlgItem(IDC_IL_EDIT_SEL_CH))
+		p->EnableWindow(idle && sel);
+	if (CWnd* p = GetDlgItem(IDC_IL_BTN_SEL_ADD))
+		p->EnableWindow(idle && sel);
+	if (CWnd* p = GetDlgItem(IDC_IL_BTN_SEL_REMOVE))
+		p->EnableWindow(idle && sel);
+	m_listSelCh.EnableWindow(idle && sel);
+}
+
+BOOL CM576IlTestDlg::CollectSelectedChannelRows(std::vector<M576DiagnosisRow>& rows, CString& err) const
+{
+	err.Empty();
+	rows.clear();
+	const int n = m_listSelCh.GetCount();
+	if (n <= 0)
+	{
+		err = _T("Selected mode: add at least one channel (CH 1..576).");
+		return FALSE;
+	}
+	std::vector<int> chs;
+	chs.reserve((size_t)n);
+	for (int i = 0; i < n; ++i)
+	{
+		CString item;
+		m_listSelCh.GetText(i, item);
+		const int ch = IlTestParseChannelIndex(item);
+		if (ch < 1)
+		{
+			err.Format(_T("Selected mode: invalid list item '%s'."), item.GetString());
+			return FALSE;
+		}
+		chs.push_back(ch);
+	}
+	std::sort(chs.begin(), chs.end());
+	chs.erase(std::unique(chs.begin(), chs.end()), chs.end());
+	rows.reserve(chs.size());
+	for (size_t i = 0; i < chs.size(); ++i)
+	{
+		M576DiagnosisRow row;
+		CString buildErr;
+		if (!IlTestBuildDiagnosisRowFromChannel(chs[i], row, buildErr))
+		{
+			err = buildErr;
+			rows.clear();
+			return FALSE;
+		}
+		rows.push_back(row);
+	}
+	return TRUE;
+}
+
+void CM576IlTestDlg::OnBnClickedModeFull()
+{
+	UpdateModeControlsEnabled();
+}
+
+void CM576IlTestDlg::OnBnClickedModeSel()
+{
+	UpdateModeControlsEnabled();
+}
+
+void CM576IlTestDlg::OnBnClickedSelAdd()
+{
+	if (m_running.load() || !IsSelectedChannelsMode())
+		return;
+	CString text;
+	GetDlgItemText(IDC_IL_EDIT_SEL_CH, text);
+	text.Trim();
+	const int ch = IlTestParseChannelIndex(text);
+	if (ch < 1)
+	{
+		MessageBox(_T("Enter a channel number 1..576 (or CH123)."), _T("IL Test"), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CString label;
+	label.Format(_T("CH%d"), ch);
+	for (int i = 0; i < m_listSelCh.GetCount(); ++i)
+	{
+		CString exist;
+		m_listSelCh.GetText(i, exist);
+		if (exist.CompareNoCase(label) == 0)
+			return; // duplicate ignore
+	}
+	// Insert sorted by channel index.
+	int insertAt = m_listSelCh.GetCount();
+	for (int i = 0; i < m_listSelCh.GetCount(); ++i)
+	{
+		CString exist;
+		m_listSelCh.GetText(i, exist);
+		if (IlTestParseChannelIndex(exist) > ch)
+		{
+			insertAt = i;
+			break;
+		}
+	}
+	m_listSelCh.InsertString(insertAt, label);
+	SetDlgItemText(IDC_IL_EDIT_SEL_CH, _T(""));
+}
+
+void CM576IlTestDlg::OnBnClickedSelRemove()
+{
+	if (m_running.load() || !IsSelectedChannelsMode())
+		return;
+	for (int i = m_listSelCh.GetCount() - 1; i >= 0; --i)
+	{
+		if (m_listSelCh.GetSel(i) > 0)
+			m_listSelCh.DeleteString(i);
+	}
 }
 
 double CM576IlTestDlg::ReadAbsIlMinDb() const
@@ -239,10 +366,15 @@ void CM576IlTestDlg::SetControlsRunning(BOOL running)
 		p->EnableWindow(idle);
 	if (CWnd* p = GetDlgItem(IDC_IL_EDIT_SPAN_MAX))
 		p->EnableWindow(idle);
+	if (CWnd* p = GetDlgItem(IDC_IL_RADIO_MODE_FULL))
+		p->EnableWindow(idle);
+	if (CWnd* p = GetDlgItem(IDC_IL_RADIO_MODE_SEL))
+		p->EnableWindow(idle);
 	if (CWnd* p = GetDlgItem(IDC_IL_BTN_START))
 		p->EnableWindow(idle);
 	if (CWnd* p = GetDlgItem(IDC_IL_BTN_STOP))
 		p->EnableWindow(running);
+	UpdateModeControlsEnabled();
 }
 
 void CM576IlTestDlg::AppendLogLine(LPCTSTR line)
@@ -404,21 +536,34 @@ void CM576IlTestDlg::OnBnClickedStart()
 		return;
 	}
 
-	const CString swCsvPath = outDir + _T("\\diagnosis_sw.csv");
 	std::vector<M576DiagnosisRow> rows;
-	if (!M576LoadDiagnosisSwCsv(swCsvPath, rows, err))
+	const BOOL selectedMode = IsSelectedChannelsMode();
+	if (selectedMode)
 	{
-		m_pOwner->EndIlTestSession();
-		CString msg;
-		msg.Format(_T("Load %s failed: %s"), swCsvPath.GetString(), err.IsEmpty() ? _T("(unknown)") : err.GetString());
-		MessageBox(msg, _T("IL Test"), MB_OK | MB_ICONWARNING);
-		return;
+		if (!CollectSelectedChannelRows(rows, err))
+		{
+			m_pOwner->EndIlTestSession();
+			MessageBox(err.IsEmpty() ? _T("Selected channels invalid.") : err, _T("IL Test"), MB_OK | MB_ICONWARNING);
+			return;
+		}
 	}
-	if (rows.empty())
+	else
 	{
-		m_pOwner->EndIlTestSession();
-		MessageBox(_T("diagnosis_sw.csv has no channel groups."), _T("IL Test"), MB_OK | MB_ICONWARNING);
-		return;
+		const CString swCsvPath = outDir + _T("\\diagnosis_sw.csv");
+		if (!M576LoadDiagnosisSwCsv(swCsvPath, rows, err))
+		{
+			m_pOwner->EndIlTestSession();
+			CString msg;
+			msg.Format(_T("Load %s failed: %s"), swCsvPath.GetString(), err.IsEmpty() ? _T("(unknown)") : err.GetString());
+			MessageBox(msg, _T("IL Test"), MB_OK | MB_ICONWARNING);
+			return;
+		}
+		if (rows.empty())
+		{
+			m_pOwner->EndIlTestSession();
+			MessageBox(_T("diagnosis_sw.csv has no channel groups."), _T("IL Test"), MB_OK | MB_ICONWARNING);
+			return;
+		}
 	}
 
 	const IlTestWlKind wl = SelectedWl();
@@ -451,9 +596,26 @@ void CM576IlTestDlg::OnBnClickedStart()
 
 	const CString mcs1Sn = m_pOwner->GetMcs1SnSanitizedForFilename();
 	const CString commLogPath = m_pOwner->GetIlTestCommLogPathAbs();
+	if (selectedMode)
+	{
+		CString chList;
+		for (size_t i = 0; i < rows.size(); ++i)
+		{
+			if (i)
+				chList += _T(",");
+			chList += CString(rows[i].channel.IsEmpty() ? rows[i].label : rows[i].channel);
+		}
+		CString modeMsg;
+		modeMsg.Format(_T("[ILTEST] mode=Selected ch=%d: %s"), (int)rows.size(), chList.GetString());
+		AppendLogLine(modeMsg);
+	}
+	else
+	{
+		AppendLogLine(_T("[ILTEST] mode=Full (diagnosis_sw.csv)"));
+	}
 	CString startMsg;
 	startMsg.Format(
-		_T("[ILTEST] start ch=%d %s SW3=1 %d SWL %d %d SW4 1 OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
+		_T("[ILTEST] start ch=%d %s SW3=1 %d SWL %d %d SW4 alternate IN/OUT (odd/even lap) OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
 		(int)rows.size(),
 		IlTestWlLabel(wl),
 		IlTestSw3Third(wl),
@@ -463,6 +625,7 @@ void CM576IlTestDlg::OnBnClickedStart()
 		gate.absIlMaxDb,
 		gate.spanMaxDb);
 	AppendLogLine(startMsg);
+	AppendLogLine(_T("[ILTEST] Half: odd lap=IN (SW4 1), even lap=OUT (SW4 2); Span tracked per half."));
 	AppendLogLine(_T("[ILTEST] CSV ") + M576GetIlTestLogCsvPath(outDir, mcs1Sn));
 	AppendLogLine(_T("[ILTEST] Span CSV (on Stop) ") + M576GetIlTestSpanCsvPath(outDir, mcs1Sn));
 	AppendLogLine(_T("[ILTEST] CommLog file ") + (commLogPath.IsEmpty() ? CString(_T("(none)")) : commLogPath));
@@ -574,11 +737,11 @@ void CM576IlTestDlg::WorkerEntry(
 		DelayMs(kInterCmdMs);
 	};
 
-	// FIM-align source/WL once per run: SW 3 1 <port>, SWL <port> <nm>, SW 4 1, OPM 4 1 0.
+	// FIM-align source/WL once per run: SW 3 1 <port>, SWL <port> <nm>, OPM 4 1 0.
+	// SW 4 (1x2) alternates each lap: odd=IN(1), even=OUT(2).
 	int armedSw3 = -1;
 	int armedSwlCh = -1;
 	int armedWlNm = -1;
-	bool armedSw4 = false;
 	bool armedOpmAuto = false;
 
 	int fullLaps = 0;
@@ -592,11 +755,14 @@ void CM576IlTestDlg::WorkerEntry(
 			break;
 
 		++fullLaps;
+		const int half = IlTestHalfFromLap(fullLaps);
+		const CString halfLabel(IlTestHalfLabel(half));
 		firstCmd = true;
 		BeginLapUi(N, fullLaps);
 		{
 			CString lapNote;
-			lapNote.Format(_T("[ILTEST] --- lap %d begin (%d ch) ---"), fullLaps, N);
+			lapNote.Format(_T("[ILTEST] --- lap %d begin half=%s SW4 %d (%d ch) ---"),
+				fullLaps, halfLabel.GetString(), half, N);
 			PostLog(lapNote);
 		}
 
@@ -613,7 +779,7 @@ void CM576IlTestDlg::WorkerEntry(
 		if (m_stop)
 			break;
 
-		// Once per run (before first channel): OPM AUTO + 1x2 DUT (FIM ILTest / SetPMRange).
+		// Once per run: OPM AUTO.
 		if (!armedOpmAuto)
 		{
 			MaybeDelay();
@@ -625,16 +791,19 @@ void CM576IlTestDlg::WorkerEntry(
 			(void)session->ExchangeAsciiLine(_T("OPM4"), CStringA("OPM 4 1 0"), opm4Reply, 3000, ms, errOpm4);
 			armedOpmAuto = true;
 		}
-		if (!armedSw4)
+		// Each lap: 1x2 DUT half (IN/OUT).
 		{
 			MaybeDelay();
 			if (m_stop)
 				break;
+			CStringA sw4;
+			sw4.Format("SW 4 %d", half);
 			CStringA sw4Reply;
 			DWORD ms = 0;
 			CString errSw4;
-			(void)session->ExchangeAsciiLine(_T("SW4"), CStringA("SW 4 1"), sw4Reply, 3000, ms, errSw4);
-			armedSw4 = true;
+			CString labelSw4;
+			labelSw4.Format(_T("SW4 %s"), halfLabel.GetString());
+			(void)session->ExchangeAsciiLine(labelSw4, sw4, sw4Reply, 3000, ms, errSw4);
 		}
 
 		for (int i = 0; i < N; ++i)
@@ -753,7 +922,7 @@ void CM576IlTestDlg::WorkerEntry(
 			}
 
 			const double il = IlTestComputeIlDb(pdRaw, opmRaw);
-			const CString key = IlTestStatsKey(chName, wlLabel);
+			const CString key = IlTestStatsKey(chName, wlLabel, halfLabel);
 			IlTestRollingStats& st = stats[key];
 			st.Add(il);
 			const double span = st.Span();
@@ -762,6 +931,7 @@ void CM576IlTestDlg::WorkerEntry(
 			M576IlTestLogRow crow;
 			crow.timeStamp = NowTimeStamp();
 			crow.lap = fullLaps;
+			crow.half = halfLabel;
 			crow.channel = chName;
 			crow.mpoPath = mpoPath;
 			crow.wlLabel = wlLabel;
@@ -785,6 +955,7 @@ void CM576IlTestDlg::WorkerEntry(
 
 			M576IlTestUiRow uiRow;
 			uiRow.channel = chName;
+			uiRow.half = halfLabel;
 			uiRow.mpoPath = mpoPath;
 			uiRow.wl = wlLabel;
 			uiRow.lap = fullLaps;
@@ -800,8 +971,8 @@ void CM576IlTestDlg::WorkerEntry(
 			{
 				CString sum;
 				sum.Format(
-					_T("[IL] %s %s lap=%d IL=%.4f Span=%.4f %s PD=%d(%.2fdBm) OPM=%d(%.4fdBm)"),
-					chName.GetString(), mpoPath.GetString(), fullLaps, il, span,
+					_T("[IL] %s half=%s %s lap=%d IL=%.4f Span=%.4f %s PD=%d(%.2fdBm) OPM=%d(%.4fdBm)"),
+					chName.GetString(), halfLabel.GetString(), mpoPath.GetString(), fullLaps, il, span,
 					pass ? _T("PASS") : _T("FAIL"),
 					pdRaw, IlTestPdDbm(pdRaw), opmRaw, IlTestOpmDbm(opmRaw));
 				PostLog(sum);
@@ -822,15 +993,15 @@ void CM576IlTestDlg::WorkerEntry(
 				lastStatusTick = now;
 				CString status;
 				status.Format(
-					_T("Lap %d | %s %s | IL=%.4f Span=%.4f | %s"),
-					fullLaps, chName.GetString(), mpoPath.GetString(), il, span,
+					_T("Lap %d %s | %s %s | IL=%.4f Span=%.4f | %s"),
+					fullLaps, halfLabel.GetString(), chName.GetString(), mpoPath.GetString(), il, span,
 					pass ? _T("PASS") : _T("FAIL"));
 				PostStatus(status);
 			}
 		}
 	}
 
-	// Stop / finish: one-row-per-channel Span summary for trend charts.
+	// Stop / finish: one-row-per-channel×half Span summary for trend charts.
 	{
 		std::vector<M576IlTestSpanRow> spanRows;
 		spanRows.reserve(stats.size());
@@ -841,17 +1012,28 @@ void CM576IlTestDlg::WorkerEntry(
 			if (st.sampleCount <= 0)
 				continue;
 
+			// key = channel|wl|half
 			CString channel = key;
 			CString wl = wlLabel;
-			const int bar = key.Find(_T('|'));
-			if (bar >= 0)
+			CString halfPart = _T("IN");
+			const int bar1 = key.Find(_T('|'));
+			if (bar1 >= 0)
 			{
-				channel = key.Left(bar);
-				wl = key.Mid(bar + 1);
+				channel = key.Left(bar1);
+				const CString rest = key.Mid(bar1 + 1);
+				const int bar2 = rest.Find(_T('|'));
+				if (bar2 >= 0)
+				{
+					wl = rest.Left(bar2);
+					halfPart = rest.Mid(bar2 + 1);
+				}
+				else
+					wl = rest;
 			}
 
 			M576IlTestSpanRow row;
 			row.channel = channel;
+			row.half = halfPart;
 			row.wlLabel = wl;
 			row.sampleCount = st.sampleCount;
 			row.ilMax = st.ilMax;
@@ -873,7 +1055,7 @@ void CM576IlTestDlg::WorkerEntry(
 			if (M576WriteIlTestSpanCsv(spanPath, spanRows, spanErr))
 			{
 				CString log;
-				log.Format(_T("[ILTEST] wrote %s (%u channels)"),
+				log.Format(_T("[ILTEST] wrote %s (%u channel×half rows)"),
 					spanPath.GetString(), (unsigned)spanRows.size());
 				PostLog(log);
 				if (m_pOwner)
@@ -959,16 +1141,17 @@ void CM576IlTestDlg::OnGetDispInfo(NMHDR* pNMHDR, LRESULT* pResult)
 	switch (pDisp->item.iSubItem)
 	{
 	case 0: s = r.channel; break;
-	case 1: s = r.mpoPath; break;
-	case 2: s = r.wl; break;
-	case 3: s.Format(_T("%d"), r.lap); break;
-	case 4: s.Format(_T("%d"), r.pd); break;
-	case 5: s.Format(_T("%d"), r.opm); break;
-	case 6: s.Format(_T("%.4f"), r.il); break;
-	case 7: s.Format(_T("%.4f"), r.mx); break;
-	case 8: s.Format(_T("%.4f"), r.mn); break;
-	case 9: s.Format(_T("%.4f"), r.span); break;
-	case 10: s = r.result; break;
+	case 1: s = r.half; break;
+	case 2: s = r.mpoPath; break;
+	case 3: s = r.wl; break;
+	case 4: s.Format(_T("%d"), r.lap); break;
+	case 5: s.Format(_T("%d"), r.pd); break;
+	case 6: s.Format(_T("%d"), r.opm); break;
+	case 7: s.Format(_T("%.4f"), r.il); break;
+	case 8: s.Format(_T("%.4f"), r.mx); break;
+	case 9: s.Format(_T("%.4f"), r.mn); break;
+	case 10: s.Format(_T("%.4f"), r.span); break;
+	case 11: s = r.result; break;
 	default: s.Empty(); break;
 	}
 	_tcsncpy_s(pDisp->item.pszText, (size_t)pDisp->item.cchTextMax, s.GetString(), _TRUNCATE);
