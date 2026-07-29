@@ -1,9 +1,36 @@
 #pragma once
 // 仅含 1D 寻峰/预处理与三阶拟合门限宏，无 TCHAR/MFC。供 PeakFinder2D、CrossPeakTest 与 CalibConstants 共用。
 
-/// ValidateUnimodal1DAtArgmax：span=max-min 严格小于本值则 LowSpan。ParabolaVertexMax1D（三阶主路径）不据此早退。
+/// ValidateUnimodal1DAtArgmax / recenter Flat：全序列 span=max-min 严格小于 MinProminenceDb 则 LowSpan 或 trend=Flat（见 Peak1DMinFlatSpanRaw）。
+/// Strict 拟合取窗：双侧肩相对峰顶各须掉满该值（非仅全曲线 max−min；单侧不足 → ParabolaNotDownward）。
+#ifndef M576_PEAK1D_MIN_PROMINENCE_DB
+#define M576_PEAK1D_MIN_PROMINENCE_DB 0.3
+#endif
+/// @deprecated 平坦门限请用 Peak1DGetMinProminenceDb / Peak1DMinFlatSpanRaw（与 MIN_PROMINENCE_DB 同义）。
 #ifndef M576_PEAK1D_MIN_SPAN_DB
-#define M576_PEAK1D_MIN_SPAN_DB 2.5
+#define M576_PEAK1D_MIN_SPAN_DB M576_PEAK1D_MIN_PROMINENCE_DB
+#endif
+/// JumpFlatMax@coarse 后 planner 认峰：全序列 span 下限 (dB)，低于此仍走 FlatAtMaxShift。
+#ifndef M576_PEAK1D_COARSE_MIN_SPAN_DB
+#define M576_PEAK1D_COARSE_MIN_SPAN_DB 0.5
+#endif
+/// INI MinProminenceDb 合法范围（产线可调，重启生效）。
+#ifndef M576_PEAK1D_MIN_PROMINENCE_DB_MIN
+#define M576_PEAK1D_MIN_PROMINENCE_DB_MIN 0.05
+#endif
+#ifndef M576_PEAK1D_MIN_PROMINENCE_DB_MAX
+#define M576_PEAK1D_MIN_PROMINENCE_DB_MAX 2.0
+#endif
+/// INI [PeakFinder] SweepAxisOrder 默认名：YThenX=先 mode0(Y) 后 mode1(X)；XThenY 反之。不改寻峰门限。
+#ifndef M576_PEAK1D_SWEEP_AXIS_ORDER_DEFAULT
+#define M576_PEAK1D_SWEEP_AXIS_ORDER_DEFAULT "YThenX"
+#endif
+#ifndef M576_PEAK1D_SWEEP_AXIS_ORDER_X_THEN_Y
+#define M576_PEAK1D_SWEEP_AXIS_ORDER_X_THEN_Y "XThenY"
+#endif
+/// 拟合窗 span / 全序列 span 低于本比例时视为 plateau 假峰（comm expand128 类）。
+#ifndef M576_PEAK1D_MIN_FIT_SPAN_FRAC
+#define M576_PEAK1D_MIN_FIT_SPAN_FRAC 0.05
 #endif
 #ifndef M576_PEAK1D_EPS_REL_OF_SPAN
 #define M576_PEAK1D_EPS_REL_OF_SPAN 1.0e-4
@@ -58,6 +85,27 @@
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS
 #define M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS 12
 #endif
+/// 拼接式 pipeline：粗扫半窗 R（与 M576_MAX_DAC_RANGE 一致）。
+#ifndef M576_PEAK1D_STITCH_UNIT_DAC
+#define M576_PEAK1D_STITCH_UNIT_DAC 200
+#endif
+/// 无重叠拼接：相邻段中心间距 = 整窗宽 2R（非半窗重叠 ±R）。
+#ifndef M576_PEAK1D_STITCH_TILE_DAC
+#define M576_PEAK1D_STITCH_TILE_DAC (2 * M576_PEAK1D_STITCH_UNIT_DAC)
+#endif
+#ifndef M576_PEAK1D_STITCH_SYMMETRIC_RETRIES
+#define M576_PEAK1D_STITCH_SYMMETRIC_RETRIES 2
+#endif
+#ifndef M576_PEAK1D_STITCH_EXPLORE_MAX
+#define M576_PEAK1D_STITCH_EXPLORE_MAX 2
+#endif
+#ifndef M576_PEAK1D_STITCH_MAX_RETRIES
+#define M576_PEAK1D_STITCH_MAX_RETRIES 4
+#endif
+/// 单轴 pipeline 硬件扫频硬顶：64+200+4*stitch+1*fine。
+#ifndef M576_PEAK1D_PIPELINE_MAX_SWEEPS
+#define M576_PEAK1D_PIPELINE_MAX_SWEEPS 11
+#endif
 #ifndef M576_PEAK1D_COARSE_DAC_RANGE
 #define M576_PEAK1D_COARSE_DAC_RANGE M576_MAX_DAC_RANGE
 #endif
@@ -68,6 +116,21 @@
 #ifndef M576_MAX_DAC_RANGE
 #define M576_MAX_DAC_RANGE 200
 #endif
+/// Coarse/stitch RECAL step when halfRange >= M576_MAX_DAC_RANGE (fine keeps UI step, default 4).
+#ifndef M576_PEAK1D_COARSE_DAC_STEP
+#define M576_PEAK1D_COARSE_DAC_STEP 8
+#endif
+/// Fine: uiFineStep; coarse/stitch (R>=200): max(uiFineStep, COARSE_DAC_STEP).
+inline int Peak1DDacStepForHalfRange(int halfRange, int uiFineStep)
+{
+	const int fine = (uiFineStep < 1) ? 1 : uiFineStep;
+	if (halfRange >= (int)M576_MAX_DAC_RANGE)
+	{
+		const int coarse = (int)M576_PEAK1D_COARSE_DAC_STEP;
+		return (fine > coarse) ? fine : coarse;
+	}
+	return fine;
+}
 #ifndef M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC
 #define M576_PEAK1D_SWEEP_RECENTER_MAX_SHIFT_FRAC 0.35
 #endif
@@ -94,6 +157,10 @@
 /// Same edge argmax as prior attempt: extra |shift| multiplier.
 #ifndef M576_PEAK1D_SWEEP_RECENTER_STAGNATION_GAIN
 #define M576_PEAK1D_SWEEP_RECENTER_STAGNATION_GAIN 0.18
+#endif
+/// Flat@max FlatAtMaxShift ping-pong: min |base delta| to count as oscillation leg (~20% of coarse 200).
+#ifndef M576_PEAK1D_FLAT_OSC_MIN_DAC
+#define M576_PEAK1D_FLAT_OSC_MIN_DAC 40
 #endif
 #ifndef M576_PEAK1D_FLAT_REL_SPAN_FRAC
 #define M576_PEAK1D_FLAT_REL_SPAN_FRAC 0.002

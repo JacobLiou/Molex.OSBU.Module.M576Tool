@@ -2,6 +2,7 @@
 #include "M576Calibrator.h"
 #include "M576BurnSelectDlg.h"
 #include "resource.h"
+// M576BurnSelectDlg.cpp：烧录前勾选十路 trans 分文件（2×MCS + 8×1x64 开关）。
 
 namespace {
 static const UINT kCheckIds[M576_BURN_FILE_COUNT] = {

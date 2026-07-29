@@ -90,7 +90,13 @@ def is_valid_raw(v: int) -> bool:
 
 
 def compute_il(pd_raw: int, pm_raw: int) -> float:
+    """IL_dB = OPM - PD (align FIM ILTest: pScanData - pScanADCData).
+
+    PD = pd_raw / 100, OPM/PM = pm_raw / 10000.
+    """
     return pm_raw / 10000.0 - pd_raw / 100.0
+
+
 
 
 def channel_sort_key(ch: str) -> Tuple[int, str]:
@@ -163,7 +169,7 @@ def write_xlsx(path: Path, agg: Dict[str, Dict[str, WlStats]]) -> None:
     c1.font = FONT_HEADER
     c1.alignment = Alignment(horizontal="center", vertical="center")
 
-    ws["A2"] = "IL = Power_PM - Power_PD"
+    ws["A2"] = "IL = OPM(Power_PM) - PD(Power_PD)  [FIM]"
     ws["A2"].font = FONT_BOLD
 
     ws["B3"] = "SFP_1550"

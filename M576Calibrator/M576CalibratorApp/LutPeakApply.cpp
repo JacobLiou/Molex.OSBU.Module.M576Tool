@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "LutPeakApply.h"
 #include "CalibConstants.h"
+// LutPeakApply.cpp：寻峰得到的 DAC 对写入 session LUT 或 1x64 MEMS 系数（int16 钳位与 Y/X 轴映射）。
 #include <algorithm>
 #include <cmath>
 // MCS -> Z4671 LUT; 1x64 -> 126S stMemsSwCoef (four 2K blocks, stChnDAC per temp slot).
@@ -25,7 +26,7 @@ void RawCrossPeakDacToU16Pair(double rawDacX, double rawDacY, unsigned short& ou
 }
 
 // Logical cross-peak dacX/dacY from RECAL0/1 sweeps. Firmware: [0] and sDACx hold Y; [1] and sDACy hold X.
-static void WriteDacPair(
+void WriteMcsLutDacPair(
 	stLutSettingZ4671& lut,
 	int swIdx,
 	int chIdx,
@@ -41,6 +42,17 @@ static void WriteDacPair(
 		return;
 	lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][0] = dacY;
 	lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][1] = dacX;
+}
+
+static void WriteDacPair(
+	stLutSettingZ4671& lut,
+	int swIdx,
+	int chIdx,
+	int tempIdx,
+	unsigned short dacX,
+	unsigned short dacY)
+{
+	WriteMcsLutDacPair(lut, swIdx, chIdx, tempIdx, dacX, dacY);
 }
 
 void ApplyRecalPeakToLut(

@@ -1,0 +1,279 @@
+//Microsoft Developer Studio generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// Chinese (P.R.C.) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+#ifdef _WIN32
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+#pragma code_page(936)
+#endif //_WIN32
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#define _AFX_NO_SPLITTER_RESOURCES\r\n"
+    "#define _AFX_NO_OLE_RESOURCES\r\n"
+    "#define _AFX_NO_TRACKER_RESOURCES\r\n"
+    "#define _AFX_NO_PROPERTY_RESOURCES\r\n"
+    "\r\n"
+    "#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)\r\n"
+    "#ifdef _WIN32\r\n"
+    "LANGUAGE 4, 2\r\n"
+    "#pragma code_page(936)\r\n"
+    "#endif //_WIN32\r\n"
+    "#include ""res\\list.rc2""  // non-Microsoft Visual C++ edited resources\r\n"
+    "#include ""l.chs\\afxres.rc""          // Standard components\r\n"
+    "#endif\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDR_MAINFRAME           ICON    DISCARDABLE     "res\\list.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_ABOUTBOX DIALOG DISCARDABLE  0, 0, 235, 55
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "关于 HW FIU&DXFIU GUI"
+FONT 9, "宋体"
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,11,17,20,20
+    LTEXT           "HW FIU&DIFIU 1.0.0.2 版",IDC_STATIC,40,10,119,8,
+                    SS_NOPREFIX
+    LTEXT           "版权所有 (C) 2018",IDC_STATIC,40,25,119,8
+    DEFPUSHBUTTON   "确定",IDOK,178,7,50,14,WS_GROUP
+END
+
+IDD_LIST_DIALOG DIALOGEX 0, 0, 381, 227
+STYLE DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "FIMx调试工具 V1.0.0.0 2019-03-14"
+FONT 9, "宋体"
+BEGIN
+    EDITTEXT        IDC_EDIT1,45,13,69,20,ES_AUTOHSCROLL
+    PUSHBUTTON      "打开串口(1)",IDC_BUTTON5,155,7,83,22
+    CONTROL         "34100271",IDC_RADIO4,"Button",BS_AUTORADIOBUTTON | NOT 
+                    WS_VISIBLE | WS_DISABLED | WS_GROUP,26,185,48,10
+    CONTROL         "45020433",IDC_RADIO5,"Button",BS_AUTORADIOBUTTON | NOT 
+                    WS_VISIBLE | WS_DISABLED,127,185,48,10
+    COMBOBOX        IDC_COMBO1,65,143,71,245,CBS_DROPDOWN | CBS_SORT | NOT 
+                    WS_VISIBLE | WS_VSCROLL | WS_TABSTOP
+    EDITTEXT        IDC_EDIT_ATT,151,161,92,14,ES_AUTOHSCROLL | NOT 
+                    WS_VISIBLE | WS_DISABLED
+    PUSHBUTTON      "设置VOA(3)",IDC_BUTTON7,290,120,81,19,NOT WS_VISIBLE | 
+                    WS_DISABLED
+    CONTROL         "LIN1",IDC_RADIO2,"Button",BS_AUTORADIOBUTTON | NOT 
+                    WS_VISIBLE | WS_DISABLED | WS_GROUP,26,156,32,10
+    CONTROL         "LIN2",IDC_RADIO1,"Button",BS_AUTORADIOBUTTON | NOT 
+                    WS_VISIBLE | WS_DISABLED,127,154,32,10
+    PUSHBUTTON      "切开关(5)",IDC_BUTTON4,290,147,84,19,NOT WS_VISIBLE | 
+                    WS_DISABLED
+    LTEXT           "数量",IDC_STATIC,249,176,19,15,NOT WS_VISIBLE | 
+                    WS_DISABLED
+    LISTBOX         IDC_LIST2,7,117,367,95,LBS_SORT | LBS_OWNERDRAWVARIABLE | 
+                    LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | LBS_NOSEL | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "产品串口",IDC_STATIC,14,13,23,18
+    LTEXT           "PD",IDC_STATIC,33,143,23,15,NOT WS_VISIBLE
+    LTEXT           "例：1",IDC_STATIC,119,17,23,13
+    PUSHBUTTON      "可靠性测试",IDC_BUTTON6,252,142,95,16,NOT WS_VISIBLE | 
+                    WS_DISABLED
+    EDITTEXT        IDC_EDIT3,269,171,69,20,ES_AUTOHSCROLL | NOT WS_VISIBLE | 
+                    WS_DISABLED
+    LTEXT           "例：1",IDC_STATIC,319,165,35,13,NOT WS_VISIBLE | 
+                    WS_DISABLED
+    GROUPBOX        "开关(4)",IDC_STATIC,7,144,174,27,NOT WS_VISIBLE | 
+                    WS_DISABLED | WS_GROUP
+    PUSHBUTTON      "关闭串口",IDC_BUTTON8,290,7,81,22
+    CONTROL         "SIG",IDC_RADIO3,"Button",BS_AUTORADIOBUTTON | NOT 
+                    WS_VISIBLE | WS_DISABLED,104,188,28,10
+    GROUPBOX        "产品类型(2)",IDC_STATIC,7,174,174,28,NOT WS_VISIBLE | 
+                    WS_DISABLED | WS_GROUP
+    LTEXT           "Att",IDC_STATIC,124,161,19,15,NOT WS_VISIBLE | 
+                    WS_DISABLED
+    PUSHBUTTON      "读取(2)",IDC_BUTTON9,175,138,83,22,NOT WS_VISIBLE
+    COMBOBOX        IDC_COMBO1x8,45,41,71,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "1x8",IDC_STATIC,13,43,23,15
+    COMBOBOX        IDC_COMBO1x2,209,41,71,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "1x2",IDC_STATIC,177,43,23,15
+    COMBOBOX        IDC_COMBO1x64_1,45,65,71,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "1X64 #1",IDC_STATIC,13,64,23,15
+    COMBOBOX        IDC_COMBO1x64_2,209,65,71,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "1X64 #2",IDC_STATIC,177,64,23,15
+    COMBOBOX        IDC_COMBOMCS_1,82,87,34,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "MCS#1 1X18",IDC_STATIC,13,85,23,15
+    COMBOBOX        IDC_COMBOMCS_2,242,87,38,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "MCS#2 1X18",IDC_STATIC,177,85,23,15
+    PUSHBUTTON      "切换",IDC_BUTTON_1x8,121,36,38,22
+    PUSHBUTTON      "切换",IDC_BUTTON_1x2,286,36,38,22
+    PUSHBUTTON      "切换",IDC_BUTTON_1x64,121,62,38,22
+    PUSHBUTTON      "切换",IDC_BUTTON_1x11,286,62,38,22
+    PUSHBUTTON      "切换",IDC_BUTTON_1x12,121,88,38,22
+    PUSHBUTTON      "切换",IDC_BUTTON_1x13,286,88,38,22
+    PUSHBUTTON      "自动测试",IDC_BUTTON10,327,88,47,22
+    PUSHBUTTON      "读功率",IDC_BUTTON11,328,62,46,22
+    PUSHBUTTON      "读光源功率",IDC_BUTTON12,328,39,46,22
+    COMBOBOX        IDC_COMBOMCS1_CH,43,87,34,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_COMBOMCS2_CH,207,86,34,245,CBS_DROPDOWN | CBS_SORT | 
+                    WS_VSCROLL | WS_TABSTOP
+END
+
+
+#ifndef _MAC
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,2
+ PRODUCTVERSION 1,0,0,2
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x4L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "Comments", "\0"
+            VALUE "CompanyName", "\0"
+            VALUE "FileDescription", "list Microsoft 基础类应用程序\0"
+            VALUE "FileVersion", "1, 0, 0, 2\0"
+            VALUE "InternalName", "HW FIU&DXFIU\0"
+            VALUE "LegalCopyright", "版权所有 (C) 2018\0"
+            VALUE "LegalTrademarks", "\0"
+            VALUE "OriginalFilename", "list.EXE\0"
+            VALUE "PrivateBuild", "\0"
+            VALUE "ProductName", "HW FIU&DXFIU应用程序\0"
+            VALUE "ProductVersion", "1, 0, 0, 2\0"
+            VALUE "SpecialBuild", "\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END
+
+#endif    // !_MAC
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO DISCARDABLE 
+BEGIN
+    IDD_ABOUTBOX, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 228
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 48
+    END
+
+    IDD_LIST_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 374
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 220
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_ABOUTBOX            "关于 HW FIU&DXFIU(&A)..."
+END
+
+#endif    // Chinese (P.R.C.) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+#define _AFX_NO_SPLITTER_RESOURCES
+#define _AFX_NO_OLE_RESOURCES
+#define _AFX_NO_TRACKER_RESOURCES
+#define _AFX_NO_PROPERTY_RESOURCES
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+#ifdef _WIN32
+LANGUAGE 4, 2
+#pragma code_page(936)
+#endif //_WIN32
+#include "res\list.rc2"  // non-Microsoft Visual C++ edited resources
+#include "l.chs\afxres.rc"          // Standard components
+#endif
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+

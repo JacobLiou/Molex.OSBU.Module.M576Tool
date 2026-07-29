@@ -32,6 +32,18 @@
 #ifndef M576_DIAG_SWL_TLS_SOURCE
 #define M576_DIAG_SWL_TLS_SOURCE 8
 #endif
+/// IL Test hang-up: fail if IL outside [min, max] dB, or rolling Span=Max-Min > spanMax.
+/// Formula: IL = OPM - PD (same as FIM ILTest). Min/Max/Span accumulate per channel across laps.
+#ifndef M576_IL_TEST_DEFAULT_ABS_MIN_DB
+#define M576_IL_TEST_DEFAULT_ABS_MIN_DB (-5.0)
+#endif
+#ifndef M576_IL_TEST_DEFAULT_ABS_MAX_DB
+#define M576_IL_TEST_DEFAULT_ABS_MAX_DB 5.0
+#endif
+#ifndef M576_IL_TEST_DEFAULT_SPAN_MAX_DB
+#define M576_IL_TEST_DEFAULT_SPAN_MAX_DB 0.15
+#endif
+
 /// RECAL 0: wavelength (nm, int), PRD 850~1650.
 // RECAL 0 波长（nm 整数，PRD 约 850~1650）。
 #ifndef M576_MIN_WAVELENGTH_NM
@@ -99,15 +111,15 @@
 
 /// `RECAL 3` / `RECAL 5` sweep line read: `min(n*delay + margin, max)` — one global cap for PM/PD (not per opcode).
 // 读 RECAL 3/5 扫频行总超时上界（PM/PD 共用，非按指令分别配）。
-// 固件联调：临时将 min/max 均置 8000，使一维扫频读固定 8s 预算；量产前恢复为 1500/5000 等原值。
+// 固件联调：临时将 min/max 均置 10000，使一维扫频读固定 10s 预算；量产前恢复为 1500/5000 等原值。
 #ifndef M576_RECAL_SWEEP_READ_MARGIN_MS
 #define M576_RECAL_SWEEP_READ_MARGIN_MS 2000
 #endif
 #ifndef M576_MAX_RECAL_SWEEP_READ_MS
-#define M576_MAX_RECAL_SWEEP_READ_MS 8000U
+#define M576_MAX_RECAL_SWEEP_READ_MS 10000U
 #endif
 #ifndef M576_MIN_RECAL_SWEEP_READ_MS
-#define M576_MIN_RECAL_SWEEP_READ_MS 8000U
+#define M576_MIN_RECAL_SWEEP_READ_MS 10000U
 #endif
 
 /// Peak grid → DAC: symmetric around mid DAC; PRD often uses base ± range (e.g. ±64). Tune with firmware.
@@ -276,9 +288,28 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 #ifndef M576_1X64_FWDL_PRE_MS
 #define M576_1X64_FWDL_PRE_MS 5000u
 #endif
+/// 1x64 `fwdl\r` rejected (e.g. Invalid command): max attempts before abort (Burn/Recover trans 3/4).
+#ifndef M576_1X64_FWDL_RETRY_MAX
+#define M576_1X64_FWDL_RETRY_MAX 10
+#endif
+#ifndef M576_1X64_FWDL_RETRY_DELAY_MS
+#define M576_1X64_FWDL_RETRY_DELAY_MS 200u
+#endif
 /// After `fwdl\\r` on 439F main board (direct, no trans) before first XMODEM block.
 #ifndef M576_BOARD_FWDL_PRE_MS
 #define M576_BOARD_FWDL_PRE_MS 5000u
+#endif
+
+/// Working bin dir: `{SN}_backup.bin` / `{SN}_standard.bin` under `output\latest\`.
+#ifndef M576_BIN_LATEST_DIR_REL
+#define M576_BIN_LATEST_DIR_REL _T("output\\latest\\")
+#endif
+/// Immutable snapshots: `output\archive\{sessionId}\backup|standard|pre_burn`.
+#ifndef M576_BIN_ARCHIVE_DIR_REL
+#define M576_BIN_ARCHIVE_DIR_REL _T("output\\archive\\")
+#endif
+#ifndef M576_BIN_OUTPUT_DIR_REL
+#define M576_BIN_OUTPUT_DIR_REL M576_BIN_LATEST_DIR_REL
 #endif
 
 #if defined(__cplusplus)

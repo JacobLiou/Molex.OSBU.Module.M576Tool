@@ -568,7 +568,7 @@ BOOL M576Read1x64SnAllOnCurrentTunnel(Z4671Command& cmd, CString outSn[4], CStri
 
 // 已在 trans 隧道上：按 ADDR_SWITCH1..4_COEF 各读 2048 B body（64×32B），合成 BUNDLEHEADER 后写四路 2208 B 文件。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
-	Z4671Command& cmd, LPCTSTR szOutPathBase, int transChannel, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal,
+	Z4671Command& cmd, const CString outPathPerSw[4], int transChannel, DWORD flashBase, CString& err, McsFwProgressCb cb, void* user, int progressBase, int progressTotal,
 	const CString swSn[4])
 {
 	err.Empty();
@@ -587,12 +587,12 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	}
 	cmd.TraceInfo(
 		_T("FW-1x64"),
-		_T("Read 1x64 (MEM) start: trans=%d MEM body total=%u B (4 x %u B); file %u B/sw (160 hdr + body); out base=%s"),
+		_T("Read 1x64 (MEM) start: trans=%d MEM body total=%u B (4 x %u B); file %u B/sw (160 hdr + body); out[0]=%s"),
 		transChannel,
 		(unsigned)M576_1X64_MEMS_BACKUP_TOTAL_SIZE,
 		(unsigned)M576_1X64_MEMS_BODY_SIZE,
 		(unsigned)M576_1X64_MEMS_BIN_SIZE,
-		szOutPathBase);
+		outPathPerSw[0].GetString());
 	const int steps = M5761x64MemReadStepCount();
 	const int kStepsPerSw = (int)(M576_1X64_MEMS_BODY_SIZE / M576_1X64_MEM_ADDR_STEP);
 	if (steps < 1 || kStepsPerSw < 1 || kStepsPerSw * 4 != steps
@@ -739,7 +739,7 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 		ZeroMemory(&one, sizeof(one));
 		memcpy(reinterpret_cast<BYTE*>(&one) + kBodyOff, bodyBuf, sizeof(bodyBuf));
 
-		const CString outOne = M576TransBinPathForSwitch(szOutPathBase, transChannel, sw);
+		const CString outOne = outPathPerSw[sw];
 		const CString& snOne = swSn[sw];
 		if (!CMems1x64LutBinWriter::WriteSingleSwitch(one, sw, outOne, snOne, CString()))
 		{
@@ -758,10 +758,9 @@ BOOL M576Read1x64MemsBinOnCurrentTunnel(
 	}
 	cmd.TraceInfo(
 		_T("FW-1x64"),
-		_T("Read 1x64 (MEM) done: wrote 4 x %u B files to trans=%d (base: %s)"),
+		_T("Read 1x64 (MEM) done: wrote 4 x %u B files to trans=%d"),
 		(unsigned)M576_1X64_MEMS_BIN_SIZE,
-		transChannel,
-		szOutPathBase);
+		transChannel);
 	return TRUE;
 }
 
@@ -781,14 +780,39 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 
 	// Stage 1: send `fwdl\r` and capture the firmware banner during the settle window.
 	const char* fwdl = "fwdl\r";
-	cmd.TraceInfo(_T("FW-1x64"), _T("XMODEM stage 1/4 (fwdl): TX 'fwdl\\r' -> %s"), szBinPath);
-	if (!cmd.WriteBuffer((char*)fwdl, (DWORD)strlen(fwdl)))
+	const int kFwdlMax = (int)M576_1X64_FWDL_RETRY_MAX;
+	BOOL fwdlOk = FALSE;
+	CString lastFwdlErr;
+	for (int attempt = 1; attempt <= kFwdlMax; ++attempt)
 	{
-		err = _T("fwdl write failed.");
-		cmd.TraceError(_T("FW-1x64"), _T("XMODEM stage 1/4 (fwdl): TX failed."));
-		return FALSE;
-	}
-	{
+		if (attempt > 1)
+		{
+			cmd.TraceInfo(
+				_T("FW-1x64"),
+				_T("[RETRY] fwdl before attempt %d/%d -> %s"),
+				attempt,
+				kFwdlMax,
+				szBinPath);
+			Sleep((DWORD)M576_1X64_FWDL_RETRY_DELAY_MS);
+		}
+		cmd.TraceInfo(
+			_T("FW-1x64"),
+			_T("XMODEM stage 1/4 (fwdl): TX 'fwdl\\r' attempt %d/%d -> %s"),
+			attempt,
+			kFwdlMax,
+			szBinPath);
+		if (!cmd.WriteBuffer((char*)fwdl, (DWORD)strlen(fwdl)))
+		{
+			lastFwdlErr = _T("fwdl write failed.");
+			cmd.TraceError(
+				_T("FW-1x64"),
+				_T("XMODEM stage 1/4 (fwdl): TX failed on attempt %d/%d."),
+				attempt,
+				kFwdlMax);
+			if (attempt >= kFwdlMax)
+				break;
+			continue;
+		}
 		BYTE banner[512];
 		const DWORD bn = Upload1x64DrainAscii(
 			cmd, banner, sizeof(banner), (DWORD)M576_1X64_FWDL_PRE_MS, 250u);
@@ -797,23 +821,55 @@ BOOL M576Upload1x64MemsBinOnCurrentTunnel(
 		{
 			cmd.TraceInfo(
 				_T("FW-1x64"),
-				_T("XMODEM stage 1/4 (fwdl) banner (%lu B): %s"),
+				_T("XMODEM stage 1/4 (fwdl) banner (%lu B) attempt %d/%d: %s"),
 				(unsigned long)bn,
+				attempt,
+				kFwdlMax,
 				bannerPrint.GetString());
 			if (M576FwdlBannerIsDeviceError(banner, bn))
 			{
-				err.Format(_T("1x64 fwdl rejected by device: %s"), bannerPrint.GetString());
-				cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
-				return FALSE;
+				lastFwdlErr.Format(_T("1x64 fwdl rejected by device: %s"), bannerPrint.GetString());
+				cmd.TraceError(
+					_T("FW-1x64"),
+					_T("fwdl attempt %d/%d rejected: %s"),
+					attempt,
+					kFwdlMax,
+					bannerPrint.GetString());
+				if (attempt >= kFwdlMax)
+					break;
+				continue;
 			}
 		}
 		else
 		{
 			cmd.TraceInfo(
 				_T("FW-1x64"),
-				_T("XMODEM stage 1/4 (fwdl): no banner bytes within %u ms (continuing anyway)."),
-				(unsigned)M576_1X64_FWDL_PRE_MS);
+				_T("XMODEM stage 1/4 (fwdl): no banner bytes within %u ms attempt %d/%d (continuing anyway)."),
+				(unsigned)M576_1X64_FWDL_PRE_MS,
+				attempt,
+				kFwdlMax);
 		}
+		if (attempt > 1)
+		{
+			cmd.TraceInfo(
+				_T("FW-1x64"),
+				_T("fwdl accepted on attempt %d/%d -> %s"),
+				attempt,
+				kFwdlMax,
+				szBinPath);
+		}
+		fwdlOk = TRUE;
+		break;
+	}
+	if (!fwdlOk)
+	{
+		if (lastFwdlErr.IsEmpty())
+			lastFwdlErr.Format(_T("1x64 fwdl failed after %d attempt(s)."), kFwdlMax);
+		else
+			lastFwdlErr.Format(_T("%s (after %d attempt(s))"), lastFwdlErr.GetString(), kFwdlMax);
+		err = lastFwdlErr;
+		cmd.TraceError(_T("FW-1x64"), _T("%s"), err.GetString());
+		return FALSE;
 	}
 
 	// Stage 2: open the bin file and validate size against the wire contract (2208 B).

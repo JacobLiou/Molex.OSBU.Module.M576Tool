@@ -89,7 +89,8 @@
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"
-  if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"</Command>
+  if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"
+  copy /Y "$(ProjectDir)M576Calibrator.ini" "$(OutDir)M576Calibrator.ini"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -131,7 +132,8 @@
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"
-  if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"</Command>
+  if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"
+  copy /Y "$(ProjectDir)M576Calibrator.ini" "$(OutDir)M576Calibrator.ini"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -150,9 +152,20 @@
     <ClInclude Include="M576GlobalException.h" />
     <ClInclude Include="DiagnosisSession.h" />
     <ClInclude Include="DiagnosisCsv.h" />
+    <ClInclude Include="M576AppConfig.h" />
     <ClInclude Include="M576Version.h" />
     <ClInclude Include="M576Calibrator.h" />
     <ClInclude Include="M576BurnSelectDlg.h" />
+    <ClInclude Include="M576ChassisDebugDlg.h" />
+    <ClInclude Include="M576TempMonitor.h" />
+    <ClInclude Include="M576FineTuneDlg.h" />
+    <ClInclude Include="M576IlTestDlg.h" />
+    <ClInclude Include="M576FimIlTestDlg.h" />
+    <ClInclude Include="FineTuneBinPatch.h" />
+    <ClInclude Include="IlTestMath.h" />
+    <ClInclude Include="IlTestCsv.h" />
+    <ClInclude Include="M576OutputArchive.h" />
+    <ClInclude Include="M576RecalSweepCsv.h" />
     <ClInclude Include="M576RecoverSelectDlg.h" />
     <ClInclude Include="M576CalibratorDlg.h" />
     <ClInclude Include="McsFwTransport.h" />
@@ -161,6 +174,7 @@
     <ClInclude Include="Pm1x64Mapping.h" />
     <ClInclude Include="PeakFinder2D.h" />
     <ClInclude Include="Peak1DSweepRecenter.h" />
+    <ClInclude Include="Peak1DSweepPipeline.h" />
     <ClInclude Include="PmRangeValidation.h" />
     <ClInclude Include="RecalSession.h" />
     <ClInclude Include="resource.h" />
@@ -184,8 +198,19 @@
     <ClCompile Include="M576GlobalException.cpp" />
     <ClCompile Include="DiagnosisSession.cpp" />
     <ClCompile Include="DiagnosisCsv.cpp" />
+    <ClCompile Include="M576AppConfig.cpp" />
     <ClCompile Include="M576Calibrator.cpp" />
     <ClCompile Include="M576BurnSelectDlg.cpp" />
+    <ClCompile Include="M576ChassisDebugDlg.cpp" />
+    <ClCompile Include="M576TempMonitor.cpp" />
+    <ClCompile Include="M576FineTuneDlg.cpp" />
+    <ClCompile Include="M576IlTestDlg.cpp" />
+    <ClCompile Include="M576FimIlTestDlg.cpp" />
+    <ClCompile Include="FineTuneBinPatch.cpp" />
+    <ClCompile Include="IlTestMath.cpp" />
+    <ClCompile Include="IlTestCsv.cpp" />
+    <ClCompile Include="M576OutputArchive.cpp" />
+    <ClCompile Include="M576RecalSweepCsv.cpp" />
     <ClCompile Include="M576RecoverSelectDlg.cpp" />
     <ClCompile Include="M576CalibratorDlg.cpp" />
     <ClCompile Include="McsFwTransport.cpp" />
@@ -199,6 +224,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Peak1DSweepRecenter.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="Peak1DSweepPipeline.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="RecalSession.cpp" />

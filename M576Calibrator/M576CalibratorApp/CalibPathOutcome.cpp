@@ -1,9 +1,11 @@
 #include "CalibPathOutcome.h"
 #include "Peak1DSweepRecenter.h"
+// CalibPathOutcome.cpp：Run Path 单步失败分类、汇总统计与摘要文本（供汇总对话框/导出）。
 
 #include <cstdio>
 #include <cstring>
 
+// ---------- 失败类别与结果标签 ----------
 const char* CalibPathFailCategoryLabelA(CalibPathFailCategory c)
 {
 	switch (c)
@@ -18,6 +20,7 @@ const char* CalibPathFailCategoryLabelA(CalibPathFailCategory c)
 	case CalibPathFailCategory::XCrossPeak: return "cross X peak";
 	case CalibPathFailCategory::PmRangeMismatch: return "PM range mismatch";
 	case CalibPathFailCategory::SweepDataMismatch: return "Y/X data mismatch";
+	case CalibPathFailCategory::PeakPipelineExhausted: return "peak pipeline exhausted";
 	case CalibPathFailCategory::UserStop: return "user stop";
 	default: return "unknown";
 	}
@@ -37,6 +40,7 @@ const wchar_t* CalibPathFailCategoryLabelW(CalibPathFailCategory c)
 	case CalibPathFailCategory::XCrossPeak: return L"cross X peak";
 	case CalibPathFailCategory::PmRangeMismatch: return L"PM range mismatch";
 	case CalibPathFailCategory::SweepDataMismatch: return L"Y/X data mismatch";
+	case CalibPathFailCategory::PeakPipelineExhausted: return L"peak pipeline exhausted";
 	case CalibPathFailCategory::UserStop: return L"user stop";
 	default: return L"unknown";
 	}
@@ -47,6 +51,7 @@ const char* CalibPathStepResultLabelA(CalibPathStepResult r)
 	return (r == CalibPathStepResult::Skipped) ? "skipped" : "failed";
 }
 
+// ---------- 扫频轮廓与 Run Path 汇总 ----------
 void TruncatePathOutcomeDetail(std::string& s, size_t maxLen)
 {
 	if (s.size() > maxLen)

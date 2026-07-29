@@ -5,8 +5,9 @@
 
 /// 1# 1x64 (trans 3) / 2# 1x64 (trans 4): MEM 回读 4×2048 B body，写出四份 2208 B bin（160 B 头 + body）；与 MCS 0xC4 LUT 不同。
 /// `swSn[0..3]`：各 bin bundle 头 SN（与 Flash 0xD800 区每开关 SN 对应）。
+/// `outPathPerSw[0..3]`：各开关输出 `{SN}_backup.bin` 绝对路径（burnIdx 2–5 或 6–9）。
 BOOL M576Read1x64MemsBinOnCurrentTunnel(
-	Z4671Command& cmd, LPCTSTR szOutPathBase, int transChannel, DWORD flashBase, CString& err, McsFwProgressCb cb,
+	Z4671Command& cmd, const CString outPathPerSw[4], int transChannel, DWORD flashBase, CString& err, McsFwProgressCb cb,
 	void* user, int progressBase, int progressTotal, const CString swSn[4]);
 
 /// 一次 fwdl + XMODEM 下发单个 2208 B MemsSw 文件。`bSendRset` 为 TRUE 时在本文件发送完成后 Sleep+RSET（四路中仅最后一次传 TRUE）。

@@ -20,9 +20,41 @@ struct M576TransSnPnInfo
 // 按 trans 上载 MCS 侧 LUT 固件包（400B 分块到结束包）。
 BOOL McsFwUploadBin(Z4671Command& cmd, LPCTSTR szBinPath, CString& err);
 typedef void (__cdecl *McsFwProgressCb)(int current, int total, void* user); // 上载/读回进度，__cdecl
-/// `standard.bin` 基下 10 个分文件：0–1 `*_mcs1/2.bin`；2–5 trans3 `*_1x64_1_sw1..4`；6–9 trans4 `*_1x64_2_sw1..4`。
+/// Burn / backup / standard 分文件索引（与 BurnSelectDlg 勾选顺序一致）：
+///   0=1#MCS trans1, 1=2#MCS trans2, 2–5=1#1x64 sw1–4 trans3, 6–9=2#1x64 sw1–4 trans4。
+/// 新命名：`{SN}_backup.bin` / `{SN}_standard.bin`（SN 来自 Read All SN 同序字段）。
 // `pBurnFile10 == NULL`：全部烧录；否则仅 `true` 项计 chunk/上载。
 #define M576_BURN_FILE_COUNT 10
+
+enum class M576BinFileRole
+{
+	Backup,
+	Standard,
+};
+
+CString M576SanitizeSnForFilename(LPCTSTR sn);
+BOOL M576SnForBurnFileIndex(const M576TransSnPnInfo& sn, int burnFileIndex, CString& outSn, CString& err);
+CString M576BinPathFromSn(LPCTSTR outDirAbs, LPCTSTR sn, M576BinFileRole role);
+CString M576NormalizeBinOutputDir(LPCTSTR pathOrLegacyBase);
+CString M576LegacyBackupBasePath(LPCTSTR outDirAbs);
+CString M576LegacyStandardBasePath(LPCTSTR outDirAbs);
+BOOL M576BuildBurnFilePaths(
+	LPCTSTR outDirAbs,
+	const M576TransSnPnInfo& sn,
+	M576BinFileRole role,
+	std::array<CString, M576_BURN_FILE_COUNT>& outPaths,
+	CString& err);
+CString M576ResolveBinPathForBurnIndex(
+	LPCTSTR outDirAbs,
+	LPCTSTR legacyBasePath,
+	const M576TransSnPnInfo& sn,
+	int burnFileIndex,
+	M576BinFileRole role);
+BOOL M576ValidateSnInfoForBinOps(const M576TransSnPnInfo& sn, CString& err);
+BOOL M576ValidateBurnSelectionByPaths(
+	const std::array<CString, M576_BURN_FILE_COUNT>& filePaths,
+	const bool* pBurnFile10,
+	CString& err);
 BOOL McsFwUploadBinEx(
 	Z4671Command& cmd,
 	LPCTSTR szBinPath,
@@ -48,11 +80,11 @@ CString M576TransBinPathForRead(LPCTSTR szBasePath, int transChannel);
 /// trans 1~2: same as M576TransBackupPathFromBase. trans 3~4: per-switch 2K file, e.g. `x_1x64_1_sw2.bin` (swIdx 0..3).
 CString M576TransBinPathForSwitch(LPCTSTR szBasePath, int transChannel, int swIdx);
 
-/// Read LUT from each trans channel; szOutPathBase is base (e.g. out\backup.bin -> out\backup_mcs1.bin …).
-// 从各 trans 将设备 LUT 读回为多个分文件（如 out\foo.bin → out\foo_mcs1.bin …）。
+/// Read LUT from each trans channel; szOutDirAbs is output directory (e.g. exe\output); writes `{SN}_backup.bin` per burnIdx.
+// 从各 trans 读回 LUT/MEMS，按 SN 写 `{SN}_backup.bin`（须先 Read All SN）。
 /// `snInfo`：MCS 用 mcsSn[i] 写 LUT bundle SN；1x64 用 oneX64Sn[dev][sw] 写各 2K 头（dev 0=t3, 1=t4）。
 BOOL McsReadLutBundleFromDevice(
-	Z4671Command& cmd, LPCTSTR szOutPathBase, CString& err, McsFwProgressCb cb, void* user, const M576TransSnPnInfo& snInfo);
+	Z4671Command& cmd, LPCTSTR szOutDirAbs, CString& err, McsFwProgressCb cb, void* user, const M576TransSnPnInfo& snInfo);
 
 /// trans 1~2: GetProductSN (0xA2). trans 3~4: 4× `mem ADDR_SWITCH{1..4}_COEF+0x7E0` → 16 B SN ASCII each.
 BOOL McsReadAllTransProductSn(Z4671Command& cmd, M576TransSnPnInfo& out, CString& err);

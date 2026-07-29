@@ -96,6 +96,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="..\M576CalibratorApp\PeakFinder2D.cpp" />
     <ClCompile Include="..\M576CalibratorApp\Peak1DSweepRecenter.cpp" />
+    <ClCompile Include="..\M576CalibratorApp\Peak1DSweepPipeline.cpp" />
     <ClCompile Include="..\M576CalibratorApp\PmRangeValidation.cpp" />
     <ClCompile Include="..\M576CalibratorApp\CalibPathOutcome.cpp" />
   </ItemGroup>

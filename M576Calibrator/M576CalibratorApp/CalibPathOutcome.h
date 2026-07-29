@@ -25,6 +25,7 @@ enum class CalibPathFailCategory
 	XCrossPeak,
 	PmRangeMismatch,
 	SweepDataMismatch,
+	PeakPipelineExhausted,
 	UserStop,
 };
 

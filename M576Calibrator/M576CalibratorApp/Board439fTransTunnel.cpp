@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "Board439fTransTunnel.h"
 #include "CalibConstants.h"
-// 439F 多路 trans：写 trans/$$ 与 RX 排空；写操作带 M576_COMM_WRITE 重试（NoPurge）。
+// Board439fTransTunnel.cpp：439F trans N / $$ 隧道进出与 RX 排空（Z4671 二进制透传前置）。
 
 static BOOL M576WriteNoPurgeRetry439f(Z4671Command& cmd, char* p, DWORD n, CString& err, LPCTSTR ctx) // 底层多轮写
 {

@@ -1,5 +1,8 @@
 #include "Peak1DSweepRecenter.h"
+#include "Peak1DSweepPipeline.h"
 #include "M576Peak1DConstants.h"
+#include "PeakFinder2D.h"
+// Peak1DSweepRecenter.cpp：RECAL 3/5 一维扫频失败后的重试策略（平坦扩 offset、单调平移 base、贴边 recenter）。
 
 #include <algorithm>
 #include <cmath>
@@ -235,9 +238,7 @@ namespace M576
 				vmax = (std::max)(vmax, y);
 			}
 			const double span = vmax - vmin;
-			const double maxAbs = (std::max)(std::abs(vmin), std::abs(vmax));
-			const bool relFlat = (maxAbs > 1e-6 && span / maxAbs < (double)M576_PEAK1D_FLAT_REL_SPAN_FRAC);
-			if (span < (double)M576_PEAK1D_MIN_SPAN_DB || relFlat)
+			if (span < Peak1DMinFlatSpanRaw())
 				return SweepTrend::Flat;
 			const double epsMono = EpsMonoFromSpan(span);
 			if (IsStrictIncreasing(ys, epsMono))
@@ -341,11 +342,8 @@ namespace M576
 		out.span = vmax - vmin;
 		out.slopePerIndex = LinearSlopePerIndex(validIdx, validY);
 
-		const double maxAbs = (std::max)(std::abs(vmin), std::abs(vmax));
-		const bool relFlat = (maxAbs > 1e-6 && out.span / maxAbs < (double)M576_PEAK1D_FLAT_REL_SPAN_FRAC);
 		if (out.validCount < (int)M576_PEAK1D_CUBIC_MIN_SAMPLES
-			|| out.span < (double)M576_PEAK1D_MIN_SPAN_DB
-			|| relFlat)
+			|| out.span < Peak1DMinFlatSpanRaw())
 		{
 			out.trend = SweepTrend::Flat;
 			return out;
@@ -359,15 +357,18 @@ namespace M576
 		else
 			out.trend = SweepTrend::NonMono;
 		return out;
-	}
+	} // namespace
 
+	// ---------- 平坦/单调扫频失败判定与扩 offset ----------
 	bool IsFlatSweepFailure(Peak1DValidateCode code, const SweepProfile& profile)
 	{
 		if (profile.trend != SweepTrend::Flat)
 			return false;
 		return code == Peak1DValidateCode::ParabolaNotDownward
 			|| code == Peak1DValidateCode::LowSpan
-			|| code == Peak1DValidateCode::NotEnoughValidSamples;
+			|| code == Peak1DValidateCode::NotEnoughValidSamples
+			|| code == Peak1DValidateCode::VertexOutOfRange
+			|| code == Peak1DValidateCode::EdgeNotAllowed;
 	}
 
 	bool IsMonotoneSweepFailure(Peak1DValidateCode code, const SweepProfile& profile, int sampleCount)
@@ -433,6 +434,10 @@ namespace M576
 		state.inCoarsePhase = false;
 		state.fineConsumed = false;
 		state.prevArgmax = -1;
+		state.lastBase = movingBase;
+		state.prevDeltaSign = 0;
+		state.flatShiftCount = 0;
+		state.oscillationDetected = false;
 	}
 
 	bool IsCoarsePeakHint(
@@ -455,6 +460,68 @@ namespace M576
 				return true;
 		}
 		return false;
+	}
+
+	static bool CoarseExpandedPlateauGuardOk(
+		const std::vector<double>& powSamples,
+		const SweepProfile& profile,
+		int n)
+	{
+		const double minPromDb = Peak1DGetMinProminenceDb();
+		if (Peak1DArgmaxHasLeftProminence(powSamples, profile.argmaxIndex, minPromDb))
+			return true;
+		int halfFixed = (int)std::lround((double)(n - 1) * (double)M576_PEAK1D_FIT_HALF_FRAC);
+		halfFixed = (std::max)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MIN);
+		halfFixed = (std::min)(halfFixed, (int)M576_PEAK1D_FIT_HALF_MAX);
+		const int lo = (std::max)(0, profile.argmaxIndex - halfFixed);
+		const int hi = (std::min)(n - 1, profile.argmaxIndex + halfFixed);
+		bool have = false;
+		double vmin = 0.0;
+		double vmax = 0.0;
+		for (int i = lo; i <= hi; ++i)
+		{
+			if (IsRecal1DPowerInvalidValue(powSamples[(size_t)i]))
+				continue;
+			const double v = powSamples[(size_t)i];
+			if (!have)
+			{
+				vmin = vmax = v;
+				have = true;
+			}
+			else
+			{
+				vmin = (std::min)(vmin, v);
+				vmax = (std::max)(vmax, v);
+			}
+		}
+		if (!have || profile.span <= 0.0)
+			return false;
+		return (vmax - vmin) >= profile.span * (double)M576_PEAK1D_MIN_FIT_SPAN_FRAC;
+	}
+
+	bool IsCoarseExpandedInteriorPeak(
+		const SweepRecenterSessionState& state,
+		const SweepProfile& profile,
+		const std::vector<double>& powSamples,
+		int sampleCount)
+	{
+		if (!state.flatJumpedToMax || state.attemptRange < M576_PEAK1D_COARSE_DAC_RANGE)
+			return false;
+		if (sampleCount <= 0 || profile.validCount <= 0)
+			return false;
+		const int n = sampleCount;
+		if (profile.argmaxIndex <= 1 || profile.argmaxIndex >= n - 2)
+			return false;
+		if (profile.span < Peak1DDbToRawDelta((double)M576_PEAK1D_COARSE_MIN_SPAN_DB))
+			return false;
+		const double minPromDb = Peak1DGetMinProminenceDb();
+		if (!Peak1DArgmaxHasLeftProminence(powSamples, profile.argmaxIndex, minPromDb))
+			return false;
+		if (Peak1DArgmaxHasRightProminence(powSamples, profile.argmaxIndex, minPromDb))
+			return false;
+		if (!CoarseExpandedPlateauGuardOk(powSamples, profile, n))
+			return false;
+		return true;
 	}
 
 	bool NeedsFineRefineAfterSuccess(int attemptRange, int uiFineRange)
@@ -522,6 +589,11 @@ namespace M576
 			out.trend = SweepTrend::StrictInc;
 			out.argmaxIndex = sampleCount - 1;
 		}
+		else if (profile.argmaxIndex < sampleCount / 2)
+		{
+			out.trend = SweepTrend::StrictDec;
+			out.argmaxIndex = 0;
+		}
 		else if (profile.slopePerIndex > 0.0)
 		{
 			out.trend = SweepTrend::StrictInc;
@@ -533,6 +605,67 @@ namespace M576
 			out.argmaxIndex = 0;
 		}
 		return out;
+	}
+
+	static bool IsFlatAtMaxPingPongContext(
+		Peak1DValidateCode code,
+		const SweepProfile& profile,
+		const SweepRecenterSessionState& state)
+	{
+		return IsFlatSweepFailure(code, profile)
+			&& state.flatJumpedToMax
+			&& state.attemptRange >= M576_MAX_DAC_RANGE;
+	}
+
+	bool IsInteriorPeakHint(
+		const SweepProfile& profile,
+		int sampleCount,
+		const SweepRecenterFailureInfo& failure)
+	{
+		if (sampleCount <= 0)
+			return false;
+		const int n = sampleCount;
+		if (profile.argmaxIndex > 1 && profile.argmaxIndex < n - 2)
+			return true;
+		if (failure.hasTPeak && std::isfinite(failure.tPeak))
+		{
+			if (failure.tPeak > 0.5 && failure.tPeak < (double)(n - 1) - 0.5)
+				return true;
+		}
+		return false;
+	}
+
+	int SuggestFlatAtMaxShiftBase(
+		double sweepCenterDac,
+		const SweepProfile& profile,
+		int sampleCount,
+		int dacRange,
+		int attemptIndex,
+		const SweepRecenterFailureInfo& failure)
+	{
+		if (IsInteriorPeakHint(profile, sampleCount, failure))
+		{
+			const double sweepCol0 = sweepCenterDac - (double)dacRange;
+			return PeakBaseFromCoarseHint(
+				sweepCol0,
+				failure.tPeak,
+				failure.hasTPeak,
+				profile.argmaxIndex,
+				sampleCount,
+				dacRange);
+		}
+		const SweepProfile shiftProf = AdjustProfileForFlatAtMaxShift(profile, sampleCount);
+		return SuggestSweepRecenterNewBase(
+			sweepCenterDac, shiftProf, sampleCount, dacRange, attemptIndex, failure);
+	}
+
+	bool DetectSweepRecenterOscillation(const SweepRecenterSessionState& state)
+	{
+		if (!state.flatJumpedToMax || state.fineConsumed)
+			return false;
+		if (state.flatShiftCount < 2)
+			return false;
+		return state.oscillationDetected;
 	}
 
 	static int CoarseDacRange()
@@ -562,6 +695,53 @@ namespace M576
 		return plan;
 	}
 
+	/// INV-12 fallback: when no specialized branch matches, always plan another attempt until lastAttempt.
+	static SweepRetryPlan SuggestFallbackSweepRetryPlan(
+		const SweepRecenterSessionState& state,
+		const SweepProfile& profile,
+		const std::vector<double>& powSamples,
+		double sweepCenterDac,
+		int attemptIndex,
+		const SweepRecenterFailureInfo& failure)
+	{
+		SweepRetryPlan plan = {};
+		const int n = (int)powSamples.size();
+		const int coarseRange = CoarseDacRange();
+
+		if (!state.flatJumpedToMax && state.attemptRange < M576_MAX_DAC_RANGE)
+		{
+			const int next = SuggestJumpMaxDacRange(state.attemptRange, M576_MAX_DAC_RANGE);
+			if (next > state.attemptRange)
+			{
+				plan.action = SweepRetryAction::JumpFlatMax;
+				plan.nextRange = next;
+				plan.nextBase = state.movingBase;
+				return plan;
+			}
+		}
+
+		if (!state.fineConsumed)
+		{
+			const double sweepCol0 = sweepCenterDac - (double)state.attemptRange;
+			plan.action = SweepRetryAction::FineRefine;
+			plan.nextRange = state.uiFineRange;
+			plan.nextBase = PeakBaseFromCoarseHint(
+				sweepCol0,
+				failure.tPeak,
+				failure.hasTPeak,
+				profile.argmaxIndex,
+				n,
+				state.attemptRange);
+			return plan;
+		}
+
+		plan.action = SweepRetryAction::FlatAtMaxShift;
+		plan.nextRange = (state.attemptRange >= coarseRange) ? state.attemptRange : coarseRange;
+		plan.nextBase = SuggestFlatAtMaxShiftBase(
+			sweepCenterDac, profile, n, plan.nextRange, attemptIndex, failure);
+		return plan;
+	}
+
 	SweepRetryPlan PlanNextRecal1DSweepAttempt(
 		const SweepRecenterSessionState& state,
 		Peak1DValidateCode code,
@@ -575,6 +755,8 @@ namespace M576
 		SweepRetryPlan plan = {};
 		const int n = (int)powSamples.size();
 		if (n <= 0 || lastAttempt)
+			return plan;
+		if (code == Peak1DValidateCode::PmRangeMismatch)
 			return plan;
 
 		const int coarseRange = CoarseDacRange();
@@ -593,13 +775,41 @@ namespace M576
 			}
 		}
 
-		if (IsFlatSweepFailure(code, profile) && state.flatJumpedToMax && IsAtMaxDacRange(state.attemptRange))
+		if (IsCoarseExpandedInteriorPeak(state, profile, powSamples, n) && !state.fineConsumed)
 		{
-			const SweepProfile shiftProf = AdjustProfileForFlatAtMaxShift(profile, n);
+			const double sweepCol0 = sweepCenterDac - (double)state.attemptRange;
+			plan.action = SweepRetryAction::FineRefine;
+			plan.nextRange = state.uiFineRange;
+			plan.nextBase = PeakBaseFromCoarseHint(
+				sweepCol0,
+				failure.tPeak,
+				failure.hasTPeak,
+				profile.argmaxIndex,
+				n,
+				state.attemptRange);
+			return plan;
+		}
+
+		if (IsFlatAtMaxPingPongContext(code, profile, state) && !state.fineConsumed)
+		{
+			if (DetectSweepRecenterOscillation(state))
+			{
+				const double sweepCol0 = sweepCenterDac - (double)state.attemptRange;
+				plan.action = SweepRetryAction::FineRefine;
+				plan.nextRange = state.uiFineRange;
+				plan.nextBase = PeakBaseFromCoarseHint(
+					sweepCol0,
+					failure.tPeak,
+					failure.hasTPeak,
+					profile.argmaxIndex,
+					n,
+					state.attemptRange);
+				return plan;
+			}
 			plan.action = SweepRetryAction::FlatAtMaxShift;
 			plan.nextRange = state.attemptRange;
-			plan.nextBase = SuggestSweepRecenterNewBase(
-				sweepCenterDac, shiftProf, n, state.attemptRange, attemptIndex, failure);
+			plan.nextBase = SuggestFlatAtMaxShiftBase(
+				sweepCenterDac, profile, n, state.attemptRange, attemptIndex, failure);
 			return plan;
 		}
 
@@ -643,13 +853,15 @@ namespace M576
 			return plan;
 		}
 
-		return plan;
+		return SuggestFallbackSweepRetryPlan(
+			state, profile, powSamples, sweepCenterDac, attemptIndex, failure);
 	}
 
 	void ApplySweepRetryPlan(SweepRecenterSessionState& state, const SweepRetryPlan& plan)
 	{
 		if (plan.action == SweepRetryAction::GiveUp)
 			return;
+		const int oldBase = state.movingBase;
 		state.attemptRange = plan.nextRange;
 		state.movingBase = plan.nextBase;
 		switch (plan.action)
@@ -662,7 +874,23 @@ namespace M576
 			state.flatJumpedToMax = true;
 			break;
 		case SweepRetryAction::FlatAtMaxShift:
+		{
+			state.flatShiftCount++;
+			const int delta = plan.nextBase - oldBase;
+			if (delta != 0)
+			{
+				const int sign = (delta > 0) ? 1 : -1;
+				if (state.prevDeltaSign != 0
+					&& sign != state.prevDeltaSign
+					&& std::abs(delta) >= (int)M576_PEAK1D_FLAT_OSC_MIN_DAC)
+				{
+					state.oscillationDetected = true;
+				}
+				state.prevDeltaSign = sign;
+			}
+			state.lastBase = oldBase;
 			break;
+		}
 		case SweepRetryAction::FineRefine:
 			state.fineConsumed = true;
 			state.inCoarsePhase = false;
@@ -676,10 +904,12 @@ namespace M576
 		}
 	}
 
+	// ---------- Y 交叉轴重扫与重试计划 ----------
 	bool PlanRecalYCrossResweep(
 		Peak1DValidateCode crossCode,
 		const std::vector<double>& powY,
-		double sweepCenterDac,
+		double sweepCol0,
+		int sweepHalfRange,
 		int roundIndex,
 		int& ioMovingBase,
 		int& ioDacRange,
@@ -689,43 +919,25 @@ namespace M576
 		bool& outUsedExpandRange,
 		bool& ioMonoRangeExpanded)
 	{
+		(void)roundIndex;
+		(void)ioDacRange;
 		outUsedExpandRange = false;
+		ioMonoRangeExpanded = false;
 		if (crossCode == Peak1DValidateCode::Ok || crossCode == Peak1DValidateCode::PmRangeMismatch)
 			return false;
-		const int n = (int)powY.size();
-		if (n <= 0 || ioDacRange < 1)
+		if (!PlanRecalYCrossResweepPipeline(
+				crossCode,
+				powY,
+				sweepCol0,
+				sweepHalfRange,
+				ioMovingBase,
+				crossTPeak,
+				hasCrossTPeak))
+		{
 			return false;
-
-		SweepRecenterSessionState session = {};
-		InitSweepRecenterSessionState(session, ioDacRange, ioMovingBase);
-		session.attemptRange = ioDacRange;
-		session.flatJumpedToMax = ioMonoRangeExpanded || (ioDacRange >= M576_MAX_DAC_RANGE);
-		session.inCoarsePhase = ioMonoRangeExpanded;
-		session.prevArgmax = ioPrevArgmax;
-
+		}
 		const SweepProfile profile = AnalyzeRecal1DSweepProfile(powY);
-		SweepRecenterFailureInfo failInfo = {};
-		failInfo.code = crossCode;
-		failInfo.tPeak = crossTPeak;
-		failInfo.hasTPeak = hasCrossTPeak;
-		failInfo.prevArgmaxIndex = ioPrevArgmax;
-		failInfo.hasPrevAttempt = (roundIndex > 0);
-
-		const bool lastRound = (roundIndex >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
-		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
-			session, crossCode, profile, powY, sweepCenterDac, roundIndex, lastRound, failInfo);
-		if (plan.action == SweepRetryAction::GiveUp)
-			return false;
-
-		const int prevRange = ioDacRange;
-		ApplySweepRetryPlan(session, plan);
-		ioMovingBase = session.movingBase;
-		ioDacRange = session.attemptRange;
 		ioPrevArgmax = profile.argmaxIndex;
-		ioMonoRangeExpanded = session.inCoarsePhase || session.flatJumpedToMax;
-		outUsedExpandRange = (plan.action == SweepRetryAction::JumpFlatMax
-			|| plan.action == SweepRetryAction::MonoCoarseShift
-			|| (session.attemptRange > prevRange && plan.action != SweepRetryAction::FineRefine));
 		return true;
 	}
 
@@ -932,6 +1144,7 @@ namespace M576
 		return ClampRecenterDeltaDac(IndexShiftToDeltaDac(deltaIndex, sampleCount, dacRange), dacRange);
 	}
 
+	// ---------- 根据扫频轮廓建议新 base DAC（产线 recenter 核心） ----------
 	int SuggestSweepRecenterNewBase(
 		double centerDac,
 		const SweepProfile& profile,

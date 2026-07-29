@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "LutMerge1550.h"
 #include "CalibConstants.h"
+// LutMerge1550.cpp：1550nm 定标结果合并常温槽并拷贝到高温槽（MCS + 1x64 MEMS）。
 #include <cstring>
 
 void MergeMems1550RoomHighSlots(stM576OneX64MemsSwCoef base[4], const stM576OneX64MemsSwCoef src[4])

@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "DiagnosisCsv.h"
+// DiagnosisCsv.cpp：diagnosis_log.csv 读写；通道行与 SW/OPM 预置/回读列布局。
 
 #include <stdio.h>
 #include <io.h>

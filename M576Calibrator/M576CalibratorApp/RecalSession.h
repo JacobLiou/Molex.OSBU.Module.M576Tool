@@ -48,13 +48,13 @@ public:
 	// 发一条 RECAL 并收一行/一帧扫频，带 Polly 式多轮全交换重试（次数见 M576_COMM_RETRY_MAX_ATTEMPTS）。
 	BOOL ExchangeRecal0ReadLine(int tlsSource, int wavelengthNm, int pmRange, CStringA& outLine, DWORD timeoutMs, CString& err);
 
-	/// PM Run Path: `opm <4|5> 1\r` — read power-meter range; reply is a single digit line `0`..`4`.
+	/// `opm <4|5> 1\r` — firmware-side PM range readback (not used by host Run Path).
 	BOOL ExchangeOpmReadPmRange(int opmMeterId, CStringA& outLine, DWORD timeoutMs, CString& err);
 
-	/// `opm 4 1\r` (same as ExchangeOpmReadPmRange(4, ...)).
+	/// `opm 4 1\r` (same as ExchangeOpmReadPmRange(4, ...)); firmware use only.
 	BOOL ExchangeOpm4ReadPmRange(CStringA& outLine, DWORD timeoutMs, CString& err);
 
-	/// Parse `opm 4 1` / `opm 5 1` reply (trimmed ASCII) to 0..4, or -1 if invalid.
+	/// Parse `opm 4 1` / `opm 5 1` reply (trimmed ASCII) to 0..4, or -1 if invalid (firmware reply format).
 	static int ParseOpmPmRangeReply(const CStringA& line);
 	BOOL ExchangeRecal1ReadLine(const SPathStep& step, CStringA& outLine, DWORD timeoutMs, CString& err);
 	BOOL ExchangeRecal2ReadLine(const SPathStepPd& step, CStringA& outLine, DWORD timeoutMs, CString& err);

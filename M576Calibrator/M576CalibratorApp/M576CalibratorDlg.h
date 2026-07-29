@@ -24,9 +24,13 @@
 #include "DiagnosisCsv.h"
 #include "CalibWavelengthPolicy.h"
 #include "Peak1DSweepRecenter.h"
+#include "Peak1DSweepPipeline.h"
 #include "Board439fFwBurnTransport.h"
+#include "M576OutputArchive.h"
+#include "FineTuneBinPatch.h"
 
-namespace M576 { struct Peak1DFitTrace; }
+namespace M576 { struct Peak1DFitTrace; struct PeakPipelineFailureReport; }
+class CM576IlTestDlg;
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
@@ -36,6 +40,24 @@ public:
 	enum { IDD = IDD_M576CALIBRATOR_DIALOG };
 
 	CM576CalibratorDlg(CWnd* pParent = NULL);
+
+	/// Called from FineTune dialog after a successful single-file DAC patch.
+	void OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path);
+
+	/// IL Test dialog: open port if needed, lock mutual exclusion, return output\ dir.
+	/// Also redirects Diagnosis Session comm log to `output\ILTestCommLog_YYYY-MM-DD.log`.
+	BOOL BeginIlTestSession(CString& outDirAbs, CString& err);
+	void EndIlTestSession();
+	CDiagnosisSession* GetDiagnosisSessionForIlTest();
+	/// Shared 439F / Z4671 command object (IL temp monitor, FW tunnel, etc.).
+	Z4671Command& Device429f() { return m_dev429f; }
+	BOOL IsBackgroundBusyForIlTest() const;
+	/// Absolute path of the active IL Test comm log (empty when not in session).
+	CString GetIlTestCommLogPathAbs() const { return m_ilTestCommLogPathAbs; }
+	/// IL Test dialog registers itself so CommLog lines mirror into its Log edit.
+	void SetActiveIlTestDlg(CM576IlTestDlg* p) { m_pActiveIlTestDlg = p; }
+	/// MCS1 SN sanitized for filenames (`SN_*.csv`); empty UI SN -> `unknown`.
+	CString GetMcs1SnSanitizedForFilename() const;
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -58,6 +80,20 @@ private:
 		double peakDbm,
 		double loDbm,
 		double hiDbm);
+	friend void M576LogPeakPipelineFatal(
+		CM576CalibratorDlg* dlg,
+		const M576::Recal1DSweepPipelineState& pipe,
+		BOOL isPm,
+		int pmRangeIndex,
+		int sweepMode,
+		int fixedBaseDac,
+		int lastMovingBase,
+		int dacStep,
+		LPCTSTR axisTag,
+		LPCTSTR recalStageLabel,
+		int pathLine1Based,
+		int fileSlot,
+		LPCTSTR routeLabel);
 	// --- UI 与路径字符串 ---
 	CComboBox m_comboCom;
 	CComboBox m_comboTls;
@@ -72,6 +108,10 @@ private:
 	/// MCS trans1–2 SN+PN；1x64 trans3–4 每片四开关 SN+PN（写 bin 头 / 读备份用）。
 	M576TransSnPnInfo m_snInfo;
 	CString m_strCommLogPath;
+	/// Current archive session under output\archive\{id}\ (set on Read SN success).
+	CString m_archiveSessionDirAbs;
+	CString m_archiveSessionId;
+	std::vector<M576ArchiveStageEntry> m_archiveStages;
 
 	/// One port: 439F board (RECAL ASCII + MCS LUT transport via trans/$$).
 	// 单路 Z4671Command 绑定 429F 串口；CRecalSession 封装 RECAL 文本层。
@@ -101,6 +141,11 @@ private:
 	std::atomic<bool> m_burnFlashRunning{ false };
 	std::atomic<bool> m_burnBoardRunning{ false };
 	std::atomic<bool> m_diagRunning{ false };
+	std::atomic<bool> m_ilTestRunning{ false };
+	/// While IL Test runs: DIAG SEND/RECV go here (not main `comm_YYYY-MM-DD.log`).
+	CString m_ilTestCommLogPathAbs;
+	/// Non-owning; set while `CM576IlTestDlg` modal is open.
+	CM576IlTestDlg* m_pActiveIlTestDlg = nullptr;
 	volatile BOOL m_diagStop{ FALSE };
 	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
 	int m_diagFinishFullLaps{ 0 };
@@ -176,9 +221,11 @@ private:
 	BOOL IsSerialPortOpen() const;
 	// 后台：跑完整定标路径 / 只读 Flash 备份
 	void PathWorkerEntry();
-	void ReadFlashBackupWorkerEntry(CString absBackupBin);
+	void ReadFlashBackupWorkerEntry(CString absOutDir);
 	void ReadAllSnWorkerEntry();
-	void BurnFlashWorkerEntry(CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask);
+	void BurnFlashWorkerEntry(
+		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
+		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void BurnBoardWorkerEntry(CString absBinPath);
 	static void BurnBoardProgressThunk(int cur, int total, void* user);
 	void DiagnosisWorkerEntry(std::vector<M576DiagnosisRow> rows, CString outDir);
@@ -186,7 +233,8 @@ private:
 		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
 		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
-	/// Before RECAL path: set TLS source + wavelength via ASCII `SWL <tls 1-8> <1310|1550>`.
+	/// External-source wavelength for Run Path: ASCII `SWL 8 <1310|1550>` (fixed TLS ch 8).
+	/// PM: call after successful RECAL 0; PD: call at path start (no RECAL 0).
 	BOOL ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -219,7 +267,10 @@ private:
 		double& outTPeak,
 		int& outAttemptCount,
 		int& outDacRangeUsed,
-		CString& err);
+		CString& err,
+		int pathLine1Based = 0,
+		int fileSlot = 0,
+		LPCTSTR routeLabel = nullptr);
 	/// If Backup BIN base is set, load existing `*_mcs1.bin` … `*_1x64_*_sw1..4.bin` (or legacy `*_tN.bin`) into LUT/Mems before a path run.
 	// 若设了备份基名，跑路径前把已存在的分 trans bin 预载到 m_lutByTrans（含旧 tN 名兼容）。
 	void TryPreloadLutFromPerTransBackup();
@@ -246,8 +297,8 @@ private:
 	/// Before Run path: COM, PM wavelength (if PM), built-in CSV files exist. MessageBox and return FALSE when invalid.
 	// 跑路径前：串口、（PM 时）波长、内置 CSV 等输入校验。
 	BOOL ValidateRunPathInputs(CString& errMsg);
-	/// MakeBin: standardAll1310DAC.csv + all backup bins must be present and readable.
-	BOOL ValidateMakeBinInputs(const CString& absBackupBin, const CString& absCsvPath, CString& errMsg);
+	/// MakeBin: `{MCS1_SN}_standardAll1310DAC.csv` + all backup bins must be present and readable.
+	BOOL ValidateMakeBinInputs(const CString& absOutDir, const CString& absCsvPath, CString& errMsg);
 	/// Parse low-temp 1310 DAC CSV into session structures used for bin generation.
 	BOOL ParseLowTemp1310DacCsv(
 		LPCTSTR csvPath,
@@ -255,21 +306,26 @@ private:
 		stM576OneX64MemsSwCoef memsOut[2][4],
 		CString& errMsg);
 	/// Reuse Write BIN merge/write core for both Write BIN and MakeBin.
-	BOOL GenerateStandardBinFiles(
-		const CString& absBackupBin,
-		const CString& absOutBase,
-		CString& errMsg,
-		BOOL preserveMcsMetaFromBackup);
-	CString BuildStandardAll1310DacCsvPath(const CString& absOutBase) const;
+	BOOL GenerateStandardBinFiles(const CString& absOutDir, CString& errMsg, BOOL preserveMcsMetaFromBackup);
+	CString ResolveBinOutputDirAbs() const;
+	CString BuildSessionDacCsvPath(M576CalibBinWritePolicy policy, M576BinFileRole role) const;
+	BOOL ValidateSnBeforeBinOp(CString& errMsg) const;
+	void EnsureOutputDirTree();
+	void BeginArchiveSession();
+	void ArchiveCurrentBinSet(LPCTSTR subFolder, M576BinFileRole role, LPCTSTR stageTag, BOOL includeDacCsv);
+	static void LogBurnFilePaths(CM576CalibratorDlg* dlg, const std::array<CString, M576_BURN_FILE_COUNT>& paths, LPCTSTR roleLabel);
 	/// Must match McsFwProgressCb (__cdecl, not CALLBACK/__stdcall).
 	// 进度回调节点，调用约定须与 McsFwProgressCb 一致（__cdecl）。
 	static void ProgressThunk(int cur, int total, void* user);
 	static void __cdecl CommLogThunk(LPCTSTR line, void* user);
+	/// IL Test hang-up: write DiagnosisSession traces to ILTestCommLog_*.log only (no UI flood).
+	static void __cdecl IlTestCommLogThunk(LPCTSTR line, void* user);
 
 	// --- 按钮与自定义消息（路径日志/进度/完成）---
 	afx_msg void OnBnClickedOpenPorts();
 	afx_msg void OnBnClickedTestConnection();
 	afx_msg void OnBnClickedBurnBoard();
+	afx_msg void OnBnClickedChassisDebug();
 	afx_msg void OnBnClickedClosePort();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();
@@ -280,6 +336,9 @@ private:
 	afx_msg void OnBnClickedClearLog();
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedMakeBin();
+	afx_msg void OnBnClickedFineTune();
+	afx_msg void OnBnClickedIlTest();
+	afx_msg void OnBnClickedFimIl();
 	afx_msg void OnBnClickedReadAllSn();
 	afx_msg void OnBnClickedFlash();
 	afx_msg void OnBnClickedRecoverFlash();

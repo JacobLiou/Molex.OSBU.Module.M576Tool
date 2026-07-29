@@ -5,34 +5,44 @@
 #include "M576RunPathSummaryDlg.h"
 #include "M576BurnSelectDlg.h"
 #include "M576RecoverSelectDlg.h"
+#include "M576FineTuneDlg.h"
+#include "M576IlTestDlg.h"
+#include "M576FimIlTestDlg.h"
+#include "M576ChassisDebugDlg.h"
+#include "IlTestCsv.h"
 #include "LutMerge1310.h"
 #include "LutMerge1550.h"
 #include "CalibWavelengthPolicy.h"
 #include "Mems1x64LutBinWriter.h"
 #include "CalibConstants.h"
+#include "M576OutputArchive.h"
+#include "M576RecalSweepCsv.h"
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
+#include "Peak1DSweepPipeline.h"
 #include "PmRangeValidation.h"
 #include "LutPeakApply.h"
 #include "Pm1x64Mapping.h"
 #include "M576GlobalException.h"
+#include "M576AppConfig.h"
 #include "M576Version.h"
 #include <math.h>
 #include <cmath>
 #include <algorithm>
 #include <array>
 #include <exception>
-// M576CalibratorDlg.cpp：M576 定标主界面。单 COM 经 429F 发 RECAL、经 trans/$$ 跑 Z4671；后台线程跑路径/读备份，UI 仅收消息刷日志与进度。
+// M576CalibratorDlg.cpp：M576 定标主界面。单 COM 经 439F 发 RECAL、经 trans/$$ 跑 Z4671；
+// 后台线程执行 Read Bin / Run Path / Burn / Diagnosis，UI 线程仅收 WM_M576_* 消息刷日志与进度。
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
 namespace {
-// 本文件内静态工具：COM 口枚举/排序、通信错类型、通信日志路径、波长解析等（不属 CM576CalibratorDlg 成员）。
+// ---------- 文件内静态工具：COM 枚举、通信日志、UTF-8/ACP 窄串、路径 outcome 构造、RECAL 超时估算 ----------
 
-static const TCHAR* kM576FixedBackupBinRel = _T("output\\backup.bin");
-static const TCHAR* kM576FixedOutBinRel = _T("output\\standard.bin");
+static const TCHAR* kM576FixedBackupBinRel = M576_BIN_OUTPUT_DIR_REL;
+static const TCHAR* kM576FixedOutBinRel = M576_BIN_OUTPUT_DIR_REL;
 
 static int ComPortSortKey(const CString& s)
 {
@@ -140,6 +150,7 @@ static const TCHAR* M576Peak1DWhy(M576::Peak1DValidateCode c)
 enum class M576Peak1DLogStage
 {
 	YPre,
+	XPre,
 	YCross,
 	XCross
 };
@@ -153,6 +164,9 @@ static CString M576FormatPeak1DMsg(bool isPm, M576Peak1DLogStage st, M576::Peak1
 	{
 	case M576Peak1DLogStage::YPre:
 		a.Format(_T("  peak: Y (%s axis0) — %s; skip next axis sweep."), cmd, w);
+		break;
+	case M576Peak1DLogStage::XPre:
+		a.Format(_T("  peak: X (%s axis0) — %s; skip next axis sweep."), cmd, w);
 		break;
 	case M576Peak1DLogStage::YCross:
 		a.Format(_T("  peak: Y (%s cross) — %s; skip LUT update."), cmd, w);
@@ -212,6 +226,91 @@ static std::string M576PathBasenameUtf8(LPCTSTR path)
 	if (slash >= 0)
 		base = base.Mid(slash + 1);
 	return M576CStringToUtf8(base);
+}
+
+static std::string M576CsvStemUtf8(const std::string& basenameUtf8)
+{
+	const size_t dot = basenameUtf8.rfind('.');
+	if (dot != std::string::npos && dot > 0)
+		return basenameUtf8.substr(0, dot);
+	return basenameUtf8;
+}
+
+static CString M576FormatRecalSweepPathColumn(
+	BOOL isPm,
+	const std::string& csvStem,
+	int fileSlot,
+	int stepIndex1,
+	int stepTotal,
+	LPCSTR recalWire,
+	const std::string& routeLabel)
+{
+	char buf[512];
+	const int n = std::snprintf(
+		buf,
+		sizeof(buf),
+		"%s_%s|slot=%d|step=%d/%d|%s|%s",
+		isPm ? "pm" : "pd",
+		csvStem.c_str(),
+		fileSlot + 1,
+		stepIndex1,
+		stepTotal,
+		(recalWire != nullptr) ? recalWire : "",
+		routeLabel.c_str());
+	if (n < 0 || n >= (int)sizeof(buf))
+		return CString();
+#ifdef _UNICODE
+	return CString(CA2W(buf, CP_UTF8));
+#else
+	return CString(buf);
+#endif
+}
+
+static void M576AppendRecalCrossAxisSweepCsvRow(
+	BOOL isPm,
+	int sweepMode,
+	int baseX,
+	int baseY,
+	int offsetDac,
+	double col0,
+	const std::vector<double>& powers,
+	int attempt1Based,
+	const M576::SweepRecenterSessionState& xRetryState,
+	int attemptDacRangeX,
+	int uiFineRangeX,
+	int stepDac,
+	int delayMs)
+{
+	if (powers.empty())
+		return;
+	int peakIdx = 0;
+	M576::Peak1DValidateCode code = M576::Peak1DValidateCode::Empty;
+	double tPeak = 0.0;
+	M576::Peak1DFitTrace trace;
+	const M576::Peak1DFitPolicy policy =
+		M576::Peak1DFitPolicyForCrossAxis(xRetryState, attemptDacRangeX, uiFineRangeX);
+	const BOOL peakOk =
+		M576::FindUnimodalPeak1DIndex(powers, peakIdx, code, &tPeak, &trace, policy);
+	CStringA wireA;
+	if (isPm)
+		wireA.Format(
+			"RECAL 3 %d %d %d %d %d %d",
+			sweepMode,
+			baseX,
+			baseY,
+			offsetDac,
+			stepDac,
+			delayMs);
+	else
+		wireA.Format(
+			"RECAL 5 %d %d %d %d %d %d",
+			sweepMode,
+			baseX,
+			baseY,
+			offsetDac,
+			stepDac,
+			delayMs);
+	M576RecalSweepCsvAppendRow(CString(wireA), col0, powers, attempt1Based, peakOk, code);
 }
 
 static void M576FillPeakCodeFields(SCalibPathStepOutcome& o, M576::Peak1DValidateCode code)
@@ -356,6 +455,7 @@ static BOOL M576Try439fInfoTest(Z4671Command& comm, CString& outResponseOneLine,
 	return TRUE;
 }
 
+// 工作线程 -> UI 线程：日志批量刷新、进度条、各后台任务完成通知（禁止在工作线程直接改控件）。
 constexpr UINT WM_M576_PATH_LOG_FLUSH = WM_APP + 100;
 constexpr UINT WM_M576_PATH_PROGRESS_RANGE = WM_APP + 101;
 constexpr UINT WM_M576_PATH_PROGRESS_POS = WM_APP + 102;
@@ -529,8 +629,10 @@ void EnsureOutputFolderUnderExe(const CString& exeFolder)
 {
 	if (exeFolder.IsEmpty())
 		return;
-	CString outDir = exeFolder + _T("\\output");
-	(void)CreateDirectory(outDir, NULL);
+	CString err;
+	(void)M576EnsureDirTree(exeFolder + _T("\\output"), err);
+	(void)M576EnsureDirTree(M576ResolveLatestBinDirAbs(exeFolder), err);
+	(void)M576EnsureDirTree(M576ResolveArchiveRootAbs(exeFolder), err);
 }
 
 /// Convert an absolute path to a relative path from the exe folder.
@@ -770,6 +872,166 @@ void M576AppendPmRangeRejectLog(
 	dlg->SafeAppendLog(_T("  => discard this path step (no LUT update)."));
 }
 
+// ---------- RECAL 3/5 一维扫频 + 拼接式 pipeline（64→200→交替拼接→精扫半宽） ----------
+static CStringA M576SnTextForPathFileSlotUtf8(const M576TransSnPnInfo& sn, int fileSlot)
+{
+	CString s;
+	if (fileSlot == 0)
+		s = sn.mcsSn[0];
+	else if (fileSlot == 1)
+		s = sn.mcsSn[1];
+	else if (fileSlot == 2 || fileSlot == 3)
+	{
+		const int t = fileSlot - 2;
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			if (!sn.oneX64Sn[t][sw].IsEmpty())
+			{
+				s = sn.oneX64Sn[t][sw];
+				break;
+			}
+		}
+	}
+	s.Trim();
+	if (s.IsEmpty())
+		return CStringA("-");
+#ifdef _UNICODE
+	return CStringA(CW2A(s.GetString(), CP_UTF8));
+#else
+	return CStringA(s);
+#endif
+}
+
+void M576LogPeakPipelineFatal(
+	CM576CalibratorDlg* dlg,
+	const M576::Recal1DSweepPipelineState& pipe,
+	BOOL isPm,
+	int pmRangeIndex,
+	int sweepMode,
+	int fixedBaseDac,
+	int lastMovingBase,
+	int dacStep,
+	LPCTSTR axisTag,
+	LPCTSTR recalStageLabel,
+	int pathLine1Based,
+	int fileSlot,
+	LPCTSTR routeLabel)
+{
+	if (!dlg)
+		return;
+
+	M576::PeakPipelineFailureReport report = M576::BuildPeakPipelineFailureReport(pipe);
+	report.pathLine1Based = pathLine1Based;
+	report.fileSlot = fileSlot;
+	report.dacStep = dacStep;
+	report.uiFineStep = dlg->m_dacStep;
+	report.uiFineRange = pipe.uiFineRange;
+	report.coarseRange = pipe.coarseRange;
+	report.sweepMode = sweepMode;
+	report.fixedBaseDac = fixedBaseDac;
+	report.lastMovingBase = lastMovingBase;
+	report.isPm = (isPm != FALSE);
+	report.pmRangeIndex = pmRangeIndex;
+	{
+		const CStringA routeA = (routeLabel && routeLabel[0])
+#ifdef _UNICODE
+			? CStringA(CW2A(routeLabel, CP_UTF8))
+#else
+			? CStringA(routeLabel)
+#endif
+			: CStringA("-");
+		_snprintf_s(report.routeLabel, sizeof report.routeLabel, _TRUNCATE, "%s", routeA.GetString());
+		const CStringA snA = M576SnTextForPathFileSlotUtf8(dlg->m_snInfo, fileSlot);
+		_snprintf_s(report.snText, sizeof report.snText, _TRUNCATE, "%s", snA.GetString());
+	}
+
+	const char* phase = report.failedPhase ? report.failedPhase : "?";
+	const char* codeWhy = M576Peak1DWhy(report.lastCode);
+	const double mergedSpanDb = report.mergedSpanRaw / 10000.0;
+
+	char ts[48] = {};
+	M576FormatLocalTimestampPrefix(ts, sizeof ts, nullptr);
+
+	CString uiLine;
+	uiLine.Format(
+		_T("%hs[FATAL][peak-pipeline] path_line=%d slot=%d %s %s phase=%hs code=%hs dac_step=%d sweeps=%d stitch_k=%d"),
+		ts,
+		pathLine1Based,
+		fileSlot,
+		recalStageLabel ? recalStageLabel : _T("?"),
+		axisTag ? axisTag : _T("?"),
+		phase,
+		codeWhy,
+		dacStep,
+		report.sweepCount,
+		report.lastStitchK);
+	dlg->SafeAppendLog(uiLine);
+
+	CStringA head;
+	head.Format(
+		"%s[FATAL][peak-pipeline]\n"
+		"  path_line=%d slot=%d axis=%s stage=%s phase=%s code=%s\n"
+		"  sn=%s route=%s cal=%s pm_range=%d\n"
+		"  dac_step=%d ui_fine_step=%d ui_fine_range=%d coarse_range=%d\n"
+		"  sweep_mode=%d fixed_base=%d last_moving_base=%d anchor_center=%d sweeps=%d stitch_k=%d\n"
+		"  merged_span_raw=%.6g merged_span_db=%.6g t*=%.6g\n",
+		ts,
+		pathLine1Based,
+		fileSlot,
+		CStringA(axisTag ? axisTag : _T("?")).GetString(),
+		CStringA(recalStageLabel ? recalStageLabel : _T("?")).GetString(),
+		phase,
+		codeWhy,
+		report.snText,
+		report.routeLabel,
+		report.isPm ? "PM" : "PD",
+		report.pmRangeIndex,
+		report.dacStep,
+		report.uiFineStep,
+		report.uiFineRange,
+		report.coarseRange,
+		report.sweepMode,
+		report.fixedBaseDac,
+		report.lastMovingBase,
+		report.anchorBase,
+		report.sweepCount,
+		report.lastStitchK,
+		report.mergedSpanRaw,
+		mergedSpanDb,
+		report.mergeTPeak);
+	M576AppendFatalLogUtf8(head.GetString());
+
+	for (size_t si = 0; si < report.segments.size(); ++si)
+	{
+		const M576::Recal1DSweepSegment& seg = report.segments[si];
+		const M576::SweepProfile prof = M576::AnalyzeRecal1DSweepProfile(seg.pow);
+		const int n = (int)seg.pow.size();
+		double peakRaw = 0.0;
+		if (prof.argmaxIndex >= 0 && prof.argmaxIndex < n)
+			peakRaw = seg.pow[(size_t)prof.argmaxIndex];
+		const double argmaxDac = SweepCol0PlusPeakOffsetDac(seg.col0, prof.argmaxIndex, n, seg.halfRange);
+		const double spanDb = prof.span / 10000.0;
+		CStringA segLine;
+		segLine.Format(
+			"  segment[%u] stitch_k=%d base=%d offset=%d col0=%.6g n=%d trend=%hs argmax=%d argmax_dac=%.4g "
+			"span_raw=%.6g span_db=%.6g peak_raw=%.6g\n",
+			(unsigned)si,
+			seg.stitchK,
+			seg.movingBase,
+			seg.halfRange,
+			seg.col0,
+			n,
+			M576::SweepTrendName(prof.trend),
+			prof.argmaxIndex,
+			argmaxDac,
+			prof.span,
+			spanDb,
+			peakRaw);
+		M576AppendFatalLogUtf8(segLine.GetString());
+	}
+	M576AppendFatalLogUtf8("  note: full P1..Pn in comm_*_recal_sweeps.csv for this session\n");
+}
+
 BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	BOOL isPm,
 	int pmRangeIndex,
@@ -788,7 +1050,10 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	double& outTPeak,
 	int& outAttemptCount,
 	int& outDacRangeUsed,
-	CString& err)
+	CString& err,
+	int pathLine1Based,
+	int fileSlot,
+	LPCTSTR routeLabel)
 {
 	err.Empty();
 	outCode = M576::Peak1DValidateCode::Empty;
@@ -807,24 +1072,36 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 	}
 
 	const int uiFineRange = (initialDacRange >= M576_MIN_DAC_RANGE) ? initialDacRange : m_dacRange;
-	M576::SweepRecenterSessionState retryState = {};
-	M576::InitSweepRecenterSessionState(retryState, uiFineRange, initialMovingBase);
-	int movingBase = retryState.movingBase;
-	int attemptDacRange = retryState.attemptRange;
+	M576::Recal1DSweepPipelineState pipe = {};
+	M576::InitRecal1DSweepPipeline(pipe, uiFineRange, initialMovingBase, m_dacStep);
+	int movingBase = initialMovingBase;
+	int attemptDacRange = uiFineRange;
+	int attemptDacStep = Peak1DDacStepForHalfRange(attemptDacRange, m_dacStep);
 	DWORD attemptTimeout = (initialDacRange >= M576_MIN_DAC_RANGE)
-		? ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep)
+		? ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, attemptDacStep)
 		: readTimeoutMs;
 	CStringA lineY;
-	for (int attempt = 0; attempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS; ++attempt)
+
+	for (int guard = 0; guard < (int)M576_PEAK1D_PIPELINE_MAX_SWEEPS; ++guard)
 	{
-		outAttemptCount = attempt + 1;
+		M576::Recal1DSweepCommand cmd = {};
+		if (!M576::GetNextPipelineSweepCommand(pipe, cmd))
+			break;
+
+		movingBase = cmd.movingBase;
+		attemptDacRange = cmd.halfRange;
+		// Always derive from halfRange (do not trust cmd.dacStep alone — stale Debug builds / ABI drift).
+		attemptDacStep = Peak1DDacStepForHalfRange(attemptDacRange, m_dacStep);
+		outAttemptCount = pipe.sweepCount + 1;
+		attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, attemptDacStep);
+
 		const int baseX = (sweepMode == 0) ? fixedBaseDac : movingBase;
 		const int baseY = (sweepMode == 0) ? movingBase : fixedBaseDac;
 		const BOOL got = isPm
 			? m_pRecal->ExchangeRecal3ReadSweep(
-				sweepMode, baseX, baseY, attemptDacRange, m_dacStep, m_delayMs, lineY, attemptTimeout, err)
+				sweepMode, baseX, baseY, attemptDacRange, attemptDacStep, m_delayMs, lineY, attemptTimeout, err)
 			: m_pRecal->ExchangeRecal5ReadSweep(
-				sweepMode, baseX, baseY, attemptDacRange, m_dacStep, m_delayMs, lineY, attemptTimeout, err);
+				sweepMode, baseX, baseY, attemptDacRange, attemptDacStep, m_delayMs, lineY, attemptTimeout, err);
 		if (!got)
 			return FALSE;
 
@@ -842,176 +1119,239 @@ BOOL CM576CalibratorDlg::RunRecal1DSweepWithPeakRecenterRetry(
 			return FALSE;
 		}
 
-		const M576::Peak1DFitPolicy fitPolicy = M576::IsFineRefineSweepAttempt(retryState)
-			? M576::Peak1DFitPolicy::FineRefineRelaxed
-			: M576::Peak1DFitPolicy::Strict;
-		if (M576::FindUnimodalPeak1DIndex(outPow, outPeakIdx, outCode, &outTPeak, &outTrace, fitPolicy))
+		const BOOL peakFindOk = M576::FindUnimodalPeak1DIndex(
+			outPow, outPeakIdx, outCode, &outTPeak, &outTrace, cmd.fitPolicy);
+
+		if (peakFindOk && outTrace.usedArgmaxFallback)
 		{
-			if (outTrace.usedArgmaxFallback)
+			CString msg;
+			msg.Format(
+				_T("  %hs %s %s cubic fallback to argmax t*=%.4g idx=%d"),
+				cmd.phaseLogTag,
+				recalStageLabel,
+				axisTag,
+				outTPeak,
+				outPeakIdx);
+			SafeAppendLog(msg);
+		}
+
+		BOOL pmRangeFailed = FALSE;
+		if (peakFindOk && isPm && pmRangeIndex != M576_MAX_PM_RANGE)
+		{
+			const int peakHint = (outTrace.globalMaxIndex >= 0) ? outTrace.globalMaxIndex : outPeakIdx;
+			double peakRaw = 0.0, peakDbm = 0.0, loDbm = 0.0, hiDbm = 0.0;
+			int peakIdxUsed = -1;
+			if (!M576::ValidatePeakPowerInPmRange(
+					pmRangeIndex, outPow, peakHint, peakRaw, peakDbm, loDbm, hiDbm, peakIdxUsed))
 			{
-				CString msg;
-				msg.Format(
-					_T("  fine refine: %s %s cubic fallback to argmax t*=%.4g idx=%d"),
+				outCode = M576::Peak1DValidateCode::PmRangeMismatch;
+				M576AppendPmRangeRejectLog(
+					this,
+					pmRangeIndex,
 					recalStageLabel,
 					axisTag,
-					outTPeak,
-					outPeakIdx);
-				SafeAppendLog(msg);
-			}
-			if (isPm && pmRangeIndex != M576_MAX_PM_RANGE)
-			{
-				const int peakHint = (outTrace.globalMaxIndex >= 0) ? outTrace.globalMaxIndex : outPeakIdx;
-				double peakRaw = 0.0, peakDbm = 0.0, loDbm = 0.0, hiDbm = 0.0;
-				int peakIdxUsed = -1;
-				if (!M576::ValidatePeakPowerInPmRange(
-						pmRangeIndex, outPow, peakHint, peakRaw, peakDbm, loDbm, hiDbm, peakIdxUsed))
+					outCol0,
+					outPow,
+					peakIdxUsed,
+					peakRaw,
+					peakDbm,
+					loDbm,
+					hiDbm);
+				pipe.lastCode = outCode;
+				pmRangeFailed = TRUE;
+				if (pipe.phase == M576::Recal1DPipelinePhase::Stitch && pipe.stitchK >= 3)
 				{
-					outCode = M576::Peak1DValidateCode::PmRangeMismatch;
-					M576AppendPmRangeRejectLog(
+					// explore PM: defer to HandleStitchExplorePmRangeReject (keep phase=Stitch).
+				}
+				else
+				{
+					pipe.phase = M576::Recal1DPipelinePhase::Failed;
+					pipe.failedPhaseTag = "pm_range";
+					pipe.sweepCount++;
+				}
+			}
+		}
+
+		{
+			CStringA wireA;
+			if (isPm)
+				wireA.Format(
+					"RECAL 3 %d %d %d %d %d %d",
+					sweepMode,
+					baseX,
+					baseY,
+					attemptDacRange,
+					attemptDacStep,
+					m_delayMs);
+			else
+				wireA.Format(
+					"RECAL 5 %d %d %d %d %d %d",
+					sweepMode,
+					baseX,
+					baseY,
+					attemptDacRange,
+					attemptDacStep,
+					m_delayMs);
+			const BOOL csvPeakOk = (outCode == M576::Peak1DValidateCode::Ok) ? TRUE : FALSE;
+			M576RecalSweepCsvAppendRow(
+				CString(wireA),
+				outCol0,
+				outPow,
+				outAttemptCount,
+				csvPeakOk,
+				outCode);
+		}
+
+		if (pmRangeFailed)
+		{
+			if (pipe.phase == M576::Recal1DPipelinePhase::Stitch && pipe.stitchK >= 3)
+			{
+				M576::HandleStitchExplorePmRangeReject(pipe, attemptDacStep);
+				if (pipe.phase == M576::Recal1DPipelinePhase::Failed)
+				{
+					M576LogPeakPipelineFatal(
 						this,
+						pipe,
+						isPm,
 						pmRangeIndex,
-						recalStageLabel,
+						sweepMode,
+						fixedBaseDac,
+						movingBase,
+						attemptDacStep,
 						axisTag,
-						outCol0,
-						outPow,
-						peakIdxUsed,
-						peakRaw,
-						peakDbm,
-						loDbm,
-						hiDbm);
+						recalStageLabel,
+						pathLine1Based,
+						fileSlot,
+						routeLabel);
 					return FALSE;
 				}
+				continue;
 			}
-			if (M576::NeedsFineRefineAfterSuccess(attemptDacRange, uiFineRange)
-				&& !retryState.fineConsumed)
+			M576LogPeakPipelineFatal(
+				this,
+				pipe,
+				isPm,
+				pmRangeIndex,
+				sweepMode,
+				fixedBaseDac,
+				movingBase,
+				attemptDacStep,
+				axisTag,
+				recalStageLabel,
+				pathLine1Based,
+				fileSlot,
+				routeLabel);
+			return FALSE;
+		}
+
+		{
+			const M576::SweepProfile prof = M576::AnalyzeRecal1DSweepProfile(outPow);
+			CString msg;
+			msg.Format(
+				_T("  %hs %s %s sweep %d/%d code=%hs trend=%hs offset=%d step=%d base=%d"),
+				cmd.phaseLogTag,
+				recalStageLabel,
+				axisTag,
+				outAttemptCount,
+				(int)M576_PEAK1D_PIPELINE_MAX_SWEEPS,
+				M576Peak1DWhy(outCode),
+				M576::SweepTrendName(prof.trend),
+				attemptDacRange,
+				attemptDacStep,
+				movingBase);
+			SafeAppendLog(msg);
+		}
+
+		pipe.movingBase = movingBase;
+		const BOOL pipelineTerminal = M576::AdvanceRecal1DSweepPipeline(
+			pipe,
+			outCol0,
+			outPow,
+			peakFindOk != FALSE,
+			outCode,
+			outTPeak,
+			outPeakIdx,
+			attemptDacStep);
+
+		if (pipe.lastStitchStrictGateFailed
+			&& pipe.phase == M576::Recal1DPipelinePhase::Stitch)
+		{
+			CString strictGateLine;
+			strictGateLine.Format(
+				_T("  stitch_k%d segment strict fail (%s), skip merge early-stop"),
+				pipe.lastStitchK,
+				M576Peak1DWhy(pipe.lastCode));
+			SafeAppendLog(strictGateLine);
+		}
+
+		if (pipe.lastStitchSymmetricTrioMerge
+			&& pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
+		{
+			CString bypassLine;
+			bypassLine.Format(
+				_T("  stitch_k%d symmetric trio merge relaxed (strict segment bypass)"),
+				pipe.lastStitchK);
+			SafeAppendLog(bypassLine);
+		}
+
+		if (pipe.lastStitchK >= 1 && pipe.phase == M576::Recal1DPipelinePhase::FineRefine)
+		{
+			if (pipe.lastStitchK < (int)M576_PEAK1D_STITCH_MAX_RETRIES)
 			{
-				const M576::SweepRetryPlan finePlan = M576::PlanFineRefineAfterCoarseSuccess(
-					retryState, outCol0, outTPeak, n, attemptDacRange);
-				if (finePlan.action == M576::SweepRetryAction::FineRefine)
-				{
-					const int prevRange = attemptDacRange;
-					M576::ApplySweepRetryPlan(retryState, finePlan);
-					movingBase = retryState.movingBase;
-					attemptDacRange = retryState.attemptRange;
-					attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep);
-					{
-						CString msg;
-						msg.Format(
-							_T("  %hs %s %s attempt %d/%d trend=coarseOk span=%.4g refine offset %d->%d base %d->%d (fine @%d)"),
-							M576::SweepRetryActionLogTag(finePlan.action),
-							recalStageLabel,
-							axisTag,
-							attempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576::AnalyzeRecal1DSweepProfile(outPow).span,
-							prevRange,
-							attemptDacRange,
-							movingBase,
-							finePlan.nextBase,
-							uiFineRange);
-						SafeAppendLog(msg);
-					}
-					movingBase = finePlan.nextBase;
-					retryState.movingBase = movingBase;
-					continue;
-				}
+				CString skipLine;
+				skipLine.Format(
+					_T("  merge ok at stitch_k%d, skip remaining -> fineRefine"),
+					pipe.lastStitchK);
+				SafeAppendLog(skipLine);
 			}
+			CString relaxedLine;
+			relaxedLine.Format(
+				_T("  merged unimodal relaxed t*=%.2f merged_span=%.4g stitch_k=%d -> fineRefine"),
+				pipe.lastMergeTPeak,
+				pipe.mergedSpanRaw,
+				pipe.lastStitchK);
+			SafeAppendLog(relaxedLine);
+		}
+
+		if (pipe.phase == M576::Recal1DPipelinePhase::Succeeded)
+		{
 			outDacRangeUsed = attemptDacRange;
 			return TRUE;
 		}
-
-		const M576::SweepProfile profile = M576::AnalyzeRecal1DSweepProfile(outPow);
-		const BOOL lastAttempt = (attempt >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
-
-		M576::SweepRecenterFailureInfo failInfo = {};
-		failInfo.code = outCode;
-		failInfo.tPeak = outTPeak;
-		failInfo.hasTPeak = std::isfinite(outTPeak);
-		failInfo.prevArgmaxIndex = retryState.prevArgmax;
-		failInfo.hasPrevAttempt = (attempt > 0);
-
-		retryState.movingBase = movingBase;
-		retryState.attemptRange = attemptDacRange;
-		const double centerDac = RecalSweepCenterFromCol0(outCol0, attemptDacRange);
-		const M576::SweepRetryPlan plan = M576::PlanNextRecal1DSweepAttempt(
-			retryState, outCode, profile, outPow, centerDac, attempt, lastAttempt, failInfo);
-		if (plan.action == M576::SweepRetryAction::GiveUp)
-			return FALSE;
-
-		const int prevRange = attemptDacRange;
-		const int prevBase = movingBase;
-		M576::ApplySweepRetryPlan(retryState, plan);
-		movingBase = retryState.movingBase;
-		attemptDacRange = retryState.attemptRange;
-		attemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRange, m_dacStep);
+		if (pipe.phase == M576::Recal1DPipelinePhase::Failed || pipelineTerminal)
 		{
-			CString msg;
-			if (plan.action == M576::SweepRetryAction::JumpFlatMax)
-			{
-				msg.Format(
-					_T("  %hs %s %s attempt %d/%d code=%hs trend=%hs span=%.4g offset %d->%d (base unchanged)"),
-					M576::SweepRetryActionLogTag(plan.action),
-					recalStageLabel,
-					axisTag,
-					attempt + 1,
-					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-					M576Peak1DWhy(outCode),
-					M576::SweepTrendName(profile.trend),
-					profile.span,
-					prevRange,
-					attemptDacRange);
-			}
-			else if (plan.action == M576::SweepRetryAction::FineRefine)
-			{
-				msg.Format(
-					_T("  %hs %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset %d->%d base %d->%d"),
-					M576::SweepRetryActionLogTag(plan.action),
-					recalStageLabel,
-					axisTag,
-					attempt + 1,
-					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-					M576Peak1DWhy(outCode),
-					M576::SweepTrendName(profile.trend),
-					profile.argmaxIndex,
-					outTPeak,
-					profile.span,
-					prevRange,
-					attemptDacRange,
-					prevBase,
-					movingBase);
-			}
-			else
-			{
-				const M576::SweepProfile recenterProfile =
-					M576::AdjustProfileForMonoRecenter(profile, outPow, retryState.inCoarsePhase, &failInfo);
-				const double deltaDac = M576::SuggestSweepRecenterDeltaDac(
-					recenterProfile, n, attemptDacRange, attempt, failInfo);
-				msg.Format(
-					_T("  %hs %s %s attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g col0=%.4g offset=%d deltaDac=%.4g newMoving=%d fixed=%d (center=%.4g moving=%d->%d)%s"),
-					M576::SweepRetryActionLogTag(plan.action),
-					recalStageLabel,
-					axisTag,
-					attempt + 1,
-					(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-					M576Peak1DWhy(outCode),
-					M576::SweepTrendName(recenterProfile.trend),
-					recenterProfile.argmaxIndex,
-					outTPeak,
-					recenterProfile.span,
-					outCol0,
-					attemptDacRange,
-					deltaDac,
-					movingBase,
-					fixedBaseDac,
-					centerDac,
-					prevBase,
-					movingBase,
-					(recenterProfile.trend != profile.trend) ? _T(" postCoarse") : _T(""));
-			}
-			SafeAppendLog(msg);
+			M576LogPeakPipelineFatal(
+				this,
+				pipe,
+				isPm,
+				pmRangeIndex,
+				sweepMode,
+				fixedBaseDac,
+				movingBase,
+				attemptDacStep,
+				axisTag,
+				recalStageLabel,
+				pathLine1Based,
+				fileSlot,
+				routeLabel);
+			return FALSE;
 		}
-		retryState.prevArgmax = profile.argmaxIndex;
 	}
+
+	M576LogPeakPipelineFatal(
+		this,
+		pipe,
+		isPm,
+		pmRangeIndex,
+		sweepMode,
+		fixedBaseDac,
+		movingBase,
+		attemptDacStep,
+		axisTag,
+		recalStageLabel,
+		pathLine1Based,
+		fileSlot,
+		routeLabel);
 	return FALSE;
 }
 
@@ -1022,14 +1362,14 @@ void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, c
 	if (tr.globalMaxIndex >= 0)
 	{
 		CString line;
-		line.Format(_T("  %s全局最大点: 下标=%d 功率=%.12g"), stageTag, tr.globalMaxIndex, tr.globalMaxY);
+		line.Format(_T("  %sglobal max: index=%d power=%.12g"), stageTag, tr.globalMaxIndex, tr.globalMaxY);
 		dlg->SafeAppendLog(line);
 	}
 	const size_t nf = tr.fitIndex.size();
 	if (nf == 0 || tr.fitY.size() != nf)
 	{
 		CString line;
-		line.Format(_T("  %s拟合点: (无，预处理未产出)"), stageTag);
+		line.Format(_T("  %sfit points: (none, preprocess produced none)"), stageTag);
 		dlg->SafeAppendLog(line);
 		return;
 	}
@@ -1056,7 +1396,7 @@ void M576AppendPeakFitTraceLog(CM576CalibratorDlg* dlg, const TCHAR* stageTag, c
 			appendOne(k, true);
 	}
 	CString full;
-	full.Format(_T("  %s拟合点(共%zu个): "), stageTag, nf);
+	full.Format(_T("  %sfit points (%zu): "), stageTag, nf);
 	full += seg;
 	dlg->SafeAppendLog(full);
 }
@@ -1138,6 +1478,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
 	ON_BN_CLICKED(IDC_BTN_TEST_CONNECTION, &CM576CalibratorDlg::OnBnClickedTestConnection)
 	ON_BN_CLICKED(IDC_BTN_BURN_BOARD, &CM576CalibratorDlg::OnBnClickedBurnBoard)
+	ON_BN_CLICKED(IDC_BTN_CHASSIS_DEBUG, &CM576CalibratorDlg::OnBnClickedChassisDebug)
 	ON_BN_CLICKED(IDC_BTN_CLOSE_PORT, &CM576CalibratorDlg::OnBnClickedClosePort)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
@@ -1148,13 +1489,15 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_CLEAR_LOG, &CM576CalibratorDlg::OnBnClickedClearLog)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_MAKE_BIN, &CM576CalibratorDlg::OnBnClickedMakeBin)
+	ON_BN_CLICKED(IDC_BTN_FINE_TUNE, &CM576CalibratorDlg::OnBnClickedFineTune)
+	ON_BN_CLICKED(IDC_BTN_IL_TEST, &CM576CalibratorDlg::OnBnClickedIlTest)
+	ON_BN_CLICKED(IDC_BTN_FIM_IL, &CM576CalibratorDlg::OnBnClickedFimIl)
 	ON_BN_CLICKED(IDC_BTN_READ_ALL_SN, &CM576CalibratorDlg::OnBnClickedReadAllSn)
 	ON_BN_CLICKED(IDC_BTN_FLASH, &CM576CalibratorDlg::OnBnClickedFlash)
 	ON_BN_CLICKED(IDC_BTN_RECOVER_FLASH, &CM576CalibratorDlg::OnBnClickedRecoverFlash)
 	ON_BN_CLICKED(IDC_BTN_STOP, &CM576CalibratorDlg::OnBnClickedStop)
 	ON_BN_CLICKED(IDC_BTN_RUN_DIAG, &CM576CalibratorDlg::OnBnClickedRunDiag)
 	ON_BN_CLICKED(IDC_BTN_STOP_DIAG, &CM576CalibratorDlg::OnBnClickedStopDiag)
-	ON_BN_CLICKED(IDC_BTN_EXPORT_CALIB_STATS, &CM576CalibratorDlg::OnBnClickedExportCalibStats)
 	ON_WM_SYSCOMMAND()
 	ON_WM_DESTROY()
 	ON_MESSAGE(WM_M576_PATH_LOG_FLUSH, &CM576CalibratorDlg::OnPathLogFlush)
@@ -1254,9 +1597,16 @@ BOOL CM576CalibratorDlg::OnInitDialog()
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	AppendLog(_T("Ready. Select 439F COM port, open port, then run."));
 	AppendLog(
-		_T("Backup BIN: Read Flash writes *_mcs1/2.bin (Z4671), *_1x64_*_sw1..4.bin (4x2K each); SN merged into headers."));
+		_T("Backup BIN: Read Flash writes {SN}_backup.bin to output\\latest\\; archives under output\\archive\\; run Read All SN first."));
+	AppendLog(
+		_T("BIN workspace is output\\latest\\; legacy bins in output\\ root are not used — re-read Flash or move files into latest\\."));
 	AppendLog(_T("Path CSV: built-in output\\pm_*.csv (PM) or pd_*.csv (PD); missing file skips that trans slot."));
 	AppendLog(_T("PM: RECAL 0 + RECAL 1 + RECAL 3; PD: RECAL 2 + RECAL 5 (no RECAL 0)."));
+	{
+		const CString cfgLine = M576GetAppConfigLogLine();
+		if (!cfgLine.IsEmpty())
+			AppendLog(cfgLine);
+	}
 	SyncExportStatsButton();
 	return TRUE;
 }
@@ -1269,6 +1619,164 @@ void CM576CalibratorDlg::ApplyFixedBinBasePaths(BOOL syncUi)
 	{
 		SetDlgItemText(IDC_EDIT_BACKUP_BIN, m_strBackupBin);
 		SetDlgItemText(IDC_EDIT_OUT_BIN, m_strOutBin);
+	}
+}
+
+CString CM576CalibratorDlg::ResolveBinOutputDirAbs() const
+{
+	return M576ResolveLatestBinDirAbs(GetExeFolder());
+}
+
+void CM576CalibratorDlg::EnsureOutputDirTree()
+{
+	EnsureOutputFolderUnderExe(GetExeFolder());
+}
+
+void CM576CalibratorDlg::BeginArchiveSession()
+{
+	EnsureOutputDirTree();
+	if (!m_archiveSessionDirAbs.IsEmpty())
+		AppendLog(_T("Archive session rotated (new Read SN)."));
+	m_archiveSessionId = M576BuildSessionFolderName(m_snInfo);
+	m_archiveSessionDirAbs = M576ResolveArchiveRootAbs(GetExeFolder()) + m_archiveSessionId;
+	m_archiveStages.clear();
+
+	CString err;
+	CString logsDir;
+	logsDir.Format(_T("%s\\logs"), m_archiveSessionDirAbs.GetString());
+	if (!M576EnsureDirTree(m_archiveSessionDirAbs, err))
+	{
+		CString m;
+		m.Format(_T("Archive session: mkdir failed: %s"), err.GetString());
+		AppendLog(m);
+		return;
+	}
+	(void)M576EnsureDirTree(logsDir, err);
+
+	M576ArchiveStageEntry st;
+	st.stageName = _T("read_sn");
+	st.utcIso = M576FormatUtcIso8601Z();
+	st.filesCopied = 0;
+	m_archiveStages.push_back(st);
+
+	CString metaErr;
+	if (!M576WriteSessionMeta(
+			m_archiveSessionDirAbs,
+			m_archiveSessionId,
+			m_snInfo,
+			GetComboCom(),
+			m_archiveStages,
+			metaErr))
+	{
+		CString m;
+		m.Format(_T("Archive session: meta.json failed: %s"), metaErr.GetString());
+		AppendLog(m);
+		return;
+	}
+	CString ok;
+	ok.Format(_T("Archive session started: %s"), m_archiveSessionDirAbs.GetString());
+	AppendLog(ok);
+}
+
+void CM576CalibratorDlg::ArchiveCurrentBinSet(
+	LPCTSTR subFolder,
+	M576BinFileRole role,
+	LPCTSTR stageTag,
+	BOOL includeDacCsv)
+{
+	if (m_archiveSessionDirAbs.IsEmpty())
+	{
+		AppendLog(_T("Archive skipped: no session (Read All SN first)."));
+		return;
+	}
+	if (subFolder == NULL || subFolder[0] == 0 || stageTag == NULL || stageTag[0] == 0)
+		return;
+
+	CString destSub;
+	destSub.Format(_T("%s\\%s"), m_archiveSessionDirAbs.GetString(), subFolder);
+	const CString latestDir = ResolveBinOutputDirAbs();
+	CString err;
+	int filesCopied = 0;
+	if (!M576ArchiveCopyBinSet(latestDir, destSub, m_snInfo, role, includeDacCsv, filesCopied, err))
+	{
+		CString m;
+		m.Format(_T("Archive warn (%s): %s"), stageTag, err.GetString());
+		AppendLog(m);
+		return;
+	}
+
+	CString logsDir;
+	logsDir.Format(_T("%s\\logs"), m_archiveSessionDirAbs.GetString());
+	const CString commAbs = ResolveFilePath(CommLogPathForCurrentDay(m_strCommLogPath));
+	const CString sweepAbs = ResolveFilePath(M576RecalSweepCsvRelPathForCurrentDay(m_strCommLogPath));
+	CString copiedComm;
+	CString copiedSweep;
+	CString commErr;
+	if (!M576ArchiveCopyRunPathLogs(logsDir, commAbs, sweepAbs, copiedComm, copiedSweep, commErr))
+	{
+		CString m;
+		m.Format(_T("Archive warn (%s) comm snapshot: %s"), stageTag, commErr.GetString());
+		AppendLog(m);
+	}
+
+	M576ArchiveStageEntry st;
+	st.stageName = stageTag;
+	st.utcIso = M576FormatUtcIso8601Z();
+	st.filesCopied = filesCopied;
+	m_archiveStages.push_back(st);
+
+	CString metaErr;
+	if (!M576WriteSessionMeta(
+			m_archiveSessionDirAbs,
+			m_archiveSessionId,
+			m_snInfo,
+			GetComboCom(),
+			m_archiveStages,
+			metaErr))
+	{
+		CString m;
+		m.Format(_T("Archive warn (%s) meta.json: %s"), stageTag, metaErr.GetString());
+		AppendLog(m);
+	}
+
+	CString ok;
+	ok.Format(_T("Archive %s: %d file(s) -> %s"), stageTag, filesCopied, destSub.GetString());
+	AppendLog(ok);
+}
+
+BOOL CM576CalibratorDlg::ValidateSnBeforeBinOp(CString& errMsg) const
+{
+	return M576ValidateSnInfoForBinOps(m_snInfo, errMsg);
+}
+
+CString CM576CalibratorDlg::BuildSessionDacCsvPath(M576CalibBinWritePolicy policy, M576BinFileRole role) const
+{
+	const CString outDir = ResolveBinOutputDirAbs();
+	CString sn = M576SanitizeSnForFilename(m_snInfo.mcsSn[0]);
+	if (sn.IsEmpty())
+		sn = _T("unknown");
+	LPCTSTR leaf = nullptr;
+	if (policy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+		leaf = (role == M576BinFileRole::Backup) ? _T("backupAll1550DAC.csv") : _T("standardAll1550DAC.csv");
+	else
+		leaf = (role == M576BinFileRole::Backup) ? _T("backupAll1310DAC.csv") : _T("standardAll1310DAC.csv");
+	CString path;
+	path.Format(_T("%s\\%s_%s"), outDir.GetString(), sn.GetString(), leaf);
+	return path;
+}
+
+void CM576CalibratorDlg::LogBurnFilePaths(
+	CM576CalibratorDlg* dlg,
+	const std::array<CString, M576_BURN_FILE_COUNT>& paths,
+	LPCTSTR roleLabel)
+{
+	if (!dlg)
+		return;
+	for (int i = 0; i < M576_BURN_FILE_COUNT; ++i)
+	{
+		CString line;
+		line.Format(_T("  [%d] %s: %s"), i, roleLabel, paths[i].GetString());
+		dlg->SafeAppendLog(line);
 	}
 }
 
@@ -1391,6 +1899,10 @@ void CM576CalibratorDlg::SetPathActionButtonsEnabled(BOOL enable)
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_MAKE_BIN))
 		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_FINE_TUNE))
+		p->EnableWindow(enable);
+	if (CWnd* p = GetDlgItem(IDC_BTN_IL_TEST))
+		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_FLASH))
 		p->EnableWindow(enable);
 	if (CWnd* p = GetDlgItem(IDC_BTN_RECOVER_FLASH))
@@ -1428,6 +1940,52 @@ void CM576CalibratorDlg::PushPathFailureOutcome(const SCalibPathStepOutcome& o)
 	m_pathFailureOutcomes.push_back(o);
 }
 
+static void M576LogPathFailureSessionDigest(const SRunPathSummary& summary)
+{
+	char ts[48] = {};
+	M576FormatLocalTimestampPrefix(ts, sizeof ts, nullptr);
+	CStringA head;
+	head.Format(
+		"%s[SESSION][path-failures] cal=%s stopped=%d ok=%d fail=%d skip=%d\n",
+		ts,
+		summary.isPm ? "PM" : "PD",
+		summary.userStopped ? 1 : 0,
+		summary.successCount,
+		summary.failedCount,
+		summary.skippedCount);
+	M576AppendFatalLogUtf8(head.GetString());
+	if (summary.failureRows.empty())
+	{
+		M576AppendFatalLogUtf8("  fail=0\n");
+		return;
+	}
+	for (size_t i = 0; i < summary.failureRows.size(); ++i)
+	{
+		const SCalibPathStepOutcome& r = summary.failureRows[i];
+		CStringA line;
+		line.Format(
+			"  fail[%u] path_line=%d slot=%d route=%s category=%s stage=%s peak_code=%s attempts=%d "
+			"cross_round=%d offsetY=%d offsetX=%d baseY=%d baseX=%d samplesY=%d samplesX=%d detail=%s\n",
+			(unsigned)i,
+			r.pathLine1Based,
+			r.fileSlot,
+			r.routeLabel.empty() ? "-" : r.routeLabel.c_str(),
+			CalibPathFailCategoryLabelA(r.failCategory),
+			r.failStage.empty() ? "-" : r.failStage.c_str(),
+			r.peakCodeText.empty() ? M576Peak1DWhy(r.peakCode) : r.peakCodeText.c_str(),
+			r.peakAttempts,
+			r.crossRound,
+			r.lastOffsetY,
+			r.lastOffsetX,
+			r.lastBaseY,
+			r.lastBaseX,
+			r.sampleCountY,
+			r.sampleCountX,
+			r.commDetail.empty() ? "-" : r.commDetail.c_str());
+		M576AppendFatalLogUtf8(line.GetString());
+	}
+}
+
 void CM576CalibratorDlg::ShowRunPathSummaryDialog(BOOL userStopped)
 {
 	std::vector<SCalibPathStepOutcome> failures;
@@ -1442,6 +2000,7 @@ void CM576CalibratorDlg::ShowRunPathSummaryDialog(BOOL userStopped)
 	}
 	const SRunPathSummary summary = BuildRunPathSummary(
 		failures, successCount, m_nCalMode == 0, userStopped != FALSE);
+	M576LogPathFailureSessionDigest(summary);
 	CM576RunPathSummaryDlg dlg(summary, this);
 	dlg.DoModal();
 }
@@ -1485,12 +2044,15 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_BURN_BOARD))
 		p->EnableWindow(!busy);
+	if (CWnd* p = GetDlgItem(IDC_BTN_CHASSIS_DEBUG))
+		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
 		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
 		p->EnableWindow(m_diagRunning.load());
 }
 
+// ---------- UI 线程：处理工作线程 Post 的日志/进度/完成消息 ----------
 LRESULT CM576CalibratorDlg::OnPathLogFlush(WPARAM, LPARAM)
 {
 	CString batch;
@@ -1592,7 +2154,10 @@ LRESULT CM576CalibratorDlg::OnReadBackupFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	UpdateData(FALSE);
 	if (m_readBackupLastOk)
+	{
+		ArchiveCurrentBinSet(_T("backup"), M576BinFileRole::Backup, _T("read_flash"), TRUE);
 		MessageBoxM576(m_readBackupLastMsg, MB_OK | MB_ICONINFORMATION);
+	}
 	else
 		MessageBoxM576(m_readBackupLastMsg, MB_OK | MB_ICONERROR);
 	return 0;
@@ -1608,6 +2173,7 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 	{
 		m_snInfo = m_readSnLastValues;
 		UpdateData(FALSE);
+		BeginArchiveSession();
 		AppendLog(
 			_T("Read SN: MCS trans1-2 = GetProductSN (0xA2); 1x64 trans3-4 = 4x mem (ADDR_SWITCHn_COEF+0x7E0, 16 B SN)."));
 		for (int m = 0; m < 2; ++m)
@@ -1714,6 +2280,9 @@ LRESULT CM576CalibratorDlg::OnBurnBoardFinished(WPARAM, LPARAM)
 
 void CM576CalibratorDlg::PathWorkerEntry()
 {
+	const CString sweepRel = M576RecalSweepCsvRelPathForCurrentDay(m_strCommLogPath);
+	const CString sweepAbs = ResolveFilePath(sweepRel);
+	(void)M576RecalSweepCsvBeginRun(sweepAbs, m_nCalMode == 0);
 	try
 	{
 		if (m_nCalMode == 0)
@@ -1733,13 +2302,14 @@ void CM576CalibratorDlg::PathWorkerEntry()
 		SafeAppendLog(_T("Path worker: unknown C++ exception (see output\\m576_fatal.log)."));
 		M576AppendFatalLogUtf8("[Path worker] unknown C++ exception");
 	}
+	M576RecalSweepCsvEndRun();
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_PATH_FINISHED, 0, 0);
 }
 
 // --- 读 Flash 备份后台线程：McsReadLutBundleFromDevice，结果供 OnReadBackupFinished ---
 
-void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
+void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absOutDir)
 {
 	try
 	{
@@ -1747,7 +2317,7 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		SafeSetProgressPos(0);
 		CString err;
 		const M576TransSnPnInfo snSnap = m_snInfo;
-		if (!McsReadLutBundleFromDevice(m_dev429f, absBackupBin, err, &CM576CalibratorDlg::ProgressThunk, this, snSnap))
+		if (!McsReadLutBundleFromDevice(m_dev429f, absOutDir, err, &CM576CalibratorDlg::ProgressThunk, this, snSnap))
 		{
 			m_readBackupLastOk = FALSE;
 			m_readBackupLastMsg.Format(_T("Read Flash backup failed:\n\n%s"), (LPCTSTR)err);
@@ -1758,15 +2328,19 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 		else
 		{
 			m_readBackupLastOk = TRUE;
-			m_readBackupLastMsg.Format(
-				_T("Read Flash backup finished.\n\nBackups written next to base path:\n%s\n\n")
-				_T("(MCS bundle SN from UI; 1x64 each 2K file uses per-switch SN from UI; MCS 0xC4 LUT; 1x64 MEM -> 4x2K.)"),
-				(LPCTSTR)absBackupBin);
+			std::array<CString, M576_BURN_FILE_COUNT> paths;
+			if (M576BuildBurnFilePaths(absOutDir, snSnap, M576BinFileRole::Backup, paths, err))
+			{
+				LogBurnFilePaths(this, paths, _T("backup"));
+				m_readBackupLastMsg.Format(
+					_T("Read Flash backup finished.\n\nOutput directory:\n%s\n\n10 files: {SN}_backup.bin (see log)."),
+					(LPCTSTR)absOutDir);
+			}
+			else
+				m_readBackupLastMsg.Format(_T("Read Flash backup finished (path list: %s)."), (LPCTSTR)err);
 			SafeSetProgressPos(100);
 			CString ok;
-			ok.Format(
-				_T("Flash backups saved: base=%s (pBundleSN from UI SN fields; 1x64 4x2K per trans)."),
-				(LPCTSTR)absBackupBin);
+			ok.Format(_T("Flash backups saved under %s ({SN}_backup.bin x10)."), (LPCTSTR)absOutDir);
 			SafeAppendLog(ok);
 		}
 	}
@@ -1789,6 +2363,8 @@ void CM576CalibratorDlg::ReadFlashBackupWorkerEntry(CString absBackupBin)
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_READ_BACKUP_FINISHED, 0, 0);
 }
+
+// --- 读四路 SN 后台线程：透传读各 trans 设备序列号 ---
 
 void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 {
@@ -1828,17 +2404,19 @@ void CM576CalibratorDlg::ReadAllSnWorkerEntry()
 		::PostMessage(m_hWnd, WM_M576_READ_SN_FINISHED, 0, 0);
 }
 
+// --- 烧录 Flash 后台线程：McsFwUploadBinEx 按勾选 mask 上载各 trans 分 bin ---
+
 void CM576CalibratorDlg::BurnFlashWorkerEntry(
-	CString absOutBin, std::array<bool, M576_BURN_FILE_COUNT> burnMask)
+	std::array<CString, M576_BURN_FILE_COUNT> filePaths, std::array<bool, M576_BURN_FILE_COUNT> burnMask)
 {
 	try
 	{
 		CString err;
 		SafeSetProgressRange(0, 100);
 		SafeSetProgressPos(0);
-		if (!McsFwUploadBinEx(
+		if (!McsFwUploadBinByPathsEx(
 				m_dev429f,
-				absOutBin,
+				filePaths,
 				err,
 				&CM576CalibratorDlg::ProgressThunk,
 				this,
@@ -1873,6 +2451,8 @@ void CM576CalibratorDlg::BurnFlashWorkerEntry(
 	if (m_hWnd && ::IsWindow(m_hWnd))
 		::PostMessage(m_hWnd, WM_M576_BURN_FLASH_FINISHED, 0, 0);
 }
+
+// --- 从备份恢复烧录后台线程：Recover 对话框选定路径与 mask ---
 
 void CM576CalibratorDlg::RecoverFlashWorkerEntry(
 	std::array<CString, M576_BURN_FILE_COUNT> filePaths,
@@ -2123,6 +2703,21 @@ void __cdecl CM576CalibratorDlg::CommLogThunk(LPCTSTR line, void* user)
 	dlg->SafeAppendLog(line);
 }
 
+void __cdecl CM576CalibratorDlg::IlTestCommLogThunk(LPCTSTR line, void* user)
+{
+	CM576CalibratorDlg* dlg = (CM576CalibratorDlg*)user;
+	if (!dlg || !line)
+		return;
+	if (!dlg->m_ilTestCommLogPathAbs.IsEmpty())
+	{
+		CString err;
+		(void)M576AppendIlTestCommLogLine(dlg->m_ilTestCommLogPathAbs, line, err);
+	}
+	// Mirror into IL Test dialog Log (not main UI log).
+	if (dlg->m_pActiveIlTestDlg)
+		dlg->m_pActiveIlTestDlg->PostCommLogLine(line);
+}
+
 void CM576CalibratorDlg::OnBnClickedOpenPorts()
 {
 	UpdateData(TRUE);
@@ -2183,6 +2778,31 @@ void CM576CalibratorDlg::OnBnClickedTestConnection()
 		box.Format(_T("439F connection test OK.\n\ninfo<CR> reply:\n\n%s"), (LPCTSTR)resp);
 		MessageBoxM576(box, MB_OK | MB_ICONINFORMATION);
 	}
+}
+
+void CM576CalibratorDlg::OnBnClickedChassisDebug()
+{
+	UpdateData(TRUE);
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load() || m_diagRunning.load();
+	if (busy)
+	{
+		AppendLog(_T("Chassis Debug: a background task is running; wait for it to finish."));
+		return;
+	}
+	if (!IsSerialPortOpen())
+	{
+		AppendLog(_T("Chassis Debug: opening port first..."));
+		if (!OpenPort())
+		{
+			AppendLog(_T("Open the serial port first."));
+			MessageBoxM576(_T("Open the serial port first."), MB_OK | MB_ICONINFORMATION);
+			return;
+		}
+		SyncSerialPortUi();
+	}
+	CM576ChassisDebugDlg dlg(this, this);
+	dlg.DoModal();
 }
 
 void CM576CalibratorDlg::OnBnClickedBurnBoard()
@@ -2258,13 +2878,13 @@ void CM576CalibratorDlg::OnBnClickedClosePort()
 void CM576CalibratorDlg::OnBnClickedBrowseBackup()
 {
 	ApplyFixedBinBasePaths(TRUE);
-	AppendLog(_T("Old BIN base is fixed to output\\backup.bin (selection disabled)."));
+	AppendLog(_T("BIN output directory is fixed to output\\latest\\ (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedBrowseOut()
 {
 	ApplyFixedBinBasePaths(TRUE);
-	AppendLog(_T("Output BIN base is fixed to output\\standard.bin (selection disabled)."));
+	AppendLog(_T("BIN output directory is fixed to output\\latest\\ (selection disabled)."));
 }
 
 void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
@@ -2284,13 +2904,22 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	}
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
+	{
+		AppendLog(snErr);
+		MessageBoxM576(
+			snErr + _T("\n\nRun Read All SN first, then Read Flash backup."),
+			MB_OK | MB_ICONWARNING);
+		return;
+	}
 	EnsureOutputFolderUnderExe(GetExeFolder());
 	if (!m_dev429f.GetPortHandle() || m_dev429f.GetPortHandle() == INVALID_HANDLE_VALUE)
 	{
 		if (!OpenPort())
 			return;
 	}
-	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
+	const CString absOutDir = ResolveBinOutputDirAbs();
 	if (m_readBackupThread.joinable())
 		m_readBackupThread.join();
 	m_readBackupRunning = true;
@@ -2298,9 +2927,8 @@ void CM576CalibratorDlg::OnBnClickedReadFlashBackup()
 	SetPathActionButtonsEnabled(FALSE);
 	m_progress.SetRange(0, 100);
 	m_progress.SetPos(0);
-	AppendLog(
-		_T("Read Flash: per-trans bins; UI SN fields -> MCS bundle SN + 1x64 per-switch SN; MCS=0xC4; 1x64=MEM+4x2K."));
-	m_readBackupThread = std::thread([this, absBackupBin]() { ReadFlashBackupWorkerEntry(absBackupBin); });
+	AppendLog(_T("Read Flash: writes {SN}_backup.bin x10 under output\\latest\\ (MCS 0xC4; 1x64 MEM 4x2K per trans)."));
+	m_readBackupThread = std::thread([this, absOutDir]() { ReadFlashBackupWorkerEntry(absOutDir); });
 }
 
 void CM576CalibratorDlg::OnBnClickedStop()
@@ -2323,6 +2951,11 @@ void CM576CalibratorDlg::OnBnClickedRunDiag()
 	if (m_diagRunning.load())
 	{
 		AppendLog(_T("Diagnosis: already running."));
+		return;
+	}
+	if (m_ilTestRunning.load())
+	{
+		AppendLog(_T("Diagnosis: IL Test is running; stop it first."));
 		return;
 	}
 	const BOOL otherBusy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
@@ -2955,20 +3588,6 @@ BOOL CM576CalibratorDlg::ValidateRunPathInputs(CString& errMsg)
 	return TRUE;
 }
 
-CString CM576CalibratorDlg::BuildStandardAll1310DacCsvPath(const CString& absOutBase) const
-{
-	CString outDir = absOutBase;
-	outDir.Trim();
-	const int slashBs = outDir.ReverseFind(_T('\\'));
-	const int slashFs = outDir.ReverseFind(_T('/'));
-	const int slash = (slashBs >= slashFs) ? slashBs : slashFs;
-	if (slash >= 0)
-		outDir = outDir.Left(slash);
-	else
-		outDir = GetExeFolder() + _T("\\output");
-	return outDir + _T("\\standardAll1310DAC.csv");
-}
-
 BOOL CM576CalibratorDlg::ParseLowTemp1310DacCsv(
 	LPCTSTR csvPath,
 	stLutSettingZ4671 lutOut[2],
@@ -3169,7 +3788,7 @@ BOOL CM576CalibratorDlg::ParseLowTemp1310DacCsv(
 	return TRUE;
 }
 
-BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absBackupBin, const CString& absCsvPath, CString& errMsg)
+BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absOutDir, const CString& absCsvPath, CString& errMsg)
 {
 	errMsg.Empty();
 	if (absCsvPath.IsEmpty() || GetFileAttributes(absCsvPath) == INVALID_FILE_ATTRIBUTES)
@@ -3188,10 +3807,11 @@ BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absBackupBin, cons
 		return FALSE;
 	}
 
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 	stLutSettingZ4671 tmpLut = {};
-	for (int ch = 1; ch <= 2; ++ch)
+	for (int burnIdx = 0; burnIdx < 2; ++burnIdx)
 	{
-		const CString p = M576TransBinPathForRead(absBackupBin, ch);
+		const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
 		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 		{
 			errMsg.Format(_T("MakeBin: required backup missing: %s"), p.GetString());
@@ -3205,174 +3825,160 @@ BOOL CM576CalibratorDlg::ValidateMakeBinInputs(const CString& absBackupBin, cons
 	}
 
 	stM576OneX64MemsSwCoef tmpMems = {};
-	for (int ch = 3; ch <= 4; ++ch)
+	for (int burnIdx = 2; burnIdx < M576_BURN_FILE_COUNT; ++burnIdx)
 	{
-		for (int sw = 0; sw < 4; ++sw)
+		const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
+		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 		{
-			const CString p = M576TransBinPathForSwitch(absBackupBin, ch, sw);
-			if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
-			{
-				errMsg.Format(_T("MakeBin: required backup missing: %s"), p.GetString());
-				return FALSE;
-			}
-			if (!CMems1x64LutBinWriter::ReadMemsFromFile(p, &tmpMems))
-			{
-				errMsg.Format(_T("MakeBin: cannot read backup 1x64 bin: %s"), p.GetString());
-				return FALSE;
-			}
+			errMsg.Format(_T("MakeBin: required backup missing: %s"), p.GetString());
+			return FALSE;
+		}
+		if (!CMems1x64LutBinWriter::ReadMemsFromFile(p, &tmpMems))
+		{
+			errMsg.Format(_T("MakeBin: cannot read backup 1x64 bin: %s"), p.GetString());
+			return FALSE;
 		}
 	}
 	return TRUE;
 }
 
 BOOL CM576CalibratorDlg::GenerateStandardBinFiles(
-	const CString& absBackupBin,
-	const CString& absOutBase,
+	const CString& absOutDir,
 	CString& errMsg,
 	BOOL preserveMcsMetaFromBackup)
 {
 	errMsg.Empty();
-	for (int i = 0; i < 4; ++i)
-	{
-		if (i < 2)
-		{
-			stLutSettingZ4671 merged;
-			ZeroMemory(&merged, sizeof(merged));
-			BOOL haveBackup = FALSE;
-			CString mcsBundleSrcPath;
-			if (!m_strBackupBin.IsEmpty())
-			{
-				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
-				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = perTransBk;
-					}
-				}
-				if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = absBackupBin;
-						AppendLog(_T("Trans1: read legacy single backup file for merge."));
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				if (preserveMcsMetaFromBackup)
-				{
-					for (int sw = 0; sw < M576_MCS_LUT_SW_MERGE_COUNT; ++sw)
-					{
-						for (unsigned ch = 0; ch < M576_MCS_LUT_MERGE_CHN_COUNT; ++ch)
-						{
-							merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0];
-							merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1];
-						}
-					}
-				}
-				else
-					MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
-				CString m;
-				m.Format(
-					preserveMcsMetaFromBackup
-						? _T("Trans %d: merged CSV low-temp DAC into backup (preserved LUT temp/date meta).")
-						: _T("Trans %d: merged session LUT into per-trans backup."),
-					i + 1);
-				AppendLog(m);
-			}
-			else
-			{
-				memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
-				CString m;
-				m.Format(
-					_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."),
-					i + 1,
-					g_m576TransLutBinSuffix[i]);
-				AppendLog(m);
-			}
+	std::array<CString, M576_BURN_FILE_COUNT> stdPaths;
+	if (!M576BuildBurnFilePaths(absOutDir, m_snInfo, M576BinFileRole::Standard, stdPaths, errMsg))
+		return FALSE;
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 
-			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
-			SLutBinWriteParams p;
-			p.strOutputPath = absOutOne;
-			p.pLut = &merged;
+	for (int i = 0; i < 2; ++i)
+	{
+		stLutSettingZ4671 merged;
+		ZeroMemory(&merged, sizeof(merged));
+		BOOL haveBackup = FALSE;
+		CString mcsBundleSrcPath;
+		const CString perTransBk = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, i, M576BinFileRole::Backup);
+		if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
+		{
+			if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
 			{
-				CString sn = m_snInfo.mcsSn[i].Trim();
-				if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
-					(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
-				p.strBundleSN = sn;
+				haveBackup = TRUE;
+				mcsBundleSrcPath = perTransBk;
 			}
-			if (!CLutBinWriter::Write(p))
+		}
+		if (haveBackup)
+		{
+			if (preserveMcsMetaFromBackup)
 			{
-				errMsg.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
-				return FALSE;
+				for (int sw = 0; sw < M576_MCS_LUT_SW_MERGE_COUNT; ++sw)
+				{
+					for (unsigned ch = 0; ch < M576_MCS_LUT_MERGE_CHN_COUNT; ++ch)
+					{
+						merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][0];
+						merged.wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1] = m_lutByTrans[i].wCalibPtrDAC[sw][IDX_TEMP_LOW][ch][1];
+					}
+				}
 			}
-			memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
-			CString ok;
-			ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
-			AppendLog(ok);
+			else if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+				MergeLut1550RoomHighSlots(merged, m_lutByTrans[i]);
+			else
+				MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
+			CString m;
+			m.Format(
+				preserveMcsMetaFromBackup
+					? _T("Trans %d: merged CSV low-temp DAC into backup (preserved LUT temp/date meta).")
+					: (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+						? _T("Trans %d: merged 1550 room+high LUT into backup.")
+						: _T("Trans %d: merged session LUT into per-trans backup."),
+				i + 1);
+			AppendLog(m);
 		}
 		else
 		{
-			stM576OneX64MemsSwCoef merged4[4];
-			ZeroMemory(merged4, sizeof(merged4));
-			BOOL haveBackup = FALSE;
-			if (!m_strBackupBin.IsEmpty())
+			memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
+			CString m;
+			m.Format(_T("Trans %d: no backup bin; writing in-memory LUT only."), i + 1);
+			AppendLog(m);
+		}
+
+		SLutBinWriteParams p;
+		p.strOutputPath = stdPaths[i];
+		p.pLut = &merged;
+		{
+			CString sn = m_snInfo.mcsSn[i].Trim();
+			if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
+				(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
+			p.strBundleSN = sn;
+		}
+		if (!CLutBinWriter::Write(p))
+		{
+			errMsg.Format(_T("Write BIN failed (trans %d): %s"), i + 1, stdPaths[i].GetString());
+			return FALSE;
+		}
+		memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
+		CString ok;
+		ok.Format(_T("Trans %d: wrote %s"), i + 1, stdPaths[i].GetString());
+		AppendLog(ok);
+	}
+
+	for (int li = 2; li < 4; ++li)
+	{
+		const int dev = li - 2;
+		stM576OneX64MemsSwCoef merged4[4];
+		ZeroMemory(merged4, sizeof(merged4));
+		BOOL haveBackup = FALSE;
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+			const CString perSwBk = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
+			if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
 			{
-				for (int sw = 0; sw < 4; ++sw)
-				{
-					const CString perSwBk = M576TransBinPathForSwitch(absBackupBin, i + 1, sw);
-					if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
-					{
-						if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
-							haveBackup = TRUE;
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				MergeMems1310LowTempSlot(merged4, m_mems1x64[i - 2]);
-				CString m;
-				m.Format(
-					_T("Trans %d: merged 1310 Mems session (4x2K) into per-trans backup (1x64 *._sw*)."),
-					i + 1);
-				AppendLog(m);
-			}
-			else
-			{
-				memcpy(merged4, m_mems1x64[i - 2], sizeof(merged4));
-				CString m;
-				m.Format(
-					_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."),
-					i + 1);
-				AppendLog(m);
-			}
-			for (int sw = 0; sw < 4; ++sw)
-			{
-				M576OneX64ApplyStandardTempMeta(merged4[sw]);
-				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
-				if (sn.IsEmpty())
-					sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
-				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
-				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
-				{
-					errMsg.Format(_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"),
-						i + 1, sw + 1, absOutSw.GetString());
-					return FALSE;
-				}
-			}
-			memcpy(m_mems1x64[i - 2], merged4, sizeof(m_mems1x64[i - 2]));
-			{
-				const CString baseTag = M576TransBackupPathFromBase(absOutBase, i + 1);
-				CString ok;
-				ok.Format(_T("Trans %d: wrote 1x64 4x2K from base %s (*_sw1..4)"), i + 1, baseTag.GetString());
-				AppendLog(ok);
+				if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
+					haveBackup = TRUE;
 			}
 		}
+		if (haveBackup)
+		{
+			if (preserveMcsMetaFromBackup)
+				MergeMems1310LowTempSlot(merged4, m_mems1x64[dev]);
+			else if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+				MergeMems1550RoomHighSlots(merged4, m_mems1x64[dev]);
+			else
+				MergeMems1310LowTempSlot(merged4, m_mems1x64[dev]);
+			CString m;
+			m.Format(_T("Trans %d: merged Mems session (4x2K) into backup."), li + 1);
+			AppendLog(m);
+		}
+		else
+		{
+			memcpy(merged4, m_mems1x64[dev], sizeof(merged4));
+			CString m;
+			m.Format(_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."), li + 1);
+			AppendLog(m);
+		}
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+			M576OneX64ApplyStandardTempMeta(merged4[sw]);
+			CString sn = m_snInfo.oneX64Sn[dev][sw].Trim();
+			if (sn.IsEmpty())
+				sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
+			const CString absOutSw = stdPaths[burnIdx];
+			if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
+			{
+				errMsg.Format(_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"),
+					li + 1, sw + 1, absOutSw.GetString());
+				return FALSE;
+			}
+		}
+		memcpy(m_mems1x64[dev], merged4, sizeof(m_mems1x64[dev]));
+		CString ok;
+		ok.Format(_T("Trans %d: wrote 1x64 4x2K ({SN}_standard.bin x4)"), li + 1);
+		AppendLog(ok);
 	}
+	LogBurnFilePaths(this, stdPaths, _T("standard"));
 	return TRUE;
 }
 
@@ -3399,6 +4005,15 @@ void CM576CalibratorDlg::OnBnClickedRunPath()
 	if (!ValidateRunPathInputs(valErr))
 	{
 		MessageBoxM576(valErr, MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
+	{
+		AppendLog(snErr);
+		MessageBoxM576(
+			snErr + _T("\n\nRun Read All SN first, then Run Path."),
+			MB_OK | MB_ICONWARNING);
 		return;
 	}
 	m_bStop = FALSE;
@@ -3557,16 +4172,15 @@ void CM576CalibratorDlg::OnDestroy()
 
 void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 {
-	CString base = m_strBackupBin;
-	base.Trim();
-	if (base.IsEmpty())
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
 		return;
-	const CString absBk = ResolveFilePath(base);
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 	for (int li = 0; li < 4; ++li)
 	{
 		if (li < 2)
 		{
-			const CString p = M576TransBinPathForRead(absBk, li + 1);
+			const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, li, M576BinFileRole::Backup);
 			if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 				continue;
 			if (CLutBinWriter::ReadLutFromFile(p, m_lutByTrans[li]))
@@ -3584,31 +4198,27 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 		}
 		else
 		{
-			// 1x64: Read Flash only writes *_1x64_*_swN.bin (no aggregate *_1x64_1.bin). Do not gate on PathForRead.
-			const CString p = M576TransBinPathForRead(absBk, li + 1);
+			const int dev = li - 2;
 			BOOL anySw = FALSE;
 			for (int sw = 0; sw < 4; ++sw)
 			{
-				const CString ps = M576TransBinPathForSwitch(absBk, li + 1, sw);
+				const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+				const CString ps = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
 				if (GetFileAttributes(ps) == INVALID_FILE_ATTRIBUTES)
 					continue;
-				if (CMems1x64LutBinWriter::ReadMemsFromFile(ps, &m_mems1x64[li - 2][sw]))
+				if (CMems1x64LutBinWriter::ReadMemsFromFile(ps, &m_mems1x64[dev][sw]))
 					anySw = TRUE;
 			}
 			if (anySw)
 			{
 				CString m;
-				m.Format(
-					_T("Run path: preloaded 1x64 trans %d (per-switch 2K Mems) from %s_sw*"),
-					li + 1, p.GetString());
+				m.Format(_T("Run path: preloaded 1x64 trans %d (per-switch 2K Mems, SN paths)."), li + 1);
 				SafeAppendLog(m);
 			}
 			else
 			{
 				CString m;
-				m.Format(
-					_T("Run path: no 1x64 per-switch Mems backup for trans %d (expected %s_sw1..4)"),
-					li + 1, p.GetString());
+				m.Format(_T("Run path: no 1x64 per-switch Mems backup for trans %d."), li + 1);
 				SafeAppendLog(m);
 			}
 		}
@@ -3618,18 +4228,17 @@ void CM576CalibratorDlg::TryPreloadLutFromPerTransBackup()
 BOOL CM576CalibratorDlg::PreloadRunPathBackupOrFail(CString& errMsg)
 {
 	errMsg.Empty();
-	CString base = m_strBackupBin;
-	base.Trim();
-	if (base.IsEmpty())
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
 	{
-		errMsg = _T("Run Path: Backup BIN base path is empty.");
+		errMsg = _T("Run Path: BIN output directory is empty.");
 		return FALSE;
 	}
-	const CString absBk = ResolveFilePath(base);
+	const CString legacyBk = M576LegacyBackupBasePath(absOutDir);
 
 	for (int li = 0; li < 2; ++li)
 	{
-		const CString p = M576TransBinPathForRead(absBk, li + 1);
+		const CString p = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, li, M576BinFileRole::Backup);
 		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
 		{
 			errMsg.Format(_T("Run Path preload failed: MCS backup missing:\n%s"), p.GetString());
@@ -3650,7 +4259,8 @@ BOOL CM576CalibratorDlg::PreloadRunPathBackupOrFail(CString& errMsg)
 		const int dev = li - 2;
 		for (int sw = 0; sw < 4; ++sw)
 		{
-			const CString ps = M576TransBinPathForSwitch(absBk, li + 1, sw);
+			const int burnIdx = (dev == 0) ? (2 + sw) : (6 + sw);
+			const CString ps = M576ResolveBinPathForBurnIndex(absOutDir, legacyBk, m_snInfo, burnIdx, M576BinFileRole::Backup);
 			if (GetFileAttributes(ps) == INVALID_FILE_ATTRIBUTES)
 			{
 				errMsg.Format(_T("Run Path preload failed: 1x64 backup missing:\n%s"), ps.GetString());
@@ -3662,12 +4272,8 @@ BOOL CM576CalibratorDlg::PreloadRunPathBackupOrFail(CString& errMsg)
 				return FALSE;
 			}
 		}
-		const CString p = M576TransBinPathForRead(absBk, li + 1);
 		CString m;
-		m.Format(
-			_T("Run path: preloaded 1x64 trans %d (4x per-switch Mems) from %s_sw*"),
-			li + 1,
-			p.GetString());
+		m.Format(_T("Run path: preloaded 1x64 trans %d (4x per-switch Mems, SN paths)."), li + 1);
 		SafeAppendLog(m);
 	}
 	return TRUE;
@@ -3678,7 +4284,7 @@ void CM576CalibratorDlg::AbortRunPathPreloadFailed(const CString& errMsg)
 	SafeAppendLog(errMsg);
 	CString box;
 	box.Format(
-		_T("备份 BIN 预载失败，已停止 Run Path。\n\n%s\n\n请先 Read Flash 或检查 Backup BIN 路径。"),
+		_T("Failed to preload backup BIN; Run Path stopped.\n\n%s\n\nPlease Read Flash first or check Backup BIN path."),
 		errMsg.GetString());
 	MessageBoxM576(box, MB_OK | MB_ICONERROR);
 	m_pathShowFinishInfoBox = FALSE;
@@ -3730,18 +4336,11 @@ void CM576CalibratorDlg::ExportSessionDacCsv(M576CalibBinWritePolicy policy, LPC
 	if (logPreamble == NULL)
 		logPreamble = _T("");
 
-	CString absOut = ResolveFilePath(m_strOutBin);
-	absOut.Trim();
-	CString outDir;
-	const int slashBs = absOut.ReverseFind(_T('\\'));
-	const int slashFs = absOut.ReverseFind(_T('/'));
-	const int slash = (slashBs >= slashFs) ? slashBs : slashFs;
-	if (slash >= 0)
-		outDir = absOut.Left(slash);
-	else
-		outDir = GetExeFolder() + _T("\\output");
+	CString absOut = ResolveBinOutputDirAbs();
+	if (absOut.IsEmpty())
+		absOut = GetExeFolder() + _T("\\output");
 
-	const CString fullPath = outDir + _T("\\") + CString(csvLeafName);
+	const CString fullPath = absOut + _T("\\") + CString(csvLeafName);
 
 	CFile f;
 	if (!f.Open(fullPath, CFile::modeCreate | CFile::modeWrite | CFile::typeBinary))
@@ -3847,13 +4446,11 @@ void CM576CalibratorDlg::ExportSessionDacCsv(M576CalibBinWritePolicy policy, LPC
 
 void CM576CalibratorDlg::ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet()
 {
-	CString base = m_strBackupBin;
-	base.Trim();
-	if (base.IsEmpty())
+	if (ResolveBinOutputDirAbs().IsEmpty())
 		return;
-	const LPCTSTR leaf = (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-		? _T("backupAll1550DAC.csv")
-		: _T("backupAll1310DAC.csv");
+	const CString fullPath = BuildSessionDacCsvPath(m_sessionCalibPolicy, M576BinFileRole::Backup);
+	const int slash = fullPath.ReverseFind(_T('\\'));
+	const CString leaf = (slash >= 0) ? fullPath.Mid(slash + 1) : fullPath;
 	ExportSessionDacCsv(m_sessionCalibPolicy, leaf, _T("Run path"));
 }
 
@@ -3865,13 +4462,8 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 		err = _T("Run Path: port session not ready (open port first).");
 		return FALSE;
 	}
-	const int tlsSource = m_tlsIndex + 1;
-	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
-	{
-		err.Format(_T("Run Path: TLS source %d out of range %d..%d."),
-			tlsSource, M576_MIN_TLS_SOURCE, M576_MAX_TLS_SOURCE);
-		return FALSE;
-	}
+	// External source on fixed TLS channel 8 (same as Diagnosis / IL SWL).
+	const int tlsSource = M576_DIAG_SWL_TLS_SOURCE;
 	if (wavelengthNm != 1310 && wavelengthNm != 1550)
 	{
 		err.Format(_T("Run Path: SWL requires wavelength 1310 or 1550 nm (UI has %d)."),
@@ -3881,7 +4473,7 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 	CStringA wire;
 	FormatSwlWire(wire, tlsSource, wavelengthNm);
 	CString label;
-	FormatSwlLabel(label, _T("(Run Path)"), tlsSource, wavelengthNm);
+	FormatSwlLabel(label, _T("(Run Path, external)"), tlsSource, wavelengthNm);
 	CStringA reply;
 	DWORD ms = 0;
 	if (!m_pDiag->ExchangeAsciiLine(label, wire, reply, 3000, ms, err))
@@ -3931,6 +4523,14 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 	}
 	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
+	{
+		CString axisMsg;
+		axisMsg.Format(
+			_T("SweepAxisOrder=%s first=%s"),
+			M576Peak1DSweepAxisOrderName(),
+			M576Peak1DSweepYAxisFirst() ? _T("Y") : _T("X"));
+		SafeAppendLog(axisMsg);
+	}
 
 	int wavelengthNm = 0;
 	if (!ParseWavelengthNm(m_strWavelength, wavelengthNm, err))
@@ -3939,11 +4539,6 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		return;
 	}
 	StartSessionCalibPolicyFromWavelength(wavelengthNm);
-	//if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
-	//{
-	//	SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
-	//	return;
-	//}
 	const int tlsSource = m_tlsIndex + 1;
 	const int pmRange = m_pmRangeIndex;
 	{
@@ -3963,104 +4558,11 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			SafeAppendLog(msg);
 		}
 	}
+	// External source: SWL 8 <UI wavelength> after RECAL 0 (e.g. RECAL 0 … 1310 … then SWL 8 1310).
+	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
 	{
-		const int kOpmIds[2] = { 4, 5 };
-		CStringA opmLines[2];
-		int readRanges[2] = { -1, -1 };
-		for (int oi = 0; oi < 2; ++oi)
-		{
-			const int opmId = kOpmIds[oi];
-			if (!m_pRecal->ExchangeOpmReadPmRange(opmId, opmLines[oi], 3000, err))
-			{
-				CString log = err.IsEmpty()
-					? CString()
-					: err;
-				if (log.IsEmpty())
-				{
-					log.Format(
-						_T("[PM range] OPM %d 1: no valid readback after retries — Run Path stopped."),
-						opmId);
-				}
-				SafeAppendLog(log);
-				CString box;
-				box.Format(
-					_T("无法读取功率计挡位，已停止定标。\n\n%s\n\n请检查串口与固件后重新 Run Path。"),
-					log.GetString());
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			readRanges[oi] = CRecalSession::ParseOpmPmRangeReply(opmLines[oi]);
-			if (readRanges[oi] < M576_MIN_PM_RANGE || readRanges[oi] > M576_MAX_PM_RANGE)
-			{
-				CString log;
-				log.Format(
-					_T("[PM range] OPM %d 1: invalid reply \"%hs\" — Run Path stopped."),
-					opmId,
-					opmLines[oi].GetString());
-				SafeAppendLog(log);
-				CString box;
-				box.Format(
-					_T("功率计挡位应答无效，已停止定标。\n\nopm %d 1 应答: %hs\n\n请检查固件后重新 Run Path。"),
-					opmId,
-					opmLines[oi].GetString());
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			{
-				CString msg;
-				msg.Format(_T("OPM %d 1: pm_range readback %d."), opmId, readRanges[oi]);
-				SafeAppendLog(msg);
-			}
-		}
-		if (readRanges[0] != readRanges[1])
-		{
-			CString log;
-			log.Format(
-				_T("[PM range] OPM 4 1 (%d) vs OPM 5 1 (%d) mismatch — Run Path stopped."),
-				readRanges[0],
-				readRanges[1]);
-			SafeAppendLog(log);
-			CString box;
-			box.Format(
-				_T("两路功率计挡位读回不一致，已停止定标。\n\nopm 4 1: %d\nopm 5 1: %d\n\n请检查 PM 挡位后重新 Run Path。"),
-				readRanges[0],
-				readRanges[1]);
-			MessageBoxM576(box, MB_OK | MB_ICONERROR);
-			return;
-		}
-		const int readRange = readRanges[0];
-		if (pmRange != M576_MAX_PM_RANGE)
-		{
-			if (readRange != pmRange)
-			{
-				CString log;
-				log.Format(
-					_T("[PM range] OPM 4/5 1 mismatch: RECAL0 set %d, readback %d — Run Path stopped."),
-					pmRange,
-					readRange);
-				SafeAppendLog(log);
-				CString box;
-				box.Format(
-					_T("功率计挡位不一致，已停止定标。\n\n界面/RECAL 0 挡位: %d\nopm 4/5 1 读回: %d\n\n请检查 PM 挡位后重新 Run Path。"),
-					pmRange,
-					readRange);
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			{
-				CString msg;
-				msg.Format(_T("OPM 4/5 1: pm_range readback %d matches RECAL 0."), readRange);
-				SafeAppendLog(msg);
-			}
-		}
-		else
-		{
-			CString msg;
-			msg.Format(_T("OPM 4/5 1: RECAL0 auto(%d), device readback=%d (informational)."),
-				M576_MAX_PM_RANGE,
-				readRange);
-			SafeAppendLog(msg);
-		}
+		SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL 8 (external source wavelength) failed.") : err);
+		return;
 	}
 
 	int globalProgress = 0;
@@ -4250,7 +4752,26 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				SafeAppendLog(msg);
 			}
 		}
+		{
+			CStringA recal1Wire;
+			recal1Wire.Format(
+				"RECAL 1 %d %d %d %d %d",
+				st.targetSwitchIndex,
+				st.c1,
+				st.c2,
+				st.c3,
+				st.c4);
+			M576RecalSweepCsvSetStepContext(M576FormatRecalSweepPathColumn(
+				TRUE,
+				M576CsvStemUtf8(csvBasename),
+				fileSlot,
+				i + 1,
+				total,
+				recal1Wire.GetString(),
+				M576FormatPathStepRouteLabelPm(st)));
+		}
 
+		const bool sweepYFirstPm = M576Peak1DSweepYAxisFirst();
 		double xFixedDac = 0.0;
 		std::vector<double> powY;
 		int brForYBase = 0;
@@ -4266,6 +4787,17 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 
 		std::vector<double> powX;
 		double sweep1LineCol0 = 0.0;
+		int brForXBase = 0;
+		M576::Peak1DValidateCode xPreCodePm = M576::Peak1DValidateCode::Ok;
+		double tXPreOuter = 0.0;
+		int xPreAttemptsPm = 0;
+		int xSweepRangePmOuter = m_dacRange;
+		M576::Peak1DFitTrace xPreTracePm;
+		int xMovingBasePm = M576_RECAL_FW_READ_BASE_DAC;
+		int xSeedDacRangePm = m_dacRange;
+		int xCrossPrevArgmaxPm = -1;
+		bool xCrossMonoRangeExpandedPm = false;
+
 		int br = 0;
 		int bc = 0;
 		M576::Peak1DValidateCode yCross = M576::Peak1DValidateCode::Ok;
@@ -4279,6 +4811,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		BOOL pmBreakPath = FALSE;
 		BOOL pmFailRecorded = FALSE;
 		int fixedY = 0;
+		int fixedX = 0;
 		int xSweepRange = m_dacRange;
 		int lastMovingX = M576_RECAL_FW_READ_BASE_DAC;
 		int lastAttemptDacRangeX = m_dacRange;
@@ -4289,6 +4822,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 		int pmRejectIdx = -1;
 		int pmRejectRangeIdx = -1;
 
+		if (sweepYFirstPm)
 		for (int yCrossRound = 0;
 			yCrossRound < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOk && !pmSkipStep && !pmBreakPath;
 			++yCrossRound)
@@ -4306,6 +4840,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				SafeAppendLog(msg);
 			}
 
+			const CString routePm = CString(M576FormatPathStepRouteLabelPm(st).c_str());
 			if (!RunRecal1DSweepWithPeakRecenterRetry(
 					TRUE,
 					m_pmRangeIndex,
@@ -4324,7 +4859,10 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					tYPre,
 					yPreAttemptsPm,
 					ySweepRangePm,
-					err))
+					err,
+					i + 1,
+					fileSlot,
+					routePm))
 			{
 				if (yCrossRound == 0)
 				{
@@ -4362,8 +4900,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 						M576FillSweepPowContext(o, powY, true);
 						if (!powY.empty() && yPreCode != M576::Peak1DValidateCode::Ok)
 						{
-							o.failCategory = CalibPathFailCategory::YPrePeak;
-							o.failStage = "Y pre-sweep";
+							o.failCategory = CalibPathFailCategory::PeakPipelineExhausted;
+							o.failStage = "peak-pipeline-exhausted";
 							o.peakAttempts = yPreAttemptsPm;
 							M576FillPeakCodeFields(o, yPreCode);
 							o.tPeakY = tYPre;
@@ -4392,7 +4930,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					(int)powY.size(), xFixedDac);
 				SafeAppendLog(msg);
 			}
-			M576AppendPeakFitTraceLog(this, _T("RECAL3 Y预瞄(PM) "), yPreTracePm);
+			M576AppendPeakFitTraceLog(this, _T("RECAL3 Y pre-aim (PM) "), yPreTracePm);
 			const int nY = (int)powY.size();
 			fixedY = RecalDacAtPeakIndexFromSweepCol0(tYPre, nY, ySweepRangePm, xFixedDac);
 			{
@@ -4400,85 +4938,101 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				msg.Format(_T("  RECAL 3 1 Base DAC (Y@peak, row=%d)=%d"), brForYBase, fixedY);
 				SafeAppendLog(msg);
 			}
-			ySeedDacRangePm = ySweepRangePm;
+			ySeedDacRangePm = m_dacRange;
+			(void)ySweepRangePm;
 
 			int movingX = M576_RECAL_FW_READ_BASE_DAC;
-			const int uiFineRangeX = m_dacRange;
-			M576::SweepRecenterSessionState xRetryState = {};
-			M576::InitSweepRecenterSessionState(xRetryState, uiFineRangeX, movingX);
-			int attemptDacRangeX = (ySweepRangePm > m_dacRange) ? ySweepRangePm : m_dacRange;
-			xRetryState.attemptRange = attemptDacRangeX;
-			DWORD xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
+			int attemptDacRangeX = m_dacRange;
 			BOOL retryYAfterCross = FALSE;
 
-			for (int xAttempt = 0; xAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS; ++xAttempt)
+			for (int xAttempt = 0;
+				xAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOk && !retryYAfterCross;
+				++xAttempt)
 			{
-				if (!m_pRecal->ExchangeRecal3ReadSweep(
-						1, movingX, fixedY, attemptDacRangeX, m_dacStep, m_delayMs, lineX, xAttemptTimeout, err))
+				M576::Peak1DValidateCode xPreCode = M576::Peak1DValidateCode::Ok;
+				M576::Peak1DFitTrace xPreTrace;
+				double tXPre = 0.0;
+				int xPreIdx = 0;
+				int xPreAttempts = 0;
+				if (!RunRecal1DSweepWithPeakRecenterRetry(
+						TRUE,
+						m_pmRangeIndex,
+						1,
+						fixedY,
+						movingX,
+						m_dacRange,
+						readTimeout1d,
+						_T("X"),
+						_T("RECAL 3 1"),
+						powX,
+						sweep1LineCol0,
+						xPreIdx,
+						xPreCode,
+						xPreTrace,
+						tXPre,
+						xPreAttempts,
+						attemptDacRangeX,
+						err,
+						i + 1,
+						fileSlot,
+						routePm))
 				{
-					if (err.IsEmpty())
-						SafeAppendLog(_T("RECAL 3 1 (X sweep): no line after retries."));
-					else
-						SafeAppendLog(err);
-					pmSkipStep = TRUE;
 					if (M576CommErrIsSerialWriteFailure(err))
+					{
+						SafeAppendLog(err);
 						pmBreakPath = TRUE;
+					}
+					else if (!err.IsEmpty())
+						SafeAppendLog(err);
+					else if (powX.empty())
+						SafeAppendLog(_T("RECAL 3 1 (X sweep): pipeline failed."));
+					pmSkipStep = TRUE;
 					if (!pmFailRecorded)
 					{
 						SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
 						o.result = CalibPathStepResult::Failed;
 						o.failCategory = M576CommErrIsSerialWriteFailure(err)
 							? CalibPathFailCategory::CommSerialBreak
-							: CalibPathFailCategory::CommSweep;
-						o.failStage = "RECAL 3 1 sweep";
+							: (powX.empty()
+								? CalibPathFailCategory::CommSweep
+								: CalibPathFailCategory::PeakPipelineExhausted);
+						o.failStage = powX.empty() ? "RECAL 3 1 sweep" : "peak-pipeline-exhausted";
 						o.crossRound = yCrossRound;
 						o.lastBaseY = yMovingBasePm;
 						o.lastBaseX = movingX;
 						o.lastOffsetY = ySeedDacRangePm;
 						o.lastOffsetX = attemptDacRangeX;
-						o.commDetail = M576CStringToUtf8(err.IsEmpty() ? _T("RECAL 3 1: no line") : err);
+						o.peakAttempts = xPreAttempts;
+						if (!powX.empty())
+							M576FillPeakCodeFields(o, xPreCode);
+						o.commDetail = M576CStringToUtf8(err.IsEmpty() ? _T("X pipeline failed") : err);
 						TruncatePathOutcomeDetail(o.commDetail);
 						PushPathFailureOutcome(o);
-						pmFailRecorded = TRUE;
+							pmFailRecorded = TRUE;
+						}
+						break;
 					}
-					break;
-				}
-				if (!CRecalSession::ParseRecal3SweepLine(lineX, sweep1LineCol0, powX))
-				{
-					SafeAppendLog(_T("RECAL 3 1: could not parse [axis0] P1..Pn."));
-					pmSkipStep = TRUE;
-					if (!pmFailRecorded)
+					xPreCodePm = xPreCode;
+					xPreAttemptsPm = xPreAttempts;
 					{
-						SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
-						o.result = CalibPathStepResult::Failed;
-						o.failCategory = CalibPathFailCategory::CommSweep;
-						o.failStage = "RECAL 3 1 parse";
-						o.crossRound = yCrossRound;
-						o.commDetail = "could not parse sweep line";
-						PushPathFailureOutcome(o);
-						pmFailRecorded = TRUE;
+						CString msg;
+						msg.Format(
+							_T("  RECAL 3 1 -> %d power samples, sweep col0=%.4g (baseX=%d baseY=%d offset=%d Y@peak fixed)"),
+							(int)powX.size(),
+							sweep1LineCol0,
+							movingX,
+							fixedY,
+							attemptDacRangeX);
+						SafeAppendLog(msg);
 					}
-					break;
-				}
-				{
-					CString msg;
-					msg.Format(
-						_T("  RECAL 3 1 -> %d power samples, sweep col0=%.4g (baseX=%d baseY=%d offset=%d Y@peak fixed)"),
-						(int)powX.size(),
-						sweep1LineCol0,
-						movingX,
-						fixedY,
-						attemptDacRangeX);
-					SafeAppendLog(msg);
-				}
-				if (xAttempt == 0 && yCrossRound == 0
-					&& ((int)powY.size() != gridN || (int)powX.size() != gridN))
-				{
-					CString msg;
-					msg.Format(_T("  warning: firmware power count (%d, %d) vs host AxisPointCount estimate %d (range=%d step=%d); OK if FW grid differs."),
-						(int)powY.size(), (int)powX.size(), gridN, m_dacRange, m_dacStep);
-					SafeAppendLog(msg);
-				}
+					if (xAttempt == 0 && yCrossRound == 0
+						&& ((int)powY.size() != gridN || (int)powX.size() != gridN))
+					{
+						CString msg;
+						msg.Format(_T("  warning: firmware power count (%d, %d) vs host AxisPointCount estimate %d (range=%d step=%d); OK if FW grid differs."),
+							(int)powY.size(), (int)powX.size(), gridN, m_dacRange, m_dacStep);
+						SafeAppendLog(msg);
+					}
 				if (powY.size() != powX.size() || powY.empty())
 				{
 					SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
@@ -4503,7 +5057,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				const M576::Peak1DFitPolicy crossPolicyY =
 					M576::Peak1DFitPolicyForSweepResult(ySweepRangePm, m_dacRange);
 				const M576::Peak1DFitPolicy crossPolicyX =
-					M576::Peak1DFitPolicyForCrossAxis(xRetryState, attemptDacRangeX, uiFineRangeX);
+					M576::Peak1DFitPolicyForSweepResult(attemptDacRangeX, m_dacRange);
 				crossOk = M576::PeakCrossFrom1DScans(
 					powY,
 					powX,
@@ -4537,31 +5091,6 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				}
 				if (crossOk)
 				{
-					if (M576::NeedsFineRefineAfterSuccess(attemptDacRangeX, uiFineRangeX)
-						&& !xRetryState.fineConsumed
-						&& RecalSweepPowerSampleCount(uiFineRangeX, m_dacStep) == (int)powY.size())
-					{
-						const M576::SweepRetryPlan fineX = M576::PlanFineRefineAfterCoarseSuccess(
-							xRetryState, sweep1LineCol0, tXPm, (int)powX.size(), attemptDacRangeX);
-						if (fineX.action == M576::SweepRetryAction::FineRefine)
-						{
-							M576::ApplySweepRetryPlan(xRetryState, fineX);
-							movingX = xRetryState.movingBase = fineX.nextBase;
-							attemptDacRangeX = xRetryState.attemptRange;
-							xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
-							CString msg;
-							msg.Format(
-								_T("  fine refine: RECAL 3 1 X attempt %d/%d offset %d->%d newMovingX=%d fixedY=%d"),
-								xAttempt + 1,
-								(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-								(int)M576_PEAK1D_COARSE_DAC_RANGE,
-								attemptDacRangeX,
-								movingX,
-								fixedY);
-							SafeAppendLog(msg);
-							continue;
-						}
-					}
 					xSweepRange = attemptDacRangeX;
 					break;
 				}
@@ -4575,7 +5104,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 						&& M576::PlanRecalYCrossResweep(
 							yCross,
 							powY,
-							RecalSweepCenterFromCol0(xFixedDac, ySweepRangePm),
+							xFixedDac,
+							ySweepRangePm,
 							yCrossRound,
 							yMovingBasePm,
 							ySeedDacRangePm,
@@ -4587,8 +5117,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					{
 						CString msg;
 						msg.Format(
-							_T("  cross retry: Y rejected — next RECAL 3 0 %s baseY=%d offset=%d"),
-							usedExpand ? _T("expand,") : _T("recenter,"),
+							_T("  cross retry: Y rejected — next RECAL 3 0 recenter baseY=%d offset=%d"),
 							yMovingBasePm,
 							ySeedDacRangePm);
 						SafeAppendLog(msg);
@@ -4596,82 +5125,371 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 					}
 					break;
 				}
-				if (xCross != M576::Peak1DValidateCode::Ok)
-					SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::XCross, xCross));
-				const int nX = (int)powX.size();
-				const M576::SweepProfile xProfile = M576::AnalyzeRecal1DSweepProfile(powX);
-				const BOOL xLastAttempt = (xAttempt >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
-				M576::SweepRecenterFailureInfo xFailInfo = {};
-				xFailInfo.code = xCross;
-				double tXPeak = 0.0;
-				int xIdxTmp = 0;
-				M576::Peak1DValidateCode xFitCode = xCross;
-				(void)M576::FindUnimodalPeak1DIndex(powX, xIdxTmp, xFitCode, &tXPeak, nullptr);
-				xFailInfo.tPeak = tXPeak;
-				xFailInfo.hasTPeak = std::isfinite(tXPeak);
-				xFailInfo.prevArgmaxIndex = xRetryState.prevArgmax;
-				xFailInfo.hasPrevAttempt = (xAttempt > 0);
-				xRetryState.movingBase = movingX;
-				xRetryState.attemptRange = attemptDacRangeX;
-				const double xCenter = RecalSweepCenterFromCol0(sweep1LineCol0, attemptDacRangeX);
-				const M576::SweepRetryPlan xPlan = M576::PlanNextRecal1DSweepAttempt(
-					xRetryState, xCross, xProfile, powX, xCenter, xAttempt, xLastAttempt, xFailInfo);
-				if (xPlan.action == M576::SweepRetryAction::GiveUp)
-					break;
-				if (RecalSweepPowerSampleCount(xPlan.nextRange, m_dacStep) != (int)powY.size())
-					break;
-				const int prevRangeX = attemptDacRangeX;
-				const int prevBaseX = movingX;
-				M576::ApplySweepRetryPlan(xRetryState, xPlan);
-				movingX = xRetryState.movingBase;
-				attemptDacRangeX = xRetryState.attemptRange;
-				xAttemptTimeout = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeX, m_dacStep);
+					if (xCross != M576::Peak1DValidateCode::Ok)
+					{
+						SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::XCross, xCross));
+						if (M576::PlanRecalYCrossResweepPipeline(
+								xCross,
+								powX,
+								sweep1LineCol0,
+								attemptDacRangeX,
+								movingX,
+								tXPm,
+								std::isfinite(tXPm)))
+						{
+							CString msg;
+							msg.Format(
+								_T("  cross retry: X rejected — next RECAL 3 1 recenter baseX=%d offset=%d"),
+								movingX,
+								m_dacRange);
+							SafeAppendLog(msg);
+							continue;
+						}
+						break;
+					}
+				}
+
+				if (retryYAfterCross)
+					continue;
+				break;
+			}
+		else
+		{
+			// XThenY: mode1 (X, baseY=9999) then mode0 (Y, baseX=X@peak). PeakCross/LUT still Y then X.
+			for (int xCrossRound = 0;
+				xCrossRound < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOk && !pmSkipStep && !pmBreakPath;
+				++xCrossRound)
+			{
+				lastCrossRound = xCrossRound;
+				if (xCrossRound > 0)
 				{
 					CString msg;
-					if (xPlan.action == M576::SweepRetryAction::JumpFlatMax)
-					{
-						msg.Format(
-							_T("  %hs RECAL 3 1 X attempt %d/%d code=%hs trend=%hs span=%.4g offset %d->%d"),
-							M576::SweepRetryActionLogTag(xPlan.action),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCross),
-							M576::SweepTrendName(xProfile.trend),
-							xProfile.span,
-							prevRangeX,
-							attemptDacRangeX);
-					}
-					else
-					{
-						const M576::SweepProfile xRecenterProfile =
-							M576::AdjustProfileForMonoRecenter(xProfile, powX, xRetryState.inCoarsePhase, &xFailInfo);
-						const double deltaDac = M576::SuggestSweepRecenterDeltaDac(
-							xRecenterProfile, nX, attemptDacRangeX, xAttempt, xFailInfo);
-						msg.Format(
-							_T("  %hs RECAL 3 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset=%d deltaDac=%.4g newMovingX=%d fixedY=%d (%d->%d)"),
-							M576::SweepRetryActionLogTag(xPlan.action),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCross),
-							M576::SweepTrendName(xRecenterProfile.trend),
-							xRecenterProfile.argmaxIndex,
-							tXPeak,
-							xRecenterProfile.span,
-							attemptDacRangeX,
-							deltaDac,
-							movingX,
-							fixedY,
-							prevBaseX,
-							movingX);
-					}
+					msg.Format(
+						_T("  cross retry: re-sweep RECAL 3 1 round %d/%d (baseX=%d offset=%d)"),
+						xCrossRound + 1,
+						(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+						xMovingBasePm,
+						xSeedDacRangePm);
 					SafeAppendLog(msg);
 				}
-				xRetryState.prevArgmax = xProfile.argmaxIndex;
-			}
 
-			if (retryYAfterCross)
-				continue;
-			break;
+				const CString routePm = CString(M576FormatPathStepRouteLabelPm(st).c_str());
+				if (!RunRecal1DSweepWithPeakRecenterRetry(
+						TRUE,
+						m_pmRangeIndex,
+						1,
+						M576_RECAL_FW_READ_BASE_DAC,
+						xMovingBasePm,
+						xSeedDacRangePm,
+						readTimeout1d,
+						_T("X"),
+						_T("RECAL 3 1"),
+						powX,
+						sweep1LineCol0,
+						brForXBase,
+						xPreCodePm,
+						xPreTracePm,
+						tXPreOuter,
+						xPreAttemptsPm,
+						xSweepRangePmOuter,
+						err,
+						i + 1,
+						fileSlot,
+						routePm))
+				{
+					if (xCrossRound == 0)
+					{
+						if (M576CommErrIsSerialWriteFailure(err))
+						{
+							SafeAppendLog(err);
+							pmBreakPath = TRUE;
+						}
+						else if (!err.IsEmpty())
+							SafeAppendLog(err);
+						else if (powX.empty())
+							SafeAppendLog(_T("RECAL 3 1 (X sweep): no line after retries."));
+						if (!powX.empty() && xPreCodePm != M576::Peak1DValidateCode::Ok)
+						{
+							CString retryInfo;
+							retryInfo.Format(
+								_T("  peak retry summary: attempts=%d, retries=%d."),
+								xPreAttemptsPm,
+								(xPreAttemptsPm > 0) ? (xPreAttemptsPm - 1) : 0);
+							SafeAppendLog(retryInfo);
+							SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::XPre, xPreCodePm));
+						}
+						else if (powX.empty())
+							SafeAppendLog(_T("  RECAL 3 0: no X samples; skip Y sweep (RECAL 3 0)."));
+						pmSkipStep = TRUE;
+						if (!pmFailRecorded)
+						{
+							SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+							o.result = CalibPathStepResult::Failed;
+							o.crossRound = xCrossRound;
+							o.lastBaseX = xMovingBasePm;
+							o.lastOffsetX = xSeedDacRangePm;
+							o.sweepCol0X = sweep1LineCol0;
+							o.sampleCountX = (int)powX.size();
+							M576FillSweepPowContext(o, powX, false);
+							if (!powX.empty() && xPreCodePm != M576::Peak1DValidateCode::Ok)
+							{
+								o.failCategory = CalibPathFailCategory::PeakPipelineExhausted;
+								o.failStage = "peak-pipeline-exhausted";
+								o.peakAttempts = xPreAttemptsPm;
+								M576FillPeakCodeFields(o, xPreCodePm);
+								o.tPeakX = tXPreOuter;
+								o.hasTPeakX = std::isfinite(tXPreOuter);
+							}
+							else
+							{
+								o.failCategory = powX.empty()
+									? CalibPathFailCategory::CommSweep
+									: CalibPathFailCategory::CommSerialBreak;
+								o.failStage = powX.empty() ? "RECAL 3 1 sweep" : "serial";
+								o.commDetail = M576CStringToUtf8(err);
+								TruncatePathOutcomeDetail(o.commDetail);
+							}
+							PushPathFailureOutcome(o);
+							pmFailRecorded = TRUE;
+						}
+					}
+					else
+						SafeAppendLog(_T("  cross retry: RECAL 3 1 re-sweep failed."));
+					break;
+				}
+				{
+					CString msg;
+					msg.Format(_T("  RECAL 3 1 -> %d power samples, sweep col0=%.4g (first cell)"),
+						(int)powX.size(), sweep1LineCol0);
+					SafeAppendLog(msg);
+				}
+				M576AppendPeakFitTraceLog(this, _T("RECAL3 X pre-aim (PM) "), xPreTracePm);
+				const int nX = (int)powX.size();
+				fixedX = RecalDacAtPeakIndexFromSweepCol0(tXPreOuter, nX, xSweepRangePmOuter, sweep1LineCol0);
+				{
+					CString msg;
+					msg.Format(_T("  RECAL 3 0 Base DAC (X@peak, col=%d)=%d"), brForXBase, fixedX);
+					SafeAppendLog(msg);
+				}
+				xSeedDacRangePm = m_dacRange;
+				xSweepRange = xSweepRangePmOuter;
+				lastMovingX = xMovingBasePm;
+				lastAttemptDacRangeX = xSweepRangePmOuter;
+
+				int movingY = M576_RECAL_FW_READ_BASE_DAC;
+				int attemptDacRangeY = m_dacRange;
+				BOOL retryXAfterCross = FALSE;
+
+				for (int yAttempt = 0;
+					yAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOk && !retryXAfterCross;
+					++yAttempt)
+				{
+					M576::Peak1DValidateCode yPreCodeInner = M576::Peak1DValidateCode::Ok;
+					M576::Peak1DFitTrace yPreTrace;
+					double tYPreInner = 0.0;
+					int yPreIdx = 0;
+					int yPreAttempts = 0;
+					if (!RunRecal1DSweepWithPeakRecenterRetry(
+							TRUE,
+							m_pmRangeIndex,
+							0,
+							fixedX,
+							movingY,
+							m_dacRange,
+							readTimeout1d,
+							_T("Y"),
+							_T("RECAL 3 0"),
+							powY,
+							xFixedDac,
+							yPreIdx,
+							yPreCodeInner,
+							yPreTrace,
+							tYPreInner,
+							yPreAttempts,
+							attemptDacRangeY,
+							err,
+							i + 1,
+							fileSlot,
+							routePm))
+					{
+						if (M576CommErrIsSerialWriteFailure(err))
+						{
+							SafeAppendLog(err);
+							pmBreakPath = TRUE;
+						}
+						else if (!err.IsEmpty())
+							SafeAppendLog(err);
+						else if (powY.empty())
+							SafeAppendLog(_T("RECAL 3 0 (Y sweep): pipeline failed."));
+						pmSkipStep = TRUE;
+						if (!pmFailRecorded)
+						{
+							SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+							o.result = CalibPathStepResult::Failed;
+							o.failCategory = M576CommErrIsSerialWriteFailure(err)
+								? CalibPathFailCategory::CommSerialBreak
+								: (powY.empty()
+									? CalibPathFailCategory::CommSweep
+									: CalibPathFailCategory::PeakPipelineExhausted);
+							o.failStage = powY.empty() ? "RECAL 3 0 sweep" : "peak-pipeline-exhausted";
+							o.crossRound = xCrossRound;
+							o.lastBaseX = xMovingBasePm;
+							o.lastBaseY = movingY;
+							o.lastOffsetX = xSeedDacRangePm;
+							o.lastOffsetY = attemptDacRangeY;
+							o.peakAttempts = yPreAttempts;
+							if (!powY.empty())
+								M576FillPeakCodeFields(o, yPreCodeInner);
+							o.commDetail = M576CStringToUtf8(err.IsEmpty() ? _T("Y pipeline failed") : err);
+							TruncatePathOutcomeDetail(o.commDetail);
+							PushPathFailureOutcome(o);
+							pmFailRecorded = TRUE;
+						}
+						break;
+					}
+					yPreCode = yPreCodeInner;
+					yPreAttemptsPm = yPreAttempts;
+					yMovingBasePm = movingY;
+					ySeedDacRangePm = attemptDacRangeY;
+					ySweepRangePm = attemptDacRangeY;
+					{
+						CString msg;
+						msg.Format(
+							_T("  RECAL 3 0 -> %d power samples, sweep col0=%.4g (baseX=%d baseY=%d offset=%d X@peak fixed)"),
+							(int)powY.size(),
+							xFixedDac,
+							fixedX,
+							movingY,
+							attemptDacRangeY);
+						SafeAppendLog(msg);
+					}
+					if (yAttempt == 0 && xCrossRound == 0
+						&& ((int)powY.size() != gridN || (int)powX.size() != gridN))
+					{
+						CString msg;
+						msg.Format(_T("  warning: firmware power count (%d, %d) vs host AxisPointCount estimate %d (range=%d step=%d); OK if FW grid differs."),
+							(int)powY.size(), (int)powX.size(), gridN, m_dacRange, m_dacStep);
+						SafeAppendLog(msg);
+					}
+					if (powY.size() != powX.size() || powY.empty())
+					{
+						SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
+						if (!pmFailRecorded)
+						{
+							SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, i + 1, st);
+							o.result = CalibPathStepResult::Failed;
+							o.failCategory = CalibPathFailCategory::SweepDataMismatch;
+							o.failStage = "Y/X length";
+							o.crossRound = xCrossRound;
+							o.sampleCountY = (int)powY.size();
+							o.sampleCountX = (int)powX.size();
+							PushPathFailureOutcome(o);
+							pmFailRecorded = TRUE;
+						}
+						break;
+					}
+					yCross = M576::Peak1DValidateCode::Ok;
+					xCross = M576::Peak1DValidateCode::Ok;
+					const M576::Peak1DFitPolicy crossPolicyY =
+						M576::Peak1DFitPolicyForSweepResult(attemptDacRangeY, m_dacRange);
+					const M576::Peak1DFitPolicy crossPolicyX =
+						M576::Peak1DFitPolicyForSweepResult(xSweepRangePmOuter, m_dacRange);
+					crossOk = M576::PeakCrossFrom1DScans(
+						powY,
+						powX,
+						br,
+						bc,
+						&yCross,
+						&xCross,
+						&tYPm,
+						&tXPm,
+						&trCrossYPm,
+						&trCrossXPm,
+						crossPolicyY,
+						crossPolicyX);
+					if (crossOk && trCrossYPm.usedArgmaxFallback)
+					{
+						CString msg;
+						msg.Format(
+							_T("  fine refine: RECAL 3 0 Y cross cubic fallback to argmax t*=%.4g idx=%d"),
+							tYPm,
+							br);
+						SafeAppendLog(msg);
+					}
+					if (crossOk && trCrossXPm.usedArgmaxFallback)
+					{
+						CString msg;
+						msg.Format(
+							_T("  fine refine: RECAL 3 1 X cubic fallback to argmax t*=%.4g idx=%d"),
+							tXPm,
+							bc);
+						SafeAppendLog(msg);
+					}
+					if (crossOk)
+					{
+						ySweepRangePm = attemptDacRangeY;
+						xSweepRange = xSweepRangePmOuter;
+						break;
+					}
+					if (xCross != M576::Peak1DValidateCode::Ok)
+					{
+						SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::XCross, xCross));
+						const BOOL xCrossLastRound =
+							(xCrossRound >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
+						bool usedExpand = false;
+						if (!xCrossLastRound
+							&& M576::PlanRecalYCrossResweep(
+								xCross,
+								powX,
+								sweep1LineCol0,
+								xSweepRangePmOuter,
+								xCrossRound,
+								xMovingBasePm,
+								xSeedDacRangePm,
+								xCrossPrevArgmaxPm,
+								tXPm,
+								std::isfinite(tXPm),
+								usedExpand,
+								xCrossMonoRangeExpandedPm))
+						{
+							CString msg;
+							msg.Format(
+								_T("  cross retry: X rejected — next RECAL 3 1 recenter baseX=%d offset=%d"),
+								xMovingBasePm,
+								xSeedDacRangePm);
+							SafeAppendLog(msg);
+							retryXAfterCross = TRUE;
+						}
+						break;
+					}
+					if (yCross != M576::Peak1DValidateCode::Ok)
+					{
+						SafeAppendLog(M576FormatPeak1DMsg(true, M576Peak1DLogStage::YCross, yCross));
+						if (M576::PlanRecalYCrossResweepPipeline(
+								yCross,
+								powY,
+								xFixedDac,
+								attemptDacRangeY,
+								movingY,
+								tYPm,
+								std::isfinite(tYPm)))
+						{
+							CString msg;
+							msg.Format(
+								_T("  cross retry: Y rejected — next RECAL 3 0 recenter baseY=%d offset=%d"),
+								movingY,
+								m_dacRange);
+							SafeAppendLog(msg);
+							continue;
+						}
+						break;
+					}
+				}
+
+				if (retryXAfterCross)
+					continue;
+				break;
+			}
 		}
 
 		if (pmBreakPath)
@@ -4718,11 +5536,16 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 
 		if (crossOk)
 		{
-			M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 Y轴(PM) "), trCrossYPm);
-			M576AppendPeakFitTraceLog(this, _T("RECAL3 交叉 X轴(PM) "), trCrossXPm);
-			const int nLut = (int)powY.size();
-			const double rawDacXAtPeak = SweepCol0PlusPeakOffsetDac(xFixedDac, tYPm, nLut, ySweepRangePm);
-			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, tXPm, nLut, xSweepRange);
+			M576AppendPeakFitTraceLog(this, _T("RECAL3 cross Y-axis (PM) "), trCrossYPm);
+			M576AppendPeakFitTraceLog(this, _T("RECAL3 cross X-axis (PM) "), trCrossXPm);
+			const int nYm = (int)powY.size();
+			const int nXm = (int)powX.size();
+			const int nLut = nYm;
+			const double yCol0ForDac = xFixedDac;
+			const int yRangeForDac = ySweepRangePm;
+			const double rawDacXAtPeak =
+				SweepCol0PlusPeakOffsetDac(yCol0ForDac, tYPm, nYm, yRangeForDac);
+			const double rawDacYAtPeak = SweepCol0PlusPeakOffsetDac(sweep1LineCol0, tXPm, nXm, xSweepRange);
 			const int rawXi = static_cast<int>(std::lround(rawDacXAtPeak));
 			const int rawYi = static_cast<int>(std::lround(rawDacYAtPeak));
 			{
@@ -4840,6 +5663,13 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				o.peakAttempts = yPreAttemptsPm;
 				M576FillPeakCodeFields(o, yPreCode);
 			}
+			else if (xPreCodePm != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::XCrossPeak;
+				o.failStage = "X pre-sweep";
+				o.peakAttempts = xPreAttemptsPm;
+				M576FillPeakCodeFields(o, xPreCodePm);
+			}
 			else
 			{
 				o.failCategory = CalibPathFailCategory::XCrossPeak;
@@ -4903,14 +5733,23 @@ void CM576CalibratorDlg::RunPathPd()
 		else
 			StartSessionCalibPolicyFromWavelength(M576_DEFAULT_WAVELENGTH_NM);
 	}
-	//if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
-	//{
-	//	SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
-	//	return;
-	//}
 	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
+	{
+		CString axisMsg;
+		axisMsg.Format(
+			_T("SweepAxisOrder=%s first=%s"),
+			M576Peak1DSweepAxisOrderName(),
+			M576Peak1DSweepYAxisFirst() ? _T("Y") : _T("X"));
+		SafeAppendLog(axisMsg);
+	}
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
+	/// Still set external-source wavelength via SWL 8 <nm> (same wire as PM after RECAL 0).
+	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
+	{
+		SafeAppendLog(err.IsEmpty() ? _T("Run Path PD: SWL 8 (external source wavelength) failed.") : err);
+		return;
+	}
 
 	int globalProgress = 0;
 	for (int fs = 0; fs < 4; ++fs)
@@ -5061,7 +5900,20 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				SafeAppendLog(msg);
 			}
 		}
+		{
+			CStringA recal2Wire;
+			recal2Wire.Format("RECAL 2 %d %d %d", st.targetSwitchIndex, st.ch1, st.ch2);
+			M576RecalSweepCsvSetStepContext(M576FormatRecalSweepPathColumn(
+				FALSE,
+				M576CsvStemUtf8(csvBasename),
+				fileSlot,
+				i + 1,
+				total,
+				recal2Wire.GetString(),
+				M576FormatPathStepRouteLabelPd(st)));
+		}
 
+		const bool sweepYFirstPd = M576Peak1DSweepYAxisFirst();
 		double xFixedDacPd = 0.0;
 		std::vector<double> powY;
 		int brForYBasePd = 0;
@@ -5077,6 +5929,17 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 
 		double sweep1LineCol0Pd = 0.0;
 		std::vector<double> powX;
+		int brForXBasePd = 0;
+		M576::Peak1DValidateCode xPreCodePdOuter = M576::Peak1DValidateCode::Ok;
+		double tXPreOuterPd = 0.0;
+		int xPreAttemptsPdOuter = 0;
+		int xSweepRangePdOuter = m_dacRange;
+		M576::Peak1DFitTrace xPreTracePdOuter;
+		int xMovingBasePd = M576_RECAL_FW_READ_BASE_DAC;
+		int xSeedDacRangePd = m_dacRange;
+		int xCrossPrevArgmaxPd = -1;
+		bool xCrossMonoRangeExpandedPd = false;
+
 		int br = 0;
 		int bc = 0;
 		M576::Peak1DValidateCode yCrossPd = M576::Peak1DValidateCode::Ok;
@@ -5090,11 +5953,13 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 		BOOL pdBreakPath = FALSE;
 		BOOL pdFailRecorded = FALSE;
 		int fixedYPd = 0;
+		int fixedXPd = 0;
 		int xSweepRangePd = m_dacRange;
 		int lastMovingXPd = M576_RECAL_FW_READ_BASE_DAC;
 		int lastAttemptDacRangeXPd = m_dacRange;
 		int lastCrossRoundPd = 0;
 
+		if (sweepYFirstPd)
 		for (int yCrossRoundPd = 0;
 			yCrossRoundPd < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOkPd && !pdSkipStep && !pdBreakPath;
 			++yCrossRoundPd)
@@ -5112,6 +5977,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				SafeAppendLog(msg);
 			}
 
+			const CString routePd = CString(M576FormatPathStepRouteLabelPd(st).c_str());
 			if (!RunRecal1DSweepWithPeakRecenterRetry(
 					FALSE,
 					M576_MAX_PM_RANGE,
@@ -5130,7 +5996,10 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					tYPrePd,
 					yPreAttemptsPd,
 					ySweepRangePd,
-					err))
+					err,
+					i + 1,
+					fileSlot,
+					routePd))
 			{
 				if (yCrossRoundPd == 0)
 				{
@@ -5166,7 +6035,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				msg.Format(_T("  RECAL 5 0 -> %d samples (X_start=%.4g)"), (int)powY.size(), xFixedDacPd);
 				SafeAppendLog(msg);
 			}
-			M576AppendPeakFitTraceLog(this, _T("RECAL5 Y预瞄(PD) "), yPreTracePd);
+			M576AppendPeakFitTraceLog(this, _T("RECAL5 Y pre-aim (PD) "), yPreTracePd);
 			const int nYpd = (int)powY.size();
 			fixedYPd = RecalDacAtPeakIndexFromSweepCol0(tYPrePd, nYpd, ySweepRangePd, xFixedDacPd);
 			{
@@ -5174,35 +6043,52 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				msg.Format(_T("  RECAL 5 1 Base DAC (Y@peak, row=%d)=%d"), brForYBasePd, fixedYPd);
 				SafeAppendLog(msg);
 			}
-			ySeedDacRangePd = ySweepRangePd;
+			ySeedDacRangePd = m_dacRange;
+			(void)ySweepRangePd;
 
 			int movingXPd = M576_RECAL_FW_READ_BASE_DAC;
-			const int uiFineRangeXPd = m_dacRange;
-			M576::SweepRecenterSessionState xRetryStatePd = {};
-			M576::InitSweepRecenterSessionState(xRetryStatePd, uiFineRangeXPd, movingXPd);
-			int attemptDacRangeXPd = (ySweepRangePd > m_dacRange) ? ySweepRangePd : m_dacRange;
-			xRetryStatePd.attemptRange = attemptDacRangeXPd;
-			DWORD xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
+			int attemptDacRangeXPd = m_dacRange;
 			BOOL retryYAfterCrossPd = FALSE;
 
-			for (int xAttempt = 0; xAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS; ++xAttempt)
+			for (int xAttempt = 0;
+				xAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOkPd && !retryYAfterCrossPd;
+				++xAttempt)
 			{
-				if (!m_pRecal->ExchangeRecal5ReadSweep(
-						1, movingXPd, fixedYPd, attemptDacRangeXPd, m_dacStep, m_delayMs, lineX, xAttemptTimeoutPd, err))
+				M576::Peak1DValidateCode xPreCodePd = M576::Peak1DValidateCode::Ok;
+				M576::Peak1DFitTrace xPreTracePd;
+				double tXPrePd = 0.0;
+				int xPreIdxPd = 0;
+				int xPreAttemptsPd = 0;
+				if (!RunRecal1DSweepWithPeakRecenterRetry(
+						FALSE,
+						M576_MAX_PM_RANGE,
+						1,
+						fixedYPd,
+						movingXPd,
+						m_dacRange,
+						readTimeout1d,
+						_T("X"),
+						_T("RECAL 5 1"),
+						powX,
+						sweep1LineCol0Pd,
+						xPreIdxPd,
+						xPreCodePd,
+						xPreTracePd,
+						tXPrePd,
+						xPreAttemptsPd,
+						attemptDacRangeXPd,
+						err,
+						i + 1,
+						fileSlot,
+						routePd))
 				{
 					if (err.IsEmpty())
-						SafeAppendLog(_T("RECAL 5 1 (X sweep): no line after retries."));
+						SafeAppendLog(_T("RECAL 5 1 (X sweep): pipeline failed."));
 					else
 						SafeAppendLog(err);
 					pdSkipStep = TRUE;
 					if (M576CommErrIsSerialWriteFailure(err))
 						pdBreakPath = TRUE;
-					break;
-				}
-				if (!CRecalSession::ParseRecal3SweepLine(lineX, sweep1LineCol0Pd, powX))
-				{
-					SafeAppendLog(_T("RECAL 5 1: could not parse [axis0] P1..Pn."));
-					pdSkipStep = TRUE;
 					break;
 				}
 				{
@@ -5236,7 +6122,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				const M576::Peak1DFitPolicy crossPolicyYPd =
 					M576::Peak1DFitPolicyForSweepResult(ySweepRangePd, m_dacRange);
 				const M576::Peak1DFitPolicy crossPolicyXPd =
-					M576::Peak1DFitPolicyForCrossAxis(xRetryStatePd, attemptDacRangeXPd, uiFineRangeXPd);
+					M576::Peak1DFitPolicyForSweepResult(attemptDacRangeXPd, m_dacRange);
 				crossOkPd = M576::PeakCrossFrom1DScans(
 					powY,
 					powX,
@@ -5270,31 +6156,6 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				}
 				if (crossOkPd)
 				{
-					if (M576::NeedsFineRefineAfterSuccess(attemptDacRangeXPd, uiFineRangeXPd)
-						&& !xRetryStatePd.fineConsumed
-						&& RecalSweepPowerSampleCount(uiFineRangeXPd, m_dacStep) == (int)powY.size())
-					{
-						const M576::SweepRetryPlan fineXPd = M576::PlanFineRefineAfterCoarseSuccess(
-							xRetryStatePd, sweep1LineCol0Pd, tXpd, (int)powX.size(), attemptDacRangeXPd);
-						if (fineXPd.action == M576::SweepRetryAction::FineRefine)
-						{
-							M576::ApplySweepRetryPlan(xRetryStatePd, fineXPd);
-							movingXPd = xRetryStatePd.movingBase = fineXPd.nextBase;
-							attemptDacRangeXPd = xRetryStatePd.attemptRange;
-							xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
-							CString msg;
-							msg.Format(
-								_T("  fine refine: RECAL 5 1 X attempt %d/%d offset %d->%d newMovingX=%d fixedY=%d"),
-								xAttempt + 1,
-								(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-								(int)M576_PEAK1D_COARSE_DAC_RANGE,
-								attemptDacRangeXPd,
-								movingXPd,
-								fixedYPd);
-							SafeAppendLog(msg);
-							continue;
-						}
-					}
 					xSweepRangePd = attemptDacRangeXPd;
 					break;
 				}
@@ -5308,7 +6169,8 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 						&& M576::PlanRecalYCrossResweep(
 							yCrossPd,
 							powY,
-							RecalSweepCenterFromCol0(xFixedDacPd, ySweepRangePd),
+							xFixedDacPd,
+							ySweepRangePd,
 							yCrossRoundPd,
 							yMovingBasePd,
 							ySeedDacRangePd,
@@ -5320,8 +6182,7 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					{
 						CString msg;
 						msg.Format(
-							_T("  cross retry: Y rejected — next RECAL 5 0 %s baseY=%d offset=%d"),
-							usedExpandPd ? _T("expand,") : _T("recenter,"),
+							_T("  cross retry: Y rejected — next RECAL 5 0 recenter baseY=%d offset=%d"),
 							yMovingBasePd,
 							ySeedDacRangePd);
 						SafeAppendLog(msg);
@@ -5330,81 +6191,300 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 					break;
 				}
 				if (xCrossPd != M576::Peak1DValidateCode::Ok)
-					SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::XCross, xCrossPd));
-				const int nXpd = (int)powX.size();
-				const M576::SweepProfile xProfilePd = M576::AnalyzeRecal1DSweepProfile(powX);
-				const BOOL xLastAttemptPd = (xAttempt >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
-				M576::SweepRecenterFailureInfo xFailInfoPd = {};
-				xFailInfoPd.code = xCrossPd;
-				double tXPeakPd = 0.0;
-				int xIdxTmpPd = 0;
-				M576::Peak1DValidateCode xFitCodePd = xCrossPd;
-				(void)M576::FindUnimodalPeak1DIndex(powX, xIdxTmpPd, xFitCodePd, &tXPeakPd, nullptr);
-				xFailInfoPd.tPeak = tXPeakPd;
-				xFailInfoPd.hasTPeak = std::isfinite(tXPeakPd);
-				xFailInfoPd.prevArgmaxIndex = xRetryStatePd.prevArgmax;
-				xFailInfoPd.hasPrevAttempt = (xAttempt > 0);
-				xRetryStatePd.movingBase = movingXPd;
-				xRetryStatePd.attemptRange = attemptDacRangeXPd;
-				const double xCenterPd = RecalSweepCenterFromCol0(sweep1LineCol0Pd, attemptDacRangeXPd);
-				const M576::SweepRetryPlan xPlanPd = M576::PlanNextRecal1DSweepAttempt(
-					xRetryStatePd, xCrossPd, xProfilePd, powX, xCenterPd, xAttempt, xLastAttemptPd, xFailInfoPd);
-				if (xPlanPd.action == M576::SweepRetryAction::GiveUp)
-					break;
-				if (RecalSweepPowerSampleCount(xPlanPd.nextRange, m_dacStep) != (int)powY.size())
-					break;
-				const int prevRangeXPd = attemptDacRangeXPd;
-				const int prevBaseXPd = movingXPd;
-				M576::ApplySweepRetryPlan(xRetryStatePd, xPlanPd);
-				movingXPd = xRetryStatePd.movingBase;
-				attemptDacRangeXPd = xRetryStatePd.attemptRange;
-				xAttemptTimeoutPd = ComputeRecal1DReadTimeoutMs(m_delayMs, attemptDacRangeXPd, m_dacStep);
 				{
-					CString msg;
-					if (xPlanPd.action == M576::SweepRetryAction::JumpFlatMax)
-					{
-						msg.Format(
-							_T("  %hs RECAL 5 1 X attempt %d/%d code=%hs trend=%hs span=%.4g offset %d->%d"),
-							M576::SweepRetryActionLogTag(xPlanPd.action),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCrossPd),
-							M576::SweepTrendName(xProfilePd.trend),
-							xProfilePd.span,
-							prevRangeXPd,
-							attemptDacRangeXPd);
-					}
-					else
-					{
-						const M576::SweepProfile xRecenterProfilePd =
-							M576::AdjustProfileForMonoRecenter(xProfilePd, powX, xRetryStatePd.inCoarsePhase, &xFailInfoPd);
-						const double deltaDacPd = M576::SuggestSweepRecenterDeltaDac(
-							xRecenterProfilePd, nXpd, attemptDacRangeXPd, xAttempt, xFailInfoPd);
-						msg.Format(
-							_T("  %hs RECAL 5 1 X attempt %d/%d code=%hs trend=%hs argmax=%d t*=%.4g span=%.4g offset=%d deltaDac=%.4g newMovingX=%d fixedY=%d (%d->%d)"),
-							M576::SweepRetryActionLogTag(xPlanPd.action),
-							xAttempt + 1,
-							(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
-							M576Peak1DWhy(xCrossPd),
-							M576::SweepTrendName(xRecenterProfilePd.trend),
-							xRecenterProfilePd.argmaxIndex,
-							tXPeakPd,
-							xRecenterProfilePd.span,
+					SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::XCross, xCrossPd));
+					if (M576::PlanRecalYCrossResweepPipeline(
+							xCrossPd,
+							powX,
+							sweep1LineCol0Pd,
 							attemptDacRangeXPd,
-							deltaDacPd,
 							movingXPd,
-							fixedYPd,
-							prevBaseXPd,
-							movingXPd);
+							tXpd,
+							std::isfinite(tXpd)))
+					{
+						CString msg;
+						msg.Format(
+							_T("  cross retry: X rejected — next RECAL 5 1 recenter baseX=%d offset=%d"),
+							movingXPd,
+							m_dacRange);
+						SafeAppendLog(msg);
+						continue;
 					}
-					SafeAppendLog(msg);
+					break;
 				}
-				xRetryStatePd.prevArgmax = xProfilePd.argmaxIndex;
 			}
 
 			if (retryYAfterCrossPd)
 				continue;
 			break;
+		}
+		else
+		{
+			// XThenY: mode1 (X) then mode0 (Y, baseX=X@peak). PeakCross/LUT still Y then X.
+			for (int xCrossRoundPd = 0;
+				xCrossRoundPd < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOkPd && !pdSkipStep && !pdBreakPath;
+				++xCrossRoundPd)
+			{
+				lastCrossRoundPd = xCrossRoundPd;
+				if (xCrossRoundPd > 0)
+				{
+					CString msg;
+					msg.Format(
+						_T("  cross retry: re-sweep RECAL 5 1 round %d/%d (baseX=%d offset=%d)"),
+						xCrossRoundPd + 1,
+						(int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS,
+						xMovingBasePd,
+						xSeedDacRangePd);
+					SafeAppendLog(msg);
+				}
+
+				const CString routePd = CString(M576FormatPathStepRouteLabelPd(st).c_str());
+				if (!RunRecal1DSweepWithPeakRecenterRetry(
+						FALSE,
+						M576_MAX_PM_RANGE,
+						1,
+						M576_RECAL_FW_READ_BASE_DAC,
+						xMovingBasePd,
+						xSeedDacRangePd,
+						readTimeout1d,
+						_T("X"),
+						_T("RECAL 5 1"),
+						powX,
+						sweep1LineCol0Pd,
+						brForXBasePd,
+						xPreCodePdOuter,
+						xPreTracePdOuter,
+						tXPreOuterPd,
+						xPreAttemptsPdOuter,
+						xSweepRangePdOuter,
+						err,
+						i + 1,
+						fileSlot,
+						routePd))
+				{
+					if (xCrossRoundPd == 0)
+					{
+						if (M576CommErrIsSerialWriteFailure(err))
+						{
+							SafeAppendLog(err);
+							pdBreakPath = TRUE;
+						}
+						else if (!err.IsEmpty())
+							SafeAppendLog(err);
+						else if (powX.empty())
+							SafeAppendLog(_T("RECAL 5 1 (X sweep): no line after retries."));
+						if (!powX.empty() && xPreCodePdOuter != M576::Peak1DValidateCode::Ok)
+						{
+							CString retryInfo;
+							retryInfo.Format(
+								_T("  peak retry summary: attempts=%d, retries=%d."),
+								xPreAttemptsPdOuter,
+								(xPreAttemptsPdOuter > 0) ? (xPreAttemptsPdOuter - 1) : 0);
+							SafeAppendLog(retryInfo);
+							SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::XPre, xPreCodePdOuter));
+						}
+						else if (powX.empty())
+							SafeAppendLog(_T("  RECAL 5 0: no X samples; skip Y sweep (RECAL 5 0)."));
+						pdSkipStep = TRUE;
+					}
+					else
+						SafeAppendLog(_T("  cross retry: RECAL 5 1 re-sweep failed."));
+					break;
+				}
+				{
+					CString msg;
+					msg.Format(_T("  RECAL 5 1 -> %d samples (col0=%.4g)"), (int)powX.size(), sweep1LineCol0Pd);
+					SafeAppendLog(msg);
+				}
+				M576AppendPeakFitTraceLog(this, _T("RECAL5 X pre-aim (PD) "), xPreTracePdOuter);
+				const int nXpd = (int)powX.size();
+				fixedXPd = RecalDacAtPeakIndexFromSweepCol0(tXPreOuterPd, nXpd, xSweepRangePdOuter, sweep1LineCol0Pd);
+				{
+					CString msg;
+					msg.Format(_T("  RECAL 5 0 Base DAC (X@peak, col=%d)=%d"), brForXBasePd, fixedXPd);
+					SafeAppendLog(msg);
+				}
+				xSeedDacRangePd = m_dacRange;
+				xSweepRangePd = xSweepRangePdOuter;
+				lastMovingXPd = xMovingBasePd;
+				lastAttemptDacRangeXPd = xSweepRangePdOuter;
+
+				int movingYPd = M576_RECAL_FW_READ_BASE_DAC;
+				int attemptDacRangeYPd = m_dacRange;
+				BOOL retryXAfterCrossPd = FALSE;
+
+				for (int yAttempt = 0;
+					yAttempt < (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS && !crossOkPd && !retryXAfterCrossPd;
+					++yAttempt)
+				{
+					M576::Peak1DValidateCode yPreCodeInner = M576::Peak1DValidateCode::Ok;
+					M576::Peak1DFitTrace yPreTraceInner;
+					double tYPreInner = 0.0;
+					int yPreIdx = 0;
+					int yPreAttempts = 0;
+					if (!RunRecal1DSweepWithPeakRecenterRetry(
+							FALSE,
+							M576_MAX_PM_RANGE,
+							0,
+							fixedXPd,
+							movingYPd,
+							m_dacRange,
+							readTimeout1d,
+							_T("Y"),
+							_T("RECAL 5 0"),
+							powY,
+							xFixedDacPd,
+							yPreIdx,
+							yPreCodeInner,
+							yPreTraceInner,
+							tYPreInner,
+							yPreAttempts,
+							attemptDacRangeYPd,
+							err,
+							i + 1,
+							fileSlot,
+							routePd))
+					{
+						if (err.IsEmpty())
+							SafeAppendLog(_T("RECAL 5 0 (Y sweep): pipeline failed."));
+						else
+							SafeAppendLog(err);
+						pdSkipStep = TRUE;
+						if (M576CommErrIsSerialWriteFailure(err))
+							pdBreakPath = TRUE;
+						break;
+					}
+					yPreCodePd = yPreCodeInner;
+					yPreAttemptsPd = yPreAttempts;
+					yMovingBasePd = movingYPd;
+					ySeedDacRangePd = attemptDacRangeYPd;
+					ySweepRangePd = attemptDacRangeYPd;
+					{
+						CString msg;
+						msg.Format(
+							_T("  RECAL 5 0 -> %d samples, sweep col0=%.4g (baseX=%d baseY=%d offset=%d X@peak fixed)"),
+							(int)powY.size(),
+							xFixedDacPd,
+							fixedXPd,
+							movingYPd,
+							attemptDacRangeYPd);
+						SafeAppendLog(msg);
+					}
+					if (yAttempt == 0 && xCrossRoundPd == 0
+						&& ((int)powY.size() != gridN || (int)powX.size() != gridN))
+					{
+						CString msg;
+						msg.Format(_T("  warning: sample count (%d, %d) != expected axis points %d"),
+							(int)powY.size(), (int)powX.size(), gridN);
+						SafeAppendLog(msg);
+					}
+					if (powY.size() != powX.size() || powY.empty())
+					{
+						SafeAppendLog(_T("  peak: Y/X sweep lengths differ or empty; skip LUT update."));
+						break;
+					}
+					yCrossPd = M576::Peak1DValidateCode::Ok;
+					xCrossPd = M576::Peak1DValidateCode::Ok;
+					const M576::Peak1DFitPolicy crossPolicyYPd =
+						M576::Peak1DFitPolicyForSweepResult(attemptDacRangeYPd, m_dacRange);
+					const M576::Peak1DFitPolicy crossPolicyXPd =
+						M576::Peak1DFitPolicyForSweepResult(xSweepRangePdOuter, m_dacRange);
+					crossOkPd = M576::PeakCrossFrom1DScans(
+						powY,
+						powX,
+						br,
+						bc,
+						&yCrossPd,
+						&xCrossPd,
+						&tYpd,
+						&tXpd,
+						&trCrossYPd,
+						&trCrossXPd,
+						crossPolicyYPd,
+						crossPolicyXPd);
+					if (crossOkPd && trCrossYPd.usedArgmaxFallback)
+					{
+						CString msg;
+						msg.Format(
+							_T("  fine refine: RECAL 5 0 Y cross cubic fallback to argmax t*=%.4g idx=%d"),
+							tYpd,
+							br);
+						SafeAppendLog(msg);
+					}
+					if (crossOkPd && trCrossXPd.usedArgmaxFallback)
+					{
+						CString msg;
+						msg.Format(
+							_T("  fine refine: RECAL 5 1 X cubic fallback to argmax t*=%.4g idx=%d"),
+							tXpd,
+							bc);
+						SafeAppendLog(msg);
+					}
+					if (crossOkPd)
+					{
+						ySweepRangePd = attemptDacRangeYPd;
+						xSweepRangePd = xSweepRangePdOuter;
+						break;
+					}
+					if (xCrossPd != M576::Peak1DValidateCode::Ok)
+					{
+						SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::XCross, xCrossPd));
+						const BOOL xCrossLastRoundPd =
+							(xCrossRoundPd >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS - 1);
+						bool usedExpandPd = false;
+						if (!xCrossLastRoundPd
+							&& M576::PlanRecalYCrossResweep(
+								xCrossPd,
+								powX,
+								sweep1LineCol0Pd,
+								xSweepRangePdOuter,
+								xCrossRoundPd,
+								xMovingBasePd,
+								xSeedDacRangePd,
+								xCrossPrevArgmaxPd,
+								tXpd,
+								std::isfinite(tXpd),
+								usedExpandPd,
+								xCrossMonoRangeExpandedPd))
+						{
+							CString msg;
+							msg.Format(
+								_T("  cross retry: X rejected — next RECAL 5 1 recenter baseX=%d offset=%d"),
+								xMovingBasePd,
+								xSeedDacRangePd);
+							SafeAppendLog(msg);
+							retryXAfterCrossPd = TRUE;
+						}
+						break;
+					}
+					if (yCrossPd != M576::Peak1DValidateCode::Ok)
+					{
+						SafeAppendLog(M576FormatPeak1DMsg(false, M576Peak1DLogStage::YCross, yCrossPd));
+						if (M576::PlanRecalYCrossResweepPipeline(
+								yCrossPd,
+								powY,
+								xFixedDacPd,
+								attemptDacRangeYPd,
+								movingYPd,
+								tYpd,
+								std::isfinite(tYpd)))
+						{
+							CString msg;
+							msg.Format(
+								_T("  cross retry: Y rejected — next RECAL 5 0 recenter baseY=%d offset=%d"),
+								movingYPd,
+								m_dacRange);
+							SafeAppendLog(msg);
+							continue;
+						}
+						break;
+					}
+				}
+
+				if (retryXAfterCrossPd)
+					continue;
+				break;
+			}
 		}
 
 		if (pdBreakPath)
@@ -5418,11 +6498,17 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 
 		if (crossOkPd)
 		{
-			M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 Y轴(PD) "), trCrossYPd);
-			M576AppendPeakFitTraceLog(this, _T("RECAL5 交叉 X轴(PD) "), trCrossXPd);
-			const int nLut = (int)powY.size();
-			const double rawDacXAtPeakPd = SweepCol0PlusPeakOffsetDac(xFixedDacPd, tYpd, nLut, ySweepRangePd);
-			const double rawDacYAtPeakPd = SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, tXpd, nLut, xSweepRangePd);
+			M576AppendPeakFitTraceLog(this, _T("RECAL5 cross Y-axis (PD) "), trCrossYPd);
+			M576AppendPeakFitTraceLog(this, _T("RECAL5 cross X-axis (PD) "), trCrossXPd);
+			const int nYpdLut = (int)powY.size();
+			const int nXpdLut = (int)powX.size();
+			const int nLut = nYpdLut;
+			const double yCol0ForDacPd = xFixedDacPd;
+			const int yRangeForDacPd = ySweepRangePd;
+			const double rawDacXAtPeakPd =
+				SweepCol0PlusPeakOffsetDac(yCol0ForDacPd, tYpd, nYpdLut, yRangeForDacPd);
+			const double rawDacYAtPeakPd =
+				SweepCol0PlusPeakOffsetDac(sweep1LineCol0Pd, tXpd, nXpdLut, xSweepRangePd);
 			const int rawXiPd = static_cast<int>(std::lround(rawDacXAtPeakPd));
 			const int rawYiPd = static_cast<int>(std::lround(rawDacYAtPeakPd));
 			{
@@ -5534,217 +6620,256 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 	(void)globalTotal;
 }
 
+void CM576CalibratorDlg::OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path)
+{
+	if (sync.isMcs)
+	{
+		if (sync.mcsTransIndex >= 0 && sync.mcsTransIndex < 2)
+			memcpy(&m_lutByTrans[sync.mcsTransIndex], &sync.lut, sizeof(sync.lut));
+	}
+	else if (sync.oneX64Dev >= 0 && sync.oneX64Dev < 2
+		&& sync.oneX64Sw >= 0 && sync.oneX64Sw < 4)
+	{
+		memcpy(&m_mems1x64[sync.oneX64Dev][sync.oneX64Sw], &sync.mems, sizeof(sync.mems));
+	}
+	CString m;
+	m.Format(_T("FineTune: patched %s"), path ? path : _T("(null)"));
+	AppendLog(m);
+}
+
+void CM576CalibratorDlg::OnBnClickedFineTune()
+{
+	if (m_pathRunning.load() || m_burnFlashRunning.load() || m_burnBoardRunning.load()
+		|| m_readBackupRunning.load() || m_readSnRunning.load())
+	{
+		MessageBoxM576(_T("Another operation is running; wait before FineTune."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
+	{
+		AppendLog(snErr);
+		MessageBoxM576(
+			snErr + _T("\n\nRun Read All SN first, then FineTune."),
+			MB_OK | MB_ICONWARNING);
+		return;
+	}
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
+	{
+		MessageBoxM576(_T("BIN output directory is empty."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CM576FineTuneDlg dlg(this, absOutDir, m_snInfo, this);
+	dlg.DoModal();
+}
+
+BOOL CM576CalibratorDlg::IsBackgroundBusyForIlTest() const
+{
+	return m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load()
+		|| m_diagRunning.load() || m_ilTestRunning.load();
+}
+
+CString CM576CalibratorDlg::GetMcs1SnSanitizedForFilename() const
+{
+	CString sn = M576SanitizeSnForFilename(m_snInfo.mcsSn[0]);
+	if (sn.IsEmpty())
+		sn = _T("unknown");
+	return sn;
+}
+
+BOOL CM576CalibratorDlg::BeginIlTestSession(CString& outDirAbs, CString& err)
+{
+	err.Empty();
+	outDirAbs.Empty();
+	if (m_ilTestRunning.load())
+	{
+		err = _T("IL Test is already running.");
+		return FALSE;
+	}
+	if (IsBackgroundBusyForIlTest())
+	{
+		err = _T("Another background task is running; wait for it to finish.");
+		return FALSE;
+	}
+	if (!IsSerialPortOpen())
+	{
+		if (!OpenPort())
+		{
+			err = _T("Failed to open serial port.");
+			return FALSE;
+		}
+		SyncSerialPortUi();
+	}
+	if (m_pDiag == NULL)
+	{
+		err = _T("Diagnosis session is not available.");
+		return FALSE;
+	}
+	const CString exeFolder = GetExeFolder();
+	EnsureOutputFolderUnderExe(exeFolder);
+	outDirAbs = exeFolder + _T("\\output");
+	m_ilTestCommLogPathAbs = M576GetIlTestCommLogPath(outDirAbs);
+	// Route ALL session CommLog away from main UI (DIAG / Z4671 / Recal).
+	const M576CommLogTarget ilLog(&CM576CalibratorDlg::IlTestCommLogThunk, this);
+	m_dev429f.SetCommLogTarget(ilLog);
+	if (m_pRecal)
+		m_pRecal->SetCommLogTarget(ilLog);
+	if (m_pDiag)
+		m_pDiag->SetCommLogTarget(ilLog);
+	{
+		CString errLog;
+		CString openNote;
+		openNote.Format(_T("[ILTEST] session start; DIAG SEND/RECV -> %s"), m_ilTestCommLogPathAbs.GetString());
+		(void)M576AppendIlTestCommLogLine(m_ilTestCommLogPathAbs, openNote, errLog);
+		if (m_pActiveIlTestDlg)
+			m_pActiveIlTestDlg->PostCommLogLine(openNote);
+	}
+	m_ilTestRunning = true;
+	SetPathActionButtonsEnabled(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
+		p->EnableWindow(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
+		p->EnableWindow(FALSE);
+	return TRUE;
+}
+
+void CM576CalibratorDlg::EndIlTestSession()
+{
+	if (!m_ilTestCommLogPathAbs.IsEmpty())
+	{
+		CString errLog;
+		const CString endNote = _T("[ILTEST] session end");
+		(void)M576AppendIlTestCommLogLine(m_ilTestCommLogPathAbs, endNote, errLog);
+		if (m_pActiveIlTestDlg)
+			m_pActiveIlTestDlg->PostCommLogLine(endNote);
+	}
+	m_ilTestCommLogPathAbs.Empty();
+	// Restore main-UI CommLog target for normal operations.
+	const M576CommLogTarget mainLog(&CM576CalibratorDlg::CommLogThunk, this);
+	m_dev429f.SetCommLogTarget(mainLog);
+	if (m_pRecal)
+		m_pRecal->SetCommLogTarget(mainLog);
+	if (m_pDiag)
+		m_pDiag->SetCommLogTarget(mainLog);
+	m_ilTestRunning = false;
+	if (!m_pathRunning.load() && !m_diagRunning.load() && !m_burnFlashRunning.load()
+		&& !m_burnBoardRunning.load() && !m_readBackupRunning.load() && !m_readSnRunning.load())
+	{
+		SetPathActionButtonsEnabled(TRUE);
+	}
+	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
+		p->EnableWindow(!m_diagRunning.load() && !m_ilTestRunning.load());
+	if (CWnd* p = GetDlgItem(IDC_BTN_STOP_DIAG))
+		p->EnableWindow(m_diagRunning.load());
+}
+
+CDiagnosisSession* CM576CalibratorDlg::GetDiagnosisSessionForIlTest()
+{
+	return m_pDiag.get();
+}
+
+void CM576CalibratorDlg::OnBnClickedIlTest()
+{
+	if (IsBackgroundBusyForIlTest())
+	{
+		MessageBoxM576(_T("Another operation is running; wait before IL Test."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CM576IlTestDlg dlg(this, this);
+	dlg.DoModal();
+}
+
+void CM576CalibratorDlg::OnBnClickedFimIl()
+{
+	if (IsBackgroundBusyForIlTest())
+	{
+		MessageBoxM576(_T("Another operation is running; wait before FIM IL."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	CM576FimIlTestDlg dlg(this, this);
+	dlg.DoModal();
+}
+
 // --- 生成 BIN：MCS 为 Z4671 包，1x64 为四路 2K Mems（m_lut / m_mems1x64 合并 1310）---
 
 void CM576CalibratorDlg::OnBnClickedGenBin()
 {
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);
-	if (m_strOutBin.IsEmpty())
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
 	{
-		AppendLog(_T("Set output BIN base path (writes <base>_mcs1/2.bin, <base>*_1x64_*_sw1..4.bin)."));
+		AppendLog(snErr);
 		MessageBoxM576(
-			_T("Set output BIN base path first (writes MCS Z4671 bins and 1x64 4x2K per trans)."),
+			snErr + _T("\n\nRun Read All SN first, then Write BIN."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
-	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
-	const CString absOutBase = ResolveFilePath(m_strOutBin);
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
+	{
+		MessageBoxM576(_T("BIN output directory is empty."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	EnsureOutputFolderUnderExe(GetExeFolder());
 
 	if (M576SessionLutMemsAllZero(m_lutByTrans, m_mems1x64))
 	{
-		AppendLog(_T("Write BIN: session LUT/Mems empty; preloading from local backup base (if present)."));
+		AppendLog(_T("Write BIN: session LUT/Mems empty; preloading from {SN}_backup.bin (if present)."));
 		TryPreloadLutFromPerTransBackup();
 	}
 
 	WarnIfUiWavelengthDiffersFromSession();
-	const LPCTSTR standardDacLeaf =
-		(m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-		? _T("standardAll1550DAC.csv")
-		: _T("standardAll1310DAC.csv");
-	ExportSessionDacCsv(m_sessionCalibPolicy, standardDacLeaf, _T("Write BIN"));
-
-	for (int i = 0; i < 4; ++i)
 	{
-		if (i < 2)
-		{
-			stLutSettingZ4671 merged;
-			ZeroMemory(&merged, sizeof(merged));
-			BOOL haveBackup = FALSE;
-			CString mcsBundleSrcPath;
-			if (!m_strBackupBin.IsEmpty())
-			{
-				const CString perTransBk = M576TransBinPathForRead(absBackupBin, i + 1);
-				if (GetFileAttributes(perTransBk) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(perTransBk, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = perTransBk;
-					}
-				}
-				if (!haveBackup && i == 0 && GetFileAttributes(absBackupBin) != INVALID_FILE_ATTRIBUTES)
-				{
-					if (CLutBinWriter::ReadLutFromFile(absBackupBin, merged))
-					{
-						haveBackup = TRUE;
-						mcsBundleSrcPath = absBackupBin;
-						AppendLog(_T("Trans1: read legacy single backup file for merge."));
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-				{
-					MergeLut1550RoomHighSlots(merged, m_lutByTrans[i]);
-					CString m;
-					m.Format(_T("Trans %d: merged 1550 room+high LUT into per-trans backup."), i + 1);
-					AppendLog(m);
-				}
-				else
-				{
-					MergeLut1310LowTempSlot(merged, m_lutByTrans[i]);
-					CString m;
-					m.Format(_T("Trans %d: merged 1310 low-temp LUT into per-trans backup."), i + 1);
-					AppendLog(m);
-				}
-			}
-			else
-			{
-				memcpy(&merged, &m_lutByTrans[i], sizeof(merged));
-				CString m;
-				m.Format(
-					_T("Trans %d: no per-trans backup (*%s*.bin); writing in-memory LUT only."),
-					i + 1,
-					g_m576TransLutBinSuffix[i]);
-				AppendLog(m);
-			}
-
-			const CString absOutOne = M576TransBackupPathFromBase(absOutBase, i + 1);
-			SLutBinWriteParams p;
-			p.strOutputPath = absOutOne;
-			p.pLut = &merged;
-			{
-				CString sn = m_snInfo.mcsSn[i].Trim();
-				if (sn.IsEmpty() && haveBackup && !mcsBundleSrcPath.IsEmpty())
-					(void)CLutBinWriter::ReadBundleSnFromFile(mcsBundleSrcPath, sn);
-				p.strBundleSN = sn;
-			}
-			if (!CLutBinWriter::Write(p))
-			{
-				CString m;
-				m.Format(_T("Write BIN failed (trans %d): %s"), i + 1, absOutOne.GetString());
-				AppendLog(m);
-				CString box;
-				box.Format(_T("Write BIN failed (trans %d):\n\n%s"), i + 1, absOutOne.GetString());
-				MessageBoxM576(box, MB_OK | MB_ICONERROR);
-				return;
-			}
-			memcpy(&m_lutByTrans[i], &merged, sizeof(m_lutByTrans[i]));
-			CString ok;
-			ok.Format(_T("Trans %d: wrote %s"), i + 1, absOutOne.GetString());
-			AppendLog(ok);
-		}
-		else
-		{
-			stM576OneX64MemsSwCoef merged4[4];
-			ZeroMemory(merged4, sizeof(merged4));
-			BOOL haveBackup = FALSE;
-			if (!m_strBackupBin.IsEmpty())
-			{
-				for (int sw = 0; sw < 4; ++sw)
-				{
-					const CString perSwBk = M576TransBinPathForSwitch(absBackupBin, i + 1, sw);
-					if (GetFileAttributes(perSwBk) != INVALID_FILE_ATTRIBUTES)
-					{
-						if (CMems1x64LutBinWriter::ReadMemsFromFile(perSwBk, &merged4[sw]))
-							haveBackup = TRUE;
-					}
-				}
-			}
-			if (haveBackup)
-			{
-				if (m_sessionCalibPolicy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
-				{
-					MergeMems1550RoomHighSlots(merged4, m_mems1x64[i - 2]);
-					CString m;
-					m.Format(
-						_T("Trans %d: merged 1550 room+high Mems (4x2K) into per-trans backup (1x64 *._sw*)."),
-						i + 1);
-					AppendLog(m);
-				}
-				else
-				{
-					MergeMems1310LowTempSlot(merged4, m_mems1x64[i - 2]);
-					CString m;
-					m.Format(
-						_T("Trans %d: merged 1310 low-temp Mems session (4x2K) into per-trans backup (1x64 *._sw*)."),
-						i + 1);
-					AppendLog(m);
-				}
-			}
-			else
-			{
-				memcpy(merged4, m_mems1x64[i - 2], sizeof(merged4));
-				CString m;
-				m.Format(
-					_T("Trans %d: no 1x64 per-switch Mems backup; writing in-memory 4x2K only."),
-					i + 1);
-				AppendLog(m);
-			}
-			for (int sw = 0; sw < 4; ++sw)
-			{
-				M576OneX64ApplyStandardTempMeta(merged4[sw]);
-				CString sn = m_snInfo.oneX64Sn[i - 2][sw].Trim();
-				if (sn.IsEmpty())
-					sn = CMems1x64LutBinWriter::ReadBundleVer16FromCoef(merged4[sw]);
-				const CString absOutSw = M576TransBinPathForSwitch(absOutBase, i + 1, sw);
-				if (!CMems1x64LutBinWriter::WriteSingleSwitch(merged4[sw], sw, absOutSw, sn, CString()))
-				{
-					CString m;
-					m.Format(
-						_T("Write 1x64 Mems BIN failed (trans %d sw %d): %s"), i + 1, sw + 1, absOutSw.GetString());
-					AppendLog(m);
-					CString box;
-					box.Format(
-						_T("Write 1x64 Mems BIN failed (trans %d sw %d):\n\n%s"), i + 1, sw + 1, absOutSw.GetString());
-					MessageBoxM576(box, MB_OK | MB_ICONERROR);
-					return;
-				}
-			}
-			memcpy(m_mems1x64[i - 2], merged4, sizeof(m_mems1x64[i - 2]));
-			{
-				const CString baseTag = M576TransBackupPathFromBase(absOutBase, i + 1);
-				CString ok;
-				ok.Format(_T("Trans %d: wrote 1x64 4x2K from base %s (*_sw1..4)"), i + 1, baseTag.GetString());
-				AppendLog(ok);
-			}
-		}
+		const CString fullCsv = BuildSessionDacCsvPath(m_sessionCalibPolicy, M576BinFileRole::Standard);
+		const int slash = fullCsv.ReverseFind(_T('\\'));
+		const CString leaf = (slash >= 0) ? fullCsv.Mid(slash + 1) : fullCsv;
+		ExportSessionDacCsv(m_sessionCalibPolicy, leaf, _T("Write BIN"));
 	}
-	AppendLog(_T("All trans BIN files written."));
+
+	CString err;
+	if (!GenerateStandardBinFiles(absOutDir, err, FALSE))
+	{
+		AppendLog(err);
+		MessageBoxM576(err, MB_OK | MB_ICONERROR);
+		return;
+	}
+	ArchiveCurrentBinSet(_T("standard"), M576BinFileRole::Standard, _T("write_bin"), TRUE);
+	AppendLog(_T("All {SN}_standard.bin files written."));
 	MessageBoxM576(
-		_T("Write BIN completed.\n\nAll per-trans .bin files were written successfully."),
+		_T("Write BIN completed.\n\nAll {SN}_standard.bin files were written successfully."),
 		MB_OK | MB_ICONINFORMATION);
 }
+
+// --- Make Bin：读 standardAll1310DAC.csv 合并进 backup 生成 standard 分 trans 文件 ---
 
 void CM576CalibratorDlg::OnBnClickedMakeBin()
 {
 	UpdateData(TRUE);
 	ApplyFixedBinBasePaths(TRUE);
 
-	if (m_strOutBin.IsEmpty())
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
 	{
-		MessageBoxM576(_T("MakeBin: output BIN base path is empty."), MB_OK | MB_ICONWARNING);
+		MessageBoxM576(snErr + _T("\n\nRun Read All SN first."), MB_OK | MB_ICONWARNING);
 		return;
 	}
 
-	const CString absBackupBin = ResolveFilePath(m_strBackupBin);
-	const CString absOutBase = ResolveFilePath(m_strOutBin);
-	const CString absCsvPath = BuildStandardAll1310DacCsvPath(absOutBase);
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
+	{
+		MessageBoxM576(_T("MakeBin: BIN output directory is empty."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	const CString absCsvPath = BuildSessionDacCsvPath(M576CalibBinWritePolicy::Slot1310Low, M576BinFileRole::Standard);
 
 	CString err;
-	if (!ValidateMakeBinInputs(absBackupBin, absCsvPath, err))
+	if (!ValidateMakeBinInputs(absOutDir, absCsvPath, err))
 	{
 		AppendLog(err);
 		MessageBoxM576(err, MB_OK | MB_ICONERROR);
@@ -5766,18 +6891,23 @@ void CM576CalibratorDlg::OnBnClickedMakeBin()
 	ZeroMemory(m_mems1x64, sizeof(m_mems1x64));
 	memcpy(&m_lutByTrans[0], &csvLut[0], sizeof(csvLut));
 	memcpy(&m_mems1x64[0][0], &csvMems[0][0], sizeof(csvMems));
-	AppendLog(_T("MakeBin: loaded low-temp DAC values from output\\standardAll1310DAC.csv."));
+	{
+		CString msg;
+		msg.Format(_T("MakeBin: loaded low-temp DAC values from %s."), absCsvPath.GetString());
+		AppendLog(msg);
+	}
 
-	if (!GenerateStandardBinFiles(absBackupBin, absOutBase, err, TRUE))
+	if (!GenerateStandardBinFiles(absOutDir, err, TRUE))
 	{
 		AppendLog(err);
 		MessageBoxM576(err, MB_OK | MB_ICONERROR);
 		return;
 	}
+	ArchiveCurrentBinSet(_T("standard"), M576BinFileRole::Standard, _T("make_bin"), TRUE);
 
-	AppendLog(_T("MakeBin: all standard BIN files generated/overwritten successfully."));
+	AppendLog(_T("MakeBin: all {SN}_standard.bin files generated/overwritten successfully."));
 	MessageBoxM576(
-		_T("MakeBin completed.\n\nLoaded standardAll1310DAC.csv and regenerated all standard BIN files."),
+		_T("MakeBin completed.\n\nLoaded standard DAC CSV and regenerated all {SN}_standard.bin files."),
 		MB_OK | MB_ICONINFORMATION);
 }
 
@@ -5847,60 +6977,45 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("Read Flash backup in progress; wait before burning flash."));
 		return;
 	}
-	if (m_strOutBin.IsEmpty())
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
 	{
-		AppendLog(_T("Set output BIN base; burn: MCS (trans1-2) FW stream, 1x64 (trans3-4) 4xfwdl+XMODEM per *_1x64_*_sw1..4.bin."));
+		AppendLog(snErr);
 		MessageBoxM576(
-			_T("Set output BIN base first (burn uses <base>_mcs*.bin and <base>*_1x64_*_swN.bin)."),
+			snErr + _T("\n\nRun Read All SN first, then Write BIN."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
-	const CString absOutBin = ResolveFilePath(m_strOutBin);
-	BOOL anyBin = FALSE;
-	for (int ti = 1; ti <= 4; ++ti)
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	std::array<CString, M576_BURN_FILE_COUNT> stdPaths;
+	CString pathErr;
+	if (!M576BuildBurnFilePaths(absOutDir, m_snInfo, M576BinFileRole::Standard, stdPaths, pathErr))
 	{
-		if (ti <= 2)
+		AppendLog(pathErr);
+		MessageBoxM576(pathErr, MB_OK | MB_ICONWARNING);
+		return;
+	}
+	BOOL anyBin = FALSE;
+	for (const CString& p : stdPaths)
+	{
+		if (GetFileAttributes(p) == INVALID_FILE_ATTRIBUTES)
+			continue;
+		HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		if (h == INVALID_HANDLE_VALUE)
+			continue;
+		const DWORD sz = GetFileSize(h, NULL);
+		CloseHandle(h);
+		if (sz > 0)
 		{
-			const CString p = M576TransBinPathForRead(absOutBin, ti);
-			if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
-			{
-				HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-				if (h != INVALID_HANDLE_VALUE)
-				{
-					const DWORD sz = GetFileSize(h, NULL);
-					CloseHandle(h);
-					if (sz > 0)
-						anyBin = TRUE;
-				}
-			}
-		}
-		else
-		{
-			for (int sw = 0; sw < 4; ++sw)
-			{
-				const CString p = M576TransBinPathForSwitch(absOutBin, ti, sw);
-				if (GetFileAttributes(p) != INVALID_FILE_ATTRIBUTES)
-				{
-					HANDLE h = CreateFile(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-					if (h != INVALID_HANDLE_VALUE)
-					{
-						const DWORD sz = GetFileSize(h, NULL);
-						CloseHandle(h);
-						if (sz > 0)
-						{
-							anyBin = TRUE;
-							break;
-						}
-					}
-				}
-			}
+			anyBin = TRUE;
+			break;
 		}
 	}
 	if (!anyBin)
 	{
-		AppendLog(_T("No non-empty per-trans .bin (*_mcs* or *_1x64_*_swN) for this base; run Write BIN or place backups first."));
+		AppendLog(_T("No non-empty {SN}_standard.bin files; run Write BIN first."));
 		MessageBoxM576(
-			_T("Cannot burn: no non-empty per-trans .bin for this base.\n\nRun Write BIN or copy backup files first."),
+			_T("Cannot burn: no non-empty {SN}_standard.bin files.\n\nRun Write BIN or copy standard files first."),
 			MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -5913,7 +7028,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	if (MessageBoxM576(
 			_T("Warning: Burn Flash will program the device on the current 439F tunnel(s):\n\n")
 			_T("Trans 1-2: MCS firmware stream\n")
-			_T("Trans 3-4: 1x64 XMODEM 4x per trans (*_1x64_*_sw1..4.bin)\n\n")
+			_T("Trans 3-4: 1x64 XMODEM 4x per trans ({SN}_standard.bin)\n\n")
 			_T("Continue?"),
 			MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)
 		!= IDYES)
@@ -5921,7 +7036,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		AppendLog(_T("Burn Flash cancelled by user."));
 		return;
 	}
-	CM576BurnSelectDlg burnDlg(this, absOutBin);
+	CM576BurnSelectDlg burnDlg(this, absOutDir);
 	if (burnDlg.DoModal() != IDOK)
 	{
 		AppendLog(_T("Burn Flash cancelled (file selection)."));
@@ -5939,6 +7054,15 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 		MessageBoxM576(_T("No part selected for burn."), MB_OK | MB_ICONWARNING);
 		return;
 	}
+	CString validateErr;
+	if (!M576ValidateBurnSelectionByPaths(stdPaths, burnMask.data(), validateErr))
+	{
+		AppendLog(validateErr);
+		MessageBoxM576(validateErr, MB_OK | MB_ICONERROR);
+		return;
+	}
+	LogBurnFilePaths(this, stdPaths, _T("standard (burn)"));
+	ArchiveCurrentBinSet(_T("pre_burn"), M576BinFileRole::Standard, _T("pre_burn"), TRUE);
 	m_burnFlashLastPartial = false;
 	for (bool b : burnMask) {
 		if (!b) {
@@ -5953,7 +7077,7 @@ void CM576CalibratorDlg::OnBnClickedFlash()
 	SetPathActionButtonsEnabled(FALSE);
 	AppendLog(_T("Burn Flash started in background..."));
 	m_burnFlashThread = std::thread(
-		[this, absOutBin, burnMask]() { BurnFlashWorkerEntry(absOutBin, burnMask); });
+		[this, stdPaths, burnMask]() { BurnFlashWorkerEntry(stdPaths, burnMask); });
 }
 
 void CM576CalibratorDlg::OnBnClickedRecoverFlash()
@@ -5984,8 +7108,8 @@ void CM576CalibratorDlg::OnBnClickedRecoverFlash()
 		SyncSerialPortUi();
 	}
 
-	const CString absBackupBase = ResolveFilePath(m_strBackupBin);
-	CM576RecoverSelectDlg dlg(this, absBackupBase);
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	CM576RecoverSelectDlg dlg(this, absOutDir, m_snInfo);
 	if (dlg.DoModal() != IDOK)
 	{
 		AppendLog(_T("Recover Flash cancelled (file selection)."));

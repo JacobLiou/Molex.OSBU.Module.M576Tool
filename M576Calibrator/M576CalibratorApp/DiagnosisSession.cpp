@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "DiagnosisSession.h"
+// DiagnosisSession.cpp：挂测诊断会话——阻塞读行、SW/OPM 命令与通信 trace。
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -9,6 +10,7 @@ static char THIS_FILE[] = __FILE__;
 
 namespace
 {
+	// 诊断写串口失败时的短重试。
 	constexpr DWORD kDiagWriteRetryMax = 3;
 	constexpr DWORD kDiagWriteRetryDelayMs = 30;
 }

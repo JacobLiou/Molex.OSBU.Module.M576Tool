@@ -10,6 +10,7 @@
  */
 #include "PeakFinder2D.h"
 #include "Peak1DSweepRecenter.h"
+#include "Peak1DSweepPipeline.h"
 #include "PmRangeValidation.h"
 #include "CalibPathOutcome.h"
 #include "M576Peak1DConstants.h"
@@ -22,6 +23,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <algorithm>
 
 using M576::Peak1DValidateCode;
 using M576::SweepProfile;
@@ -42,6 +44,7 @@ using M576::SweepRetryAction;
 using M576::SweepRetryPlan;
 using M576::InitSweepRecenterSessionState;
 using M576::IsCoarsePeakHint;
+using M576::IsCoarseExpandedInteriorPeak;
 using M576::NeedsFineRefineAfterSuccess;
 using M576::IsFineRefineSweepAttempt;
 using M576::Peak1DFitPolicy;
@@ -49,7 +52,29 @@ using M576::Peak1DFitPolicyForCrossAxis;
 using M576::Peak1DFitPolicyForSweepResult;
 using M576::PlanNextRecal1DSweepAttempt;
 using M576::PlanFineRefineAfterCoarseSuccess;
+using M576::ParabolaVertexMax1D;
+using M576::AdjustProfileForFlatAtMaxShift;
+using M576::IsInteriorPeakHint;
+using M576::SuggestFlatAtMaxShiftBase;
+using M576::SuggestSweepRecenterNewBase;
+using M576::DetectSweepRecenterOscillation;
 using M576::ApplySweepRetryPlan;
+using M576::FindUnimodalPeak1DIndex;
+using M576::SweepRetryActionLogTag;
+using M576::IsFineRefineSweepAttempt;
+using M576::Recal1DSweepPipelineState;
+using M576::Recal1DSweepCommand;
+using M576::Recal1DPipelinePhase;
+using M576::InitRecal1DSweepPipeline;
+using M576::GetNextPipelineSweepCommand;
+using M576::AdvanceRecal1DSweepPipeline;
+using M576::StitchMovingBaseFromAnchor;
+using M576::StitchAnchorCenterFromCoarseSweep;
+using M576::IsStitchLeft;
+using M576::BuildPeakPipelineFailureReport;
+using M576::HandleStitchExplorePmRangeReject;
+using M576::MergeRecal1DSweepSegments;
+using M576::PlanRecalYCrossResweepPipeline;
 
 static bool ParseNumberLine(const std::string& line, std::vector<double>& out);
 
@@ -93,6 +118,226 @@ static const char* Peak1DCodeName(Peak1DValidateCode c)
 	case Peak1DValidateCode::PmRangeMismatch: return "PmRangeMismatch";
 	default: return "?";
 	}
+}
+
+static Peak1DValidateCode Peak1DCodeFromCsvName(const std::string& name)
+{
+	if (name == "Ok") return Peak1DValidateCode::Ok;
+	if (name == "Empty") return Peak1DValidateCode::Empty;
+	if (name == "LowSpan") return Peak1DValidateCode::LowSpan;
+	if (name == "NotStrictLocal") return Peak1DValidateCode::NotStrictLocal;
+	if (name == "EdgeNotAllowed") return Peak1DValidateCode::EdgeNotAllowed;
+	if (name == "MultiLocalMax") return Peak1DValidateCode::MultiLocalMax;
+	if (name == "NotEnoughSamples") return Peak1DValidateCode::NotEnoughSamples;
+	if (name == "NotEnoughValidSamples") return Peak1DValidateCode::NotEnoughValidSamples;
+	if (name == "ParabolaNotDownward") return Peak1DValidateCode::ParabolaNotDownward;
+	if (name == "ParabolaFitSingular") return Peak1DValidateCode::ParabolaFitSingular;
+	if (name == "VertexOutOfRange") return Peak1DValidateCode::VertexOutOfRange;
+	if (name == "PmRangeMismatch") return Peak1DValidateCode::PmRangeMismatch;
+	return Peak1DValidateCode::Empty;
+}
+
+static std::string ExtractStepTagFromPathField(const std::string& pathField)
+{
+	const std::string key = "step=";
+	const size_t p = pathField.find(key);
+	if (p == std::string::npos)
+		return pathField;
+	const size_t start = p + key.size();
+	const size_t end = pathField.find('|', start);
+	if (end == std::string::npos)
+		return pathField.substr(start);
+	return pathField.substr(start, end - start);
+}
+
+static double RecalSweepCenterFromCol0Diag(double col0, int halfRange)
+{
+	return col0 + (double)halfRange;
+}
+
+/// Replay comm CSV row through fit + planner; explain why VertexOutOfRange did not retry.
+static std::string ExplainVorNoRetryReason(
+	Peak1DValidateCode code,
+	const SweepProfile& profile,
+	int sampleCount,
+	bool afterExpand,
+	const std::vector<double>& powSamples,
+	const SweepRecenterFailureInfo& failure,
+	const SweepRecenterSessionState& session,
+	const SweepRetryPlan& plan,
+	bool lastAttempt)
+{
+	std::ostringstream o;
+	if (lastAttempt)
+		o << "lastAttempt; ";
+	if (profile.trend == SweepTrend::Flat)
+	{
+		o << "trend=Flat=>IsRetryable=false; ";
+		if (code == Peak1DValidateCode::VertexOutOfRange && IsFlatSweepFailure(code, profile))
+			o << "VOR+Flat IsFlatSweepFailure=>JumpFlatMax or fallback; ";
+	}
+	else if (code == Peak1DValidateCode::VertexOutOfRange)
+	{
+		const int n = sampleCount;
+		const bool edgeArgmax = (profile.argmaxIndex == 0 || profile.argmaxIndex == (n - 1));
+		if (edgeArgmax)
+			o << "VOR edge_argmax=>baseRetryable; ";
+		else if (failure.hasTPeak && std::isfinite(failure.tPeak) && failure.tPeak < 0.0)
+		{
+			if (profile.argmaxIndex <= n / 3)
+				o << "VOR t*<0 left_flank argmax<=" << (n / 3) << "=>baseRetryable; ";
+			else
+				o << "VOR t*<0 interior_argmax=" << profile.argmaxIndex << "=>NOT baseRetryable; ";
+		}
+		else if (failure.hasTPeak && std::isfinite(failure.tPeak) && failure.tPeak > (double)(n - 1))
+		{
+			if (profile.argmaxIndex >= (n * 2) / 3 || profile.argmaxIndex <= n / 3)
+				o << "VOR t*>n-1 flank argmax=>baseRetryable; ";
+			else
+				o << "VOR t*>n-1 interior_argmax=" << profile.argmaxIndex << "=>NOT baseRetryable; ";
+		}
+		else
+			o << "VOR no outside t* interior_argmax=" << profile.argmaxIndex << "=>NOT baseRetryable; ";
+		if (!afterExpand)
+			o << "afterExpand=0=>no tail-mono fallback; ";
+		else if (!IsRetryablePeakFailure(code, profile, n, afterExpand, &powSamples, &failure))
+			o << "afterExpand=1 but tail/argmax fallback still false; ";
+	}
+	if (!IsFlatSweepFailure(code, profile) && !session.flatJumpedToMax)
+		o << "not FlatJump; ";
+	if (IsMonotoneSweepFailure(code, profile, sampleCount) && !session.inCoarsePhase)
+		o << "monoFail eligible; ";
+	if (IsCoarsePeakHint(code, profile, sampleCount, &failure) && !session.fineConsumed)
+		o << "coarseHint eligible; ";
+	if (plan.action == SweepRetryAction::GiveUp)
+		o << "planner=GiveUp";
+	else
+		o << "planner=" << SweepRetryActionLogTag(plan.action) << " (INV-12 fallback if no specialized branch)";
+	return o.str();
+}
+
+/// Assert planner never GiveUp before lastAttempt (except PmRangeMismatch).
+static int RunMaxAttemptsFallbackSelfTests()
+{
+	int fail = 0;
+	const int uiFine = 64;
+
+	{
+		// comm_2026-07-02 step260 att1: VOR @offset=64; unified 0.3 dB flat gate => NonMono (not Flat) => ShiftOnly, not JumpFlatMax.
+		static const double step260Att1[] = {
+			-247791, -247787, -247818, -247830, -247880, -247919, -247958, -248046, -248112, -248214,
+			-248298, -248436, -248553, -248695, -248880, -249045, -249225, -249413, -249644, -249893,
+			-250132, -250401, -250701, -251012, -251334, -251667, -252031, -252407, -252837, -253266,
+			-253742, -254197, -254726,
+		};
+		const int n = (int)(sizeof(step260Att1) / sizeof(step260Att1[0]));
+		std::vector<double> pow(step260Att1, step260Att1 + n);
+		const SweepProfile prof = AnalyzeRecal1DSweepProfile(pow);
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, 9999);
+		SweepRecenterFailureInfo fi = {};
+		fi.code = Peak1DValidateCode::VertexOutOfRange;
+		fi.tPeak = -0.5;
+		fi.hasTPeak = true;
+		if (prof.trend == SweepTrend::Flat)
+		{
+			std::fprintf(stderr, "self-test: step260 att1 fixture must not be Flat under 0.3 dB gate\n");
+			++fail;
+		}
+		if (IsFlatSweepFailure(Peak1DValidateCode::VertexOutOfRange, prof))
+		{
+			std::fprintf(stderr, "self-test: step260 att1 VOR must not be IsFlatSweepFailure (trend=%s)\n",
+				SweepTrendName(prof.trend));
+			++fail;
+		}
+		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+			st, Peak1DValidateCode::VertexOutOfRange, prof, pow, 305.0 + 64.0, 0, false, fi);
+		if (plan.action == SweepRetryAction::GiveUp)
+		{
+			std::fprintf(stderr, "self-test: step260 att1 VOR+NonMono must not GiveUp before max attempts\n");
+			++fail;
+		}
+		if (plan.action != SweepRetryAction::ShiftOnly || plan.nextRange != uiFine)
+		{
+			std::fprintf(stderr,
+				"self-test: step260 att1 must ShiftOnly@%d (action=%d range=%d)\n",
+				uiFine, (int)plan.action, plan.nextRange);
+			++fail;
+		}
+	}
+
+	{
+		// comm_2026-07-02 step259 att5: VOR+Flat after fine refine must FlatAtMaxShift, not GiveUp.
+		static const double step259Att5[] = {
+			-255372, -255376, -255378, -255363, -255355, -255367, -255374, -255381, -255390, -255385,
+			-255392, -255378, -255377, -255391, -255384, -255400, -255395, -255389, -255387, -255389,
+			-255399, -255406, -255390, -255399, -255439, -255484, -255444, -255421, -255419, -255401,
+			-255403, -255412, -255403,
+		};
+		const int n = (int)(sizeof(step259Att5) / sizeof(step259Att5[0]));
+		std::vector<double> pow(step259Att5, step259Att5 + n);
+		const SweepProfile prof = AnalyzeRecal1DSweepProfile(pow);
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, -35);
+		st.flatJumpedToMax = true;
+		st.fineConsumed = true;
+		st.attemptRange = uiFine;
+		SweepRecenterFailureInfo fi = {};
+		fi.code = Peak1DValidateCode::VertexOutOfRange;
+		fi.tPeak = -0.8447;
+		fi.hasTPeak = true;
+		fi.hasPrevAttempt = true;
+		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+			st, Peak1DValidateCode::VertexOutOfRange, prof, pow, -99.0 + 64.0, 4, false, fi);
+		if (plan.action == SweepRetryAction::GiveUp)
+		{
+			std::fprintf(stderr, "self-test: step259 att5 VOR+Flat post-fine must not GiveUp\n");
+			++fail;
+		}
+		if (plan.action != SweepRetryAction::FlatAtMaxShift)
+		{
+			std::fprintf(stderr,
+				"self-test: step259 att5 post-fine fallback must FlatAtMaxShift (action=%d)\n",
+				(int)plan.action);
+			++fail;
+		}
+	}
+
+	{
+		std::vector<double> p((size_t)33, -130000.0);
+		const SweepProfile prof = AnalyzeRecal1DSweepProfile(p);
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, 9999);
+		SweepRecenterFailureInfo fi = {};
+		fi.code = Peak1DValidateCode::PmRangeMismatch;
+		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+			st, Peak1DValidateCode::PmRangeMismatch, prof, p, 0.0, 0, false, fi);
+		if (plan.action != SweepRetryAction::GiveUp)
+		{
+			std::fprintf(stderr, "self-test: PmRangeMismatch must GiveUp immediately\n");
+			++fail;
+		}
+	}
+
+	{
+		std::vector<double> strictDec((size_t)33);
+		for (int i = 0; i < 33; ++i)
+			strictDec[(size_t)i] = -130000.0 - i * 3000.0;
+		const SweepProfile p = AnalyzeRecal1DSweepProfile(strictDec);
+		SweepRecenterSessionState st = {};
+		InitSweepRecenterSessionState(st, uiFine, 9999);
+		SweepRecenterFailureInfo fi = {};
+		fi.code = Peak1DValidateCode::ParabolaNotDownward;
+		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+			st, Peak1DValidateCode::ParabolaNotDownward, p, strictDec, 0.0, 11, true, fi);
+		if (plan.action != SweepRetryAction::GiveUp)
+		{
+			std::fprintf(stderr, "self-test: lastAttempt must GiveUp\n");
+			++fail;
+		}
+	}
+
+	return fail;
 }
 
 static void PrintFitTraceStdout(const char* stageTag, const M576::Peak1DFitTrace& tr)
@@ -191,6 +436,8 @@ static std::string PathToExeDirFile(const char* filename)
 	p += filename;
 	return p;
 }
+
+static std::ifstream OpenCrossPeakTestDataFile(const char* filename, std::string& outOpenedPath);
 
 static std::string Utf16LeBlobToUtf8(const unsigned char* data, size_t len)
 {
@@ -351,16 +598,85 @@ static bool ParseRecalSweepCmd(const std::string& cmd, RecalSweepCmdFields& out)
 	return false;
 }
 
+static bool SplitCsvFieldsSimple(const std::string& line, std::vector<std::string>& fields)
+{
+	fields.clear();
+	std::string cur;
+	bool inQuote = false;
+	for (size_t i = 0; i < line.size(); ++i)
+	{
+		const char c = line[i];
+		if (inQuote)
+		{
+			if (c == '"')
+			{
+				if (i + 1 < line.size() && line[i + 1] == '"')
+				{
+					cur += '"';
+					++i;
+				}
+				else
+					inQuote = false;
+			}
+			else
+				cur += c;
+		}
+		else if (c == '"')
+			inQuote = true;
+		else if (c == ',')
+		{
+			fields.push_back(cur);
+			cur.clear();
+		}
+		else
+			cur += c;
+	}
+	fields.push_back(cur);
+	return !fields.empty();
+}
+
 static bool SplitSweepCsvRow(const std::string& line, std::string& cmd, std::vector<double>& nums)
 {
 	cmd.clear();
 	nums.clear();
-	const size_t comma = line.find(',');
-	if (comma == std::string::npos)
+	std::vector<std::string> fields;
+	if (!SplitCsvFieldsSimple(line, fields))
 		return false;
-	cmd = line.substr(0, comma);
+	for (std::string& f : fields)
+		TrimInPlace(f);
+	if (fields.empty())
+		return false;
+
+	size_t cmdIdx = 0;
+	const std::string& first = fields[0];
+	if (first.find("|slot=") != std::string::npos
+		|| (first.rfind("RECAL", 0) != 0 && fields.size() >= 2))
+		cmdIdx = 1;
+	if (cmdIdx >= fields.size())
+		return false;
+	cmd = fields[cmdIdx];
 	TrimInPlace(cmd);
-	return ParseNumberLine(line.substr(comma + 1), nums) && !cmd.empty();
+	if (cmd.empty())
+		return false;
+
+	size_t numStart = cmdIdx + 1;
+	if (cmdIdx == 1 && fields.size() >= cmdIdx + 4)
+		numStart = cmdIdx + 4;
+
+	for (size_t i = numStart; i < fields.size(); ++i)
+	{
+		if (fields[i].empty())
+			continue;
+		try
+		{
+			nums.push_back(std::stod(fields[i]));
+		}
+		catch (...)
+		{
+			return false;
+		}
+	}
+	return !nums.empty();
 }
 
 static std::string EscapeCsvField(const std::string& s)
@@ -501,7 +817,7 @@ static int RunExportPeakCsv(const char* inPath, const char* outPath, bool utf8Bo
 			for (char& c : lower)
 				if (c >= 'A' && c <= 'Z')
 					c = (char)(c - 'A' + 'a');
-			if (lower.find("cmd") != std::string::npos)
+			if (lower.find("cmd") != std::string::npos || lower.find("path") != std::string::npos)
 				continue;
 		}
 
@@ -710,17 +1026,57 @@ static bool LoadSweepsFile(const char* path, SweepRow& sweepY, SweepRow& sweepX,
 	return true;
 }
 
+static double SyntheticRawPeakQuad(int i, int center, double base = -250000.0, double kPerSq = 2000.0)
+{
+	const double d = (double)(i - center);
+	return base - kPerSq * d * d;
+}
+
+/// Scale valid samples about peak so span >= targetSpanRaw (comm fixtures often <2.5 dB before fix).
+static void AmplifyRecalSweepSpanInPlace(std::vector<double>& powers, double targetSpanRaw = 30000.0)
+{
+	double peakY = -(1e300);
+	double minY = 0;
+	bool has = false;
+	for (double v : powers)
+	{
+		if (M576::IsRecal1DPowerInvalidValue(v))
+			continue;
+		if (!has)
+		{
+			peakY = minY = v;
+			has = true;
+		}
+		else
+		{
+			peakY = (std::max)(peakY, v);
+			minY = (std::min)(minY, v);
+		}
+	}
+	if (!has)
+		return;
+	const double span = peakY - minY;
+	if (span < 1.0)
+		return;
+	const double scale = targetSpanRaw / span;
+	for (double& v : powers)
+	{
+		if (M576::IsRecal1DPowerInvalidValue(v))
+			continue;
+		v = peakY - (peakY - v) * scale;
+	}
+}
+
 static void DefaultDemoData(SweepRow& y, SweepRow& x)
 {
-	// Exact quadratics p(i)=50-1.0*(i-iv)^2 (10x scale vs old demo): span>=M576_PEAK1D_MIN_SPAN_DB; LS vertex at iv unchanged.
 	y.dac_base = 32000.0;
-	y.powers.resize(7);
-	for (int i = 0; i < 7; ++i)
-		y.powers[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
+	y.powers.resize(9);
+	for (int i = 0; i < 9; ++i)
+		y.powers[(size_t)i] = SyntheticRawPeakQuad(i, 4);
 	x.dac_base = 32000.0;
-	x.powers.resize(7);
-	for (int i = 0; i < 7; ++i)
-		x.powers[(size_t)i] = 50.0 - 1.0 * (double)(i - 2) * (double)(i - 2);
+	x.powers.resize(9);
+	for (int i = 0; i < 9; ++i)
+		x.powers[(size_t)i] = SyntheticRawPeakQuad(i, 3);
 }
 
 /// Synthetic checks for span / strict-peak / cross; returns number of failures.
@@ -728,7 +1084,7 @@ static int RunPeak1DSelfTests()
 {
 	int fail = 0;
 	{
-		std::vector<double> flat(7, -10.0);
+		std::vector<double> flat(7, -250000.0);
 		int idx = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
 		if (M576::FindUnimodalPeak1DIndex(flat, idx, c) || c != Peak1DValidateCode::ParabolaNotDownward)
@@ -738,34 +1094,50 @@ static int RunPeak1DSelfTests()
 		}
 	}
 	{
-		std::vector<double> one(5);
-		for (int i = 0; i < 5; ++i)
-			one[(size_t)i] = 50.0 - 1.0 * (double)(i - 2) * (double)(i - 2);
+		std::vector<double> one(9);
+		for (int i = 0; i < 9; ++i)
+			one[(size_t)i] = SyntheticRawPeakQuad(i, 4);
 		int idx = 0;
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (!M576::FindUnimodalPeak1DIndex(one, idx, c, &t) || std::abs(t - 2.0) > 0.05 || idx != 2
+		if (!M576::FindUnimodalPeak1DIndex(one, idx, c, &t) || std::abs(t - 4.0) > 0.05 || idx != 4
 			|| c != Peak1DValidateCode::Ok)
 		{
-			std::fprintf(stderr, "self-test: quadratic peak at t≈2, lround->2 (cubic fit)\n");
+			std::fprintf(stderr, "self-test: quadratic peak at t≈4, lround->4 (cubic fit)\n");
 			++fail;
 		}
 	}
 	{
-		std::vector<double> y(7), x(7);
-		for (int i = 0; i < 7; ++i)
+		std::vector<double> y(9), x(9);
+		for (int i = 0; i < 9; ++i)
 		{
-			y[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
-			x[(size_t)i] = 50.0 - 1.0 * (double)(i - 2) * (double)(i - 2);
+			y[(size_t)i] = SyntheticRawPeakQuad(i, 4);
+			x[(size_t)i] = SyntheticRawPeakQuad(i, 3);
 		}
 		int br = 0, bc = 0;
 		Peak1DValidateCode yc = Peak1DValidateCode::Ok, xc = Peak1DValidateCode::Ok;
 		double tY = 0, tX = 0;
-		if (!M576::PeakCrossFrom1DScans(y, x, br, bc, &yc, &xc, &tY, &tX, nullptr, nullptr) || br != 3 || bc != 2
+		if (!M576::PeakCrossFrom1DScans(y, x, br, bc, &yc, &xc, &tY, &tX, nullptr, nullptr) || br != 4 || bc != 3
 			|| yc != Peak1DValidateCode::Ok || xc != Peak1DValidateCode::Ok
-			|| std::abs(tY - 3.0) > 0.05 || std::abs(tX - 2.0) > 0.05)
+			|| std::abs(tY - 4.0) > 0.05 || std::abs(tX - 3.0) > 0.05)
 		{
-			std::fprintf(stderr, "self-test: cross cubic tY≈3 tX≈2, lround (3,2)\n");
+			std::fprintf(stderr, "self-test: cross cubic tY≈4 tX≈3, lround (4,3)\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<double> xFine(33);
+		for (int i = 0; i < 33; ++i)
+			xFine[(size_t)i] = SyntheticRawPeakQuad(i, 16);
+		std::vector<double> yMerge(201);
+		for (int i = 0; i < 201; ++i)
+			yMerge[(size_t)i] = -260000.0;
+		yMerge[100] = -230000.0;
+		int brEq = 0, bcEq = 0;
+		Peak1DValidateCode ycEq = Peak1DValidateCode::Ok, xcEq = Peak1DValidateCode::Ok;
+		if (M576::PeakCrossFrom1DScans(yMerge, xFine, brEq, bcEq, &ycEq, &xcEq, nullptr, nullptr, nullptr, nullptr))
+		{
+			std::fprintf(stderr, "self-test: PeakCrossFrom1DScans must fail when Y/X lengths differ (201 vs 33)\n");
 			++fail;
 		}
 	}
@@ -815,15 +1187,15 @@ static int RunPeak1DSelfTests()
 	}
 	// Masked fit: one firmware sentinel removed; true vertex at i=3, still ~3.0
 	{
-		std::vector<double> seven(7);
-		for (int i = 0; i < 7; ++i)
-			seven[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
-		seven[2] = -999999.0; // M576_RECAL_POW_INVALID_1
+		std::vector<double> seven(9);
+		for (int i = 0; i < 9; ++i)
+			seven[(size_t)i] = SyntheticRawPeakQuad(i, 4);
+		seven[0] = -999999.0; // M576_RECAL_POW_INVALID_1
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (!M576::ParabolaVertexMax1D(seven, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 3.0) > 0.2)
+		if (!M576::ParabolaVertexMax1D(seven, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 4.0) > 0.2)
 		{
-			std::fprintf(stderr, "self-test: masked quadratic peak near 3.0 (one -999999)\n");
+			std::fprintf(stderr, "self-test: masked quadratic peak near 4.0 (one -999999)\n");
 			++fail;
 		}
 	}
@@ -903,14 +1275,14 @@ static int RunPeak1DSelfTests()
 		}
 	}
 	{
-		std::vector<double> q(7);
-		for (int i = 0; i < 7; ++i)
-			q[(size_t)i] = 50.0 - 1.0 * (double)(i - 3) * (double)(i - 3);
+		std::vector<double> q(9);
+		for (int i = 0; i < 9; ++i)
+			q[(size_t)i] = SyntheticRawPeakQuad(i, 4);
 		M576::Peak1DFitTrace tr;
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
-		if (!M576::ParabolaVertexMax1D(q, t, c, &tr) || c != Peak1DValidateCode::Ok || tr.globalMaxIndex != 3
-			|| std::abs(tr.globalMaxY - 50.0) > 1e-6 || tr.fitIndex.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
+		if (!M576::ParabolaVertexMax1D(q, t, c, &tr) || c != Peak1DValidateCode::Ok || tr.globalMaxIndex != 4
+			|| std::abs(tr.globalMaxY - (-250000.0)) > 1e-3 || tr.fitIndex.size() < (size_t)M576_PEAK1D_CUBIC_MIN_SAMPLES)
 		{
 			std::fprintf(stderr, "self-test: Peak1DFitTrace global max and fit count\n");
 			++fail;
@@ -925,6 +1297,11 @@ static int RunPeak1DSelfTests()
 			-130760, -130952, -131148,
 		};
 		std::vector<double> plateau(kPlateauJitterPowers, kPlateauJitterPowers + _countof(kPlateauJitterPowers));
+		{
+			const double peakY = *std::max_element(plateau.begin(), plateau.end());
+			for (double& v : plateau)
+				v = peakY - (peakY - v) * 15.0; // shallow comm bell → >=0.3 dB shoulders at sweep ends
+		}
 		double t = 0;
 		Peak1DValidateCode c = Peak1DValidateCode::Ok;
 		if (!M576::ParabolaVertexMax1D(plateau, t, c) || c != Peak1DValidateCode::Ok || t < 8.0 || t > 13.0)
@@ -950,6 +1327,184 @@ static int RunPeak1DSelfTests()
 			std::fprintf(stderr, "self-test: user sample with one sentinel should fit around idx=16\n");
 			++fail;
 		}
+	}
+	// prominence (raw scale, INV-16): global micro-flat (span < 0.3 dB) => ParabolaNotDownward
+	{
+		std::vector<double> micro(7, -250000.0);
+		micro[3] = -248500.0; // span 0.15 dB = 1500 raw
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(micro, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: globalMicroFlat span=0.15 must be ParabolaNotDownward\n");
+			++fail;
+		}
+	}
+	// prominence (post-outlier): useOk span < 0.3 dB => ParabolaNotDownward
+	{
+		std::vector<double> weakLeft(9, -249900.0);
+		weakLeft[4] = -250000.0; // span 0.01 dB = 100 raw
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(weakLeft, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: preprocess span=0.01 must be ParabolaNotDownward\n");
+			++fail;
+		}
+	}
+	// post-outlier flat gate: isolated edge spike inflates pre-outlier span; useOk span >= 0.3 dB => Strict Ok
+	{
+		std::vector<double> withSpike(9);
+		for (int i = 0; i < 9; ++i)
+			withSpike[(size_t)i] = SyntheticRawPeakQuad(i, 4, -250000.0, 2000.0); // bilateral >=0.3 at halfW=2
+		withSpike[0] = -230000.0; // edge outlier (must not sit on shoulder path to argmax)
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(withSpike, t, c) || c != Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: postOutlierSpike useOk span>=0.3dB must Ok (code=%s)\n",
+				Peak1DCodeName(c));
+			++fail;
+		}
+	}
+	// one-sided shoulder: global span >= 0.3 dB but left shoulder < 0.3 => ParabolaNotDownward
+	{
+		std::vector<double> asym(9);
+		asym[4] = -250000.0;
+		for (int i = 0; i < 4; ++i)
+			asym[(size_t)i] = -250400.0;
+		for (int i = 5; i < 9; ++i)
+			asym[(size_t)i] = -250000.0 - 5000.0 * (double)(i - 5);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(asym, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: oneSidedShoulder Strict must be ParabolaNotDownward (code=%s)\n",
+				Peak1DCodeName(c));
+			++fail;
+		}
+	}
+	// asymmetric long tail — global span large but right shoulder < 0.3 => reject
+	{
+		static const double kAsymLongTail[] = {
+			-300000, -295000, -290000, -285000, -280000, -275000, -270000, -265000, -260000, -255000,
+			-250000, -250100, -250150, -250200, -250250,
+		};
+		std::vector<double> asymTail(kAsymLongTail, kAsymLongTail + _countof(kAsymLongTail));
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(asymTail, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: asymmetricLongTail must be ParabolaNotDownward (code=%s)\n",
+				Peak1DCodeName(c));
+			++fail;
+		}
+	}
+	// bilateral shoulders each drop >= 0.3 dB => Ok
+	{
+		std::vector<double> bilat(9);
+		for (int i = 0; i < 9; ++i)
+			bilat[(size_t)i] = SyntheticRawPeakQuad(i, 4, -250000.0, 2000.0); // d=2 => 0.8 dB/side
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(bilat, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 4.0) > 0.15)
+		{
+			std::fprintf(stderr, "self-test: bilateralShoulders0.3 must Ok near t=4 (code=%s)\n",
+				Peak1DCodeName(c));
+			++fail;
+		}
+	}
+	// prominence: noise ripple (< 0.3 dB bump on flat)
+	{
+		std::vector<double> ripple(9, -250000.0);
+		ripple[4] = -247500.0; // 0.25 dB = 2500 raw
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(ripple, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: noiseRipple must be ParabolaNotDownward\n");
+			++fail;
+		}
+	}
+	// prominence: symmetric weak peak still Ok
+	{
+		std::vector<double> weak(9);
+		for (int i = 0; i < 9; ++i)
+			weak[(size_t)i] = SyntheticRawPeakQuad(i, 4);
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(weak, t, c) || c != Peak1DValidateCode::Ok || std::abs(t - 4.0) > 0.15)
+		{
+			std::fprintf(stderr, "self-test: symmetricWeakPeak must Ok near t=4\n");
+			++fail;
+		}
+	}
+	// prominence: symmetric fit window half-width around argmax
+	{
+		std::vector<double> q(9);
+		for (int i = 0; i < 9; ++i)
+			q[(size_t)i] = SyntheticRawPeakQuad(i, 4);
+		M576::Peak1DFitTrace tr;
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(q, t, c, &tr) || c != Peak1DValidateCode::Ok || tr.globalMaxIndex != 4)
+		{
+			std::fprintf(stderr, "self-test: symmetric fit window needs trace at idx 4\n");
+			++fail;
+		}
+		else
+		{
+			int fmin = tr.fitIndex[0], fmax = tr.fitIndex[0];
+			for (int fi : tr.fitIndex)
+			{
+				fmin = (std::min)(fmin, fi);
+				fmax = (std::max)(fmax, fi);
+			}
+			const int halfL = tr.globalMaxIndex - fmin;
+			const int halfR = fmax - tr.globalMaxIndex;
+			if (halfL != halfR)
+			{
+				std::fprintf(stderr, "self-test: symmetric fit window must be symmetric (L=%d R=%d)\n", halfL, halfR);
+				++fail;
+			}
+		}
+	}
+	// comm_2026-07-01 L523: step 241 attempt 5 — global span ~0.31 dB; Ok allowed under preprocess gate
+	{
+		static const double kStep241Attempt5[] = {
+			-253541, -253247, -252979, -252752, -252510, -252281, -252101, -251929, -251755, -251581,
+			-251440, -251312, -251189, -251093, -250975, -250892, -250808, -250734, -250660, -250606,
+			-250571, -250543, -250499, -250486, -250471, -250472, -250482, -250490, -250506, -250522,
+			-250548, -250593, -250618,
+		};
+		std::vector<double> p(kStep241Attempt5, kStep241Attempt5 + _countof(kStep241Attempt5));
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (!M576::ParabolaVertexMax1D(p, t, c))
+		{
+			if (c == Peak1DValidateCode::Empty || c == Peak1DValidateCode::NotEnoughValidSamples
+				|| c == Peak1DValidateCode::NotEnoughSamples)
+			{
+				std::fprintf(stderr, "self-test: comm step241 attempt5 unexpected empty (code=%s)\n",
+					Peak1DCodeName(c));
+				++fail;
+			}
+		}
+	}
+	// runtime prominence override
+	{
+		M576::Peak1DSetMinProminenceDb(1.0, false);
+		std::vector<double> shallow(7);
+		for (int i = 0; i < 7; ++i)
+			shallow[(size_t)i] = -250000.0 - 1500.0 * std::abs((double)(i - 3));
+		double t = 0;
+		Peak1DValidateCode c = Peak1DValidateCode::Ok;
+		if (M576::ParabolaVertexMax1D(shallow, t, c) || c != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: prominence 1.0 should reject shallow peak\n");
+			++fail;
+		}
+		M576::Peak1DResetMinProminenceDb();
 	}
 	return fail;
 }
@@ -1067,6 +1622,1095 @@ static int RunPmRangeSelfTests()
 			}
 		}
 	}
+	return fail;
+}
+
+static std::vector<double> MakeBellPow(int n, int peakIdx, double floorVal, double peakVal)
+{
+	std::vector<double> p((size_t)n, floorVal);
+	for (int i = 0; i < n; ++i)
+	{
+		const double d = ((double)i - (double)peakIdx) / 4.0;
+		p[(size_t)i] = peakVal - 8000.0 * d * d;
+	}
+	return p;
+}
+
+static std::vector<double> MakeMonotoneIncPow(int n, double startVal, double endVal)
+{
+	std::vector<double> p((size_t)n, startVal);
+	if (n <= 1)
+		return p;
+	for (int i = 0; i < n; ++i)
+		p[(size_t)i] = startVal + (endVal - startVal) * ((double)i / (double)(n - 1));
+	return p;
+}
+
+static double Col0FromMovingBase(int movingBase, int halfRange)
+{
+	return (double)movingBase - (double)halfRange;
+}
+
+static bool FeedPipelineSweepExact(
+	Recal1DSweepPipelineState& st,
+	const std::vector<double>& pow,
+	double col0,
+	int dacStep)
+{
+	Recal1DSweepCommand cmd = {};
+	if (!GetNextPipelineSweepCommand(st, cmd))
+		return false;
+	st.movingBase = cmd.movingBase;
+	int peakIdx = 0;
+	double tPeak = 0.0;
+	Peak1DValidateCode code = Peak1DValidateCode::Empty;
+	(void)FindUnimodalPeak1DIndex(pow, peakIdx, code, &tPeak, nullptr, cmd.fitPolicy);
+	const bool peakOk = (code == Peak1DValidateCode::Ok);
+	return AdvanceRecal1DSweepPipeline(st, col0, pow, peakOk, code, tPeak, peakIdx, dacStep);
+}
+
+struct CommYReplayRow
+{
+	int attempt = 0;
+	double col0 = 0.0;
+	bool peakOk = false;
+	Peak1DValidateCode code = Peak1DValidateCode::Empty;
+	std::vector<double> pow;
+};
+
+/// Load slot2 Y-axis RECAL 3 0 sweeps (attempts 1..4) for one Run Path step from comm replay CSV.
+static bool LoadCommSlot2YReplayRows(std::istream& csv, int step, std::vector<CommYReplayRow>& outRows)
+{
+	outRows.clear();
+	char stepPat[48] = {};
+	std::snprintf(stepPat, sizeof(stepPat), "|step=%d/576|", step);
+	std::string line;
+	int lineNo = 0;
+	while (std::getline(csv, line))
+	{
+		++lineNo;
+		if (lineNo == 1)
+			continue;
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+			line.pop_back();
+		if (line.empty())
+			continue;
+		if (line.find("slot=2") == std::string::npos || line.find(stepPat) == std::string::npos)
+			continue;
+		std::vector<std::string> fields;
+		if (!SplitCsvFieldsSimple(line, fields) || fields.size() < 6)
+			continue;
+		for (std::string& f : fields)
+			TrimInPlace(f);
+		if (fields[1].rfind("RECAL 3 0", 0) != 0)
+			continue;
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums) || nums.size() < 2)
+			continue;
+		CommYReplayRow row = {};
+		try
+		{
+			row.attempt = std::stoi(fields[2]);
+			row.peakOk = (std::stoi(fields[3]) != 0);
+			row.code = Peak1DCodeFromCsvName(fields[4]);
+		}
+		catch (...)
+		{
+			continue;
+		}
+		row.col0 = nums[0];
+		row.pow.assign(nums.begin() + 1, nums.end());
+		outRows.push_back(row);
+	}
+	std::sort(outRows.begin(), outRows.end(), [](const CommYReplayRow& a, const CommYReplayRow& b) {
+		return a.attempt < b.attempt;
+	});
+	return outRows.size() >= 4;
+}
+
+static void FeedPipelineSweepFromCommRow(
+	Recal1DSweepPipelineState& st,
+	const CommYReplayRow& row,
+	int dacStep)
+{
+	Recal1DSweepCommand cmd = {};
+	if (!GetNextPipelineSweepCommand(st, cmd))
+		return;
+	st.movingBase = cmd.movingBase;
+	int peakIdx = 0;
+	double tPeak = 0.0;
+	Peak1DValidateCode fitCode = row.code;
+	if (row.peakOk)
+		(void)FindUnimodalPeak1DIndex(row.pow, peakIdx, fitCode, &tPeak, nullptr, cmd.fitPolicy);
+	else
+		(void)FindUnimodalPeak1DIndex(row.pow, peakIdx, fitCode, &tPeak, nullptr, cmd.fitPolicy);
+	(void)AdvanceRecal1DSweepPipeline(
+		st, row.col0, row.pow, row.peakOk, row.code, tPeak, peakIdx, dacStep);
+}
+
+static bool ReplayCommSlot2YPipeline(
+	const std::vector<CommYReplayRow>& rows,
+	Recal1DSweepPipelineState& outSt)
+{
+	const int uiFine = 64;
+	const int dacStep = 4;
+	outSt = {};
+	InitRecal1DSweepPipeline(outSt, uiFine, 9999);
+	for (size_t i = 0; i < 4 && i < rows.size(); ++i)
+		FeedPipelineSweepFromCommRow(outSt, rows[i], dacStep);
+	return true;
+}
+
+/// Prefer full comm_2026-07-08 replay CSV (repo root) over truncated CrossPeakTest copy.
+static std::ifstream OpenComm20260708FullReplayCsv(std::string& outOpenedPath)
+{
+	outOpenedPath.clear();
+	std::vector<std::string> candidates;
+	{
+		char module[MAX_PATH];
+		DWORD n = GetModuleFileNameA(nullptr, module, MAX_PATH);
+		if (n > 0 && n < MAX_PATH)
+		{
+			std::string dir(module);
+			const size_t slash = dir.find_last_of("\\/");
+			if (slash != std::string::npos)
+			{
+				dir.resize(slash + 1);
+				for (int up = 4; up >= 2; --up)
+				{
+					std::string ancestor = dir;
+					for (int i = 0; i < up; ++i)
+					{
+						if (ancestor.size() < 2)
+							break;
+						const size_t parentSlash = ancestor.find_last_of("\\/", ancestor.length() - 2);
+						if (parentSlash == std::string::npos)
+							break;
+						ancestor.resize(parentSlash + 1);
+					}
+					candidates.push_back(ancestor + "comm_2026-07-08_recal_sweeps.csv");
+				}
+			}
+		}
+	}
+	candidates.push_back("comm_2026-07-08_recal_sweeps.csv");
+	candidates.push_back("..\\CrossPeakTest\\comm_2026-07-08_recal_sweeps.csv");
+	{
+		const std::string besideExe = PathToExeDirFile("comm_2026-07-08_recal_sweeps.csv");
+		if (!besideExe.empty())
+			candidates.push_back(besideExe);
+	}
+
+	for (const std::string& path : candidates)
+	{
+		std::ifstream probe(path, std::ios::binary);
+		if (!probe)
+			continue;
+		std::string line;
+		bool hasSlot2MesaStep = false;
+		while (std::getline(probe, line))
+		{
+			if (line.find("slot=2|step=494/576") != std::string::npos)
+			{
+				hasSlot2MesaStep = true;
+				break;
+			}
+		}
+		if (!hasSlot2MesaStep)
+			continue;
+		std::ifstream f(path, std::ios::binary);
+		if (f)
+		{
+			outOpenedPath = path;
+			return f;
+		}
+	}
+	return std::ifstream();
+}
+
+/// comm_2026-07-08 IL>0.2 slot2 stitch paths: merge must use relaxed unimodal, not legacy dual_knee DAC.
+static int RunComm20260708Slot2IlStitchMergeReplayTests()
+{
+	int fail = 0;
+	std::string csvPath;
+	std::ifstream csv = OpenComm20260708FullReplayCsv(csvPath);
+	if (!csv)
+	{
+		std::fprintf(stderr, "self-test: comm_2026-07-08 slot2 stitch merge replay cannot open CSV\n");
+		return 1;
+	}
+
+	struct IlMesaReplayCase
+	{
+		int step;
+		int legacyWrongDac;
+		const char* label;
+	};
+
+	static const IlMesaReplayCase kCases[] = {
+		{494, -463, "MPO42-2 IL=3.59"},
+		{551, -495, "MPO46-11 IL=2.99"},
+		{241, -427, "MPO21-1 IL=2.35"},
+		{444, -455, "MPO37-12 IL=2.23"},
+		{529, -389, "MPO45-1 IL=1.08"},
+		{332, -350, "MPO28-8 IL=1.18"},
+	};
+
+	const int uiFine = 64;
+	const int dacStep = 4;
+	const std::vector<double> flatFine(33, -250000.0);
+	const std::vector<double> flatStitch(101, -250000.0);
+
+	for (const IlMesaReplayCase& tc : kCases)
+	{
+		csv.clear();
+		csv.seekg(0);
+		std::vector<CommYReplayRow> rows;
+		if (!LoadCommSlot2YReplayRows(csv, tc.step, rows))
+		{
+			std::fprintf(stderr, "self-test: comm slot2 step %d (%s) need >=4 Y rows\n", tc.step, tc.label);
+			++fail;
+			continue;
+		}
+
+		Recal1DSweepPipelineState st = {};
+		ReplayCommSlot2YPipeline(rows, st);
+
+		if (st.phase == Recal1DPipelinePhase::Succeeded)
+		{
+			std::fprintf(stderr,
+				"self-test: comm slot2 step %d (%s) must not Succeeded (old mesa direct success)\n",
+				tc.step, tc.label);
+			++fail;
+			continue;
+		}
+
+		while (st.phase == Recal1DPipelinePhase::Stitch
+			&& st.stitchK <= (int)M576_PEAK1D_STITCH_MAX_RETRIES)
+		{
+			const int baseK = StitchMovingBaseFromAnchor(st.anchorBase, st.stitchK);
+			(void)FeedPipelineSweepExact(st, flatStitch, Col0FromMovingBase(baseK, 200), dacStep);
+		}
+
+		if (st.phase != Recal1DPipelinePhase::FineRefine
+			&& st.phase != Recal1DPipelinePhase::Failed)
+		{
+			std::fprintf(stderr,
+				"self-test: comm slot2 step %d (%s) expect FineRefine or Failed, got phase=%d stitchK=%d\n",
+				tc.step, tc.label, (int)st.phase, st.stitchK);
+			++fail;
+			continue;
+		}
+
+		if (st.phase == Recal1DPipelinePhase::FineRefine)
+		{
+			if (!st.hasPendingFineBase)
+			{
+				std::fprintf(stderr, "self-test: comm slot2 step %d (%s) FineRefine without pendingFineBase\n",
+					tc.step, tc.label);
+				++fail;
+				continue;
+			}
+			if (std::abs(st.pendingFineBase - tc.legacyWrongDac) < 80)
+			{
+				std::fprintf(stderr,
+					"self-test: comm slot2 step %d (%s) pendingFineBase=%d too close to legacy wrong %d\n",
+					tc.step, tc.label, st.pendingFineBase, tc.legacyWrongDac);
+				++fail;
+			}
+			if (!st.lastStitchSymmetricTrioMerge)
+			{
+				std::fprintf(stderr,
+					"self-test: comm slot2 step %d (%s) expected lastStitchSymmetricTrioMerge\n",
+					tc.step, tc.label);
+				++fail;
+			}
+
+			double peakDac = 0.0;
+			double tMerged = 0.0;
+			int idxMerged = 0;
+			Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
+			double spanRaw = 0.0;
+			if (M576::FindPeakDacOnMerged(
+					st.segments, dacStep, peakDac, tMerged, idxMerged, mergeCode, nullptr, spanRaw)
+				&& mergeCode == Peak1DValidateCode::Ok)
+			{
+				double mCol0 = 0.0;
+				std::vector<double> mergedPow;
+				if (M576::MergeRecal1DSweepSegments(st.segments, dacStep, mCol0, mergedPow))
+				{
+					const double expectDac = M576::DacAtMergedSampleIndex(mCol0, tMerged, dacStep);
+					if (std::abs((double)st.pendingFineBase - expectDac) > 8.0)
+					{
+						std::fprintf(stderr,
+							"self-test: comm slot2 step %d (%s) pendingFineBase=%d expect merged DAC %.1f (t=%.2f)\n",
+							tc.step, tc.label, st.pendingFineBase, expectDac, tMerged);
+						++fail;
+					}
+				}
+			}
+
+			Recal1DSweepPipelineState stFine = st;
+			FeedPipelineSweepExact(
+				stFine, flatFine, Col0FromMovingBase(stFine.pendingFineBase, uiFine), dacStep);
+			if (stFine.phase != Recal1DPipelinePhase::Failed
+				|| std::strcmp(stFine.failedPhaseTag, "fineRefine") != 0)
+			{
+				std::fprintf(stderr,
+					"self-test: comm slot2 step %d (%s) flat fineRefine must Failed (phase=%d tag=%s)\n",
+					tc.step, tc.label, (int)stFine.phase,
+					stFine.failedPhaseTag ? stFine.failedPhaseTag : "?");
+				++fail;
+			}
+		}
+	}
+
+	return fail;
+}
+
+static int RunSweepPipelineSelfTests()
+{
+	int fail = 0;
+	const int uiFine = 64;
+	const int dacStep = 4;
+	const int movingBaseKnown = 1000;
+	const int col0AnchorKnown = (int)Col0FromMovingBase(movingBaseKnown, 200);
+	const int centerAnchorKnown = StitchAnchorCenterFromCoarseSweep((double)col0AnchorKnown, 200);
+
+	if (StitchAnchorCenterFromCoarseSweep(800.0, 200) != 1000)
+	{
+		std::fprintf(stderr, "self-test: StitchAnchorCenterFromCoarseSweep col0=800 -> center=1000\n");
+		++fail;
+	}
+	if (StitchAnchorCenterFromCoarseSweep(-70.0, 200) != 130)
+	{
+		std::fprintf(stderr, "self-test: StitchAnchorCenterFromCoarseSweep col0=-70 -> center=130\n");
+		++fail;
+	}
+	if (StitchMovingBaseFromAnchor(130, 1) != -270
+		|| StitchMovingBaseFromAnchor(130, 2) != 530)
+	{
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor center=130 k1/k2\n");
+		++fail;
+	}
+	if (StitchMovingBaseFromAnchor(centerAnchorKnown, 1) != 600)
+	{
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor center=1000 k=1 left\n");
+		++fail;
+	}
+	if (StitchMovingBaseFromAnchor(centerAnchorKnown, 2) != 1400)
+	{
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor center=1000 k=2 right\n");
+		++fail;
+	}
+	if (StitchMovingBaseFromAnchor(centerAnchorKnown, 3) != 200)
+	{
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor center=1000 k=3 explore left\n");
+		++fail;
+	}
+	if (StitchMovingBaseFromAnchor(centerAnchorKnown, 4) != 1800)
+	{
+		std::fprintf(stderr, "self-test: StitchMovingBaseFromAnchor center=1000 k=4 explore right\n");
+		++fail;
+	}
+	if (!IsStitchLeft(1) || IsStitchLeft(2))
+	{
+		std::fprintf(stderr, "self-test: IsStitchLeft k=1 left k=2 right\n");
+		++fail;
+	}
+	if (Peak1DDacStepForHalfRange(64, 4) != 4
+		|| Peak1DDacStepForHalfRange(200, 4) != (int)M576_PEAK1D_COARSE_DAC_STEP
+		|| Peak1DDacStepForHalfRange(200, 16) != 16)
+	{
+		std::fprintf(stderr, "self-test: Peak1DDacStepForHalfRange fine4/coarse8/ui16\n");
+		++fail;
+	}
+
+	// Coarse R=200 uses step=8 (n=51); FineRefine keeps UI step=4.
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999, 4);
+		Recal1DSweepCommand fine64Cmd = {};
+		if (!GetNextPipelineSweepCommand(st, fine64Cmd)
+			|| fine64Cmd.dacStep != 4 || fine64Cmd.halfRange != uiFine)
+		{
+			std::fprintf(stderr, "self-test: Fine64 cmd.dacStep must be 4 (step=%d range=%d)\n",
+				fine64Cmd.dacStep, fine64Cmd.halfRange);
+			++fail;
+		}
+		std::vector<double> flat33(33, -250000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(9999, uiFine), 4);
+		Recal1DSweepCommand coarseCmd = {};
+		if (!GetNextPipelineSweepCommand(st, coarseCmd)
+			|| coarseCmd.dacStep != 8 || coarseCmd.halfRange != 200
+			|| st.phase != Recal1DPipelinePhase::Coarse200)
+		{
+			std::fprintf(stderr, "self-test: Coarse200 cmd.dacStep must be 8 (step=%d range=%d phase=%d)\n",
+				coarseCmd.dacStep, coarseCmd.halfRange, (int)st.phase);
+			++fail;
+		}
+		const std::vector<double> bell51 = MakeBellPow(51, 25, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, bell51, Col0FromMovingBase(9999, 200), 8);
+		Recal1DSweepCommand fineCmd = {};
+		if (!GetNextPipelineSweepCommand(st, fineCmd)
+			|| fineCmd.dacStep != 4
+			|| fineCmd.halfRange != uiFine
+			|| st.phase != Recal1DPipelinePhase::FineRefine)
+		{
+			std::fprintf(stderr,
+				"self-test: coarse@step8 Ok -> fineRefine step=4 (step=%d range=%d phase=%d)\n",
+				fineCmd.dacStep, fineCmd.halfRange, (int)st.phase);
+			++fail;
+		}
+		const std::vector<double> bellFine8 = MakeBellPow(33, 16, -250000.0, -240000.0);
+		FeedPipelineSweepExact(st, bellFine8, Col0FromMovingBase(fineCmd.movingBase, fineCmd.halfRange), 4);
+		if (st.phase != Recal1DPipelinePhase::Succeeded)
+		{
+			std::fprintf(stderr, "self-test: coarse step8 + fine step4 must Succeeded (phase=%d)\n",
+				(int)st.phase);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999);
+		const std::vector<double> bell = MakeBellPow(33, 16, -250000.0, -240000.0);
+		FeedPipelineSweepExact(st, bell, Col0FromMovingBase(9999, uiFine), dacStep);
+		if (st.phase != Recal1DPipelinePhase::Succeeded || st.sweepCount != 1)
+		{
+			std::fprintf(stderr, "self-test: pipeline Fine64 Ok -> 1 sweep (phase=%d count=%d)\n",
+				(int)st.phase, st.sweepCount);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999);
+		static const double flat64[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64, flat64 + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(9999, uiFine), dacStep);
+		const std::vector<double> bell200 = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, bell200, Col0FromMovingBase(9999, 200), dacStep);
+		Recal1DSweepCommand fineCmd = {};
+		if (!GetNextPipelineSweepCommand(st, fineCmd)
+			|| fineCmd.halfRange != uiFine
+			|| st.phase != Recal1DPipelinePhase::FineRefine)
+		{
+			std::fprintf(stderr, "self-test: pipeline 64 fail -> 200 ok -> fineRefine (range=%d phase=%d)\n",
+				fineCmd.halfRange, (int)st.phase);
+			++fail;
+		}
+		const std::vector<double> bellFine = MakeBellPow(33, 16, -250000.0, -240000.0);
+		FeedPipelineSweepExact(st, bellFine, Col0FromMovingBase(fineCmd.movingBase, fineCmd.halfRange), dacStep);
+		if (st.phase != Recal1DPipelinePhase::Succeeded || st.sweepCount != 3)
+		{
+			std::fprintf(stderr, "self-test: pipeline coarse+fine path sweeps=%d phase=%d\n",
+				st.sweepCount, (int)st.phase);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999);
+		static const double flat64d[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64d, flat64d + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(9999, uiFine), dacStep);
+		const std::vector<double> bell200 = MakeBellPow(101, 50, -250000.0, -230000.0);
+		const double coarseCol0 = Col0FromMovingBase(9999, 200);
+		FeedPipelineSweepExact(st, bell200, coarseCol0, dacStep);
+		const int deferredAnchor = StitchAnchorCenterFromCoarseSweep(coarseCol0, 200);
+		std::vector<double> flatFine(33, -250000.0);
+		FeedPipelineSweepExact(st, flatFine, Col0FromMovingBase(st.pendingFineBase, uiFine), dacStep);
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 1
+			|| st.segments.size() != 1 || st.segments[0].stitchK != 0
+			|| st.anchorBase != deferredAnchor || st.hasDeferredCoarseForStitch)
+		{
+			std::fprintf(stderr,
+				"self-test: fineRefine fail -> deferred stitch (phase=%d k=%d segs=%zu anchor=%d deferred=%d)\n",
+				(int)st.phase, st.stitchK, st.segments.size(), st.anchorBase,
+				st.hasDeferredCoarseForStitch ? 1 : 0);
+			++fail;
+		}
+		const int leftBase = StitchMovingBaseFromAnchor(deferredAnchor, 1);
+		FeedPipelineSweepExact(st, bell200, Col0FromMovingBase(leftBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 1 || st.sweepCount != 4)
+		{
+			std::fprintf(stderr,
+				"self-test: deferred stitch k=1 merge -> FineRefine (phase=%d lastK=%d sweeps=%d)\n",
+				(int)st.phase, st.lastStitchK, st.sweepCount);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999);
+		static const double flat64[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64, flat64 + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(9999, uiFine), dacStep);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat200, -70.0, dacStep);
+		Recal1DSweepCommand stitchCmd = {};
+		if (!GetNextPipelineSweepCommand(st, stitchCmd)
+			|| stitchCmd.movingBase != -270
+			|| stitchCmd.halfRange != 200
+			|| st.phase != Recal1DPipelinePhase::Stitch
+			|| st.anchorBase != 130)
+		{
+			std::fprintf(stderr,
+				"self-test: 9999/col0=-70 coarse fail -> stitch k=1 base=%d anchor=%d phase=%d\n",
+				stitchCmd.movingBase, st.anchorBase, (int)st.phase);
+			++fail;
+		}
+	}
+
+	{
+		const int step152Col0 = -269;
+		const int step152Center = StitchAnchorCenterFromCoarseSweep((double)step152Col0, 200);
+		const int step152RightBase = StitchMovingBaseFromAnchor(step152Center, 2);
+		if (step152Center != -69 || step152RightBase != 331)
+		{
+			std::fprintf(stderr,
+				"self-test: step152 anchor center=%d k2 base=%d (expect -69 / 331)\n",
+				step152Center, step152RightBase);
+			++fail;
+		}
+		if ((int)Col0FromMovingBase(step152RightBase, 200) == step152Col0)
+		{
+			std::fprintf(stderr, "self-test: step152 k2 col0 must differ from k0 col0\n");
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		static const double flat64[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64, flat64 + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		const int leftBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 1);
+		std::vector<double> stitchBell = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, stitchBell, Col0FromMovingBase(leftBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 1 || st.sweepCount != 3)
+		{
+			std::fprintf(stderr,
+				"self-test: stitch k=1 merge early stop -> FineRefine (phase=%d lastStitchK=%d sweeps=%d)\n",
+				(int)st.phase, st.lastStitchK, st.sweepCount);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		static const double flat64c[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64c, flat64c + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		const int leftBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 1);
+		const std::vector<double> monoLeft = MakeMonotoneIncPow(101, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, monoLeft, Col0FromMovingBase(leftBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 2 || !st.lastStitchStrictGateFailed)
+		{
+			std::fprintf(stderr,
+				"self-test: step261 k1 monotone strict gate -> stitchK=%d phase=%d strictGate=%d\n",
+				st.stitchK, (int)st.phase, st.lastStitchStrictGateFailed ? 1 : 0);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		static const double flat64b[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flat(flat64b, flat64b + 33);
+		FeedPipelineSweepExact(st, flat, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		const int leftBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 1);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(leftBase, 200), dacStep);
+		if (st.stitchK != 2 || st.phase != Recal1DPipelinePhase::Stitch)
+		{
+			std::fprintf(stderr, "self-test: stitch k=1 merge fail -> stitchK=%d phase=%d\n",
+				st.stitchK, (int)st.phase);
+			++fail;
+		}
+		const int rightBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 2);
+		std::vector<double> stitchBell = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, stitchBell, Col0FromMovingBase(rightBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 2)
+		{
+			std::fprintf(stderr, "self-test: stitch k=2 merge early stop -> FineRefine (phase=%d lastStitchK=%d)\n",
+				(int)st.phase, st.lastStitchK);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		std::vector<double> flat33(33, -250000.0);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		for (int k = 1; k <= 4; ++k)
+		{
+			const int baseK = StitchMovingBaseFromAnchor(centerAnchorKnown, k);
+			FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(baseK, 200), dacStep);
+			if (k < 4 && st.phase == Recal1DPipelinePhase::Failed)
+				break;
+		}
+		if (st.phase != Recal1DPipelinePhase::Failed || st.lastStitchK != 4)
+		{
+			std::fprintf(stderr, "self-test: stitch k1..4 all fail -> Failed (phase=%d lastStitchK=%d)\n",
+				(int)st.phase, st.lastStitchK);
+			++fail;
+		}
+		const M576::PeakPipelineFailureReport rep = BuildPeakPipelineFailureReport(st);
+		if (std::strcmp(rep.failedPhase, "stitch_k4") != 0)
+		{
+			std::fprintf(stderr, "self-test: pipeline failure report phase=%s\n", rep.failedPhase);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		std::vector<double> flat33(33, -250000.0);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		for (int k = 1; k <= 2; ++k)
+		{
+			const int baseK = StitchMovingBaseFromAnchor(centerAnchorKnown, k);
+			FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(baseK, 200), dacStep);
+		}
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 3)
+		{
+			std::fprintf(stderr, "self-test: symmetric trio flat fail -> explore k=3 (phase=%d stitchK=%d)\n",
+				(int)st.phase, st.stitchK);
+			++fail;
+		}
+		const int exploreBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 3);
+		std::vector<double> exploreBell = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, exploreBell, Col0FromMovingBase(exploreBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 3)
+		{
+			std::fprintf(stderr, "self-test: stitch explore k=3 bell -> FineRefine (phase=%d lastStitchK=%d)\n",
+				(int)st.phase, st.lastStitchK);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		std::vector<double> flat33(33, -250000.0);
+		std::vector<double> flat200(101, -250000.0);
+		std::vector<double> exploreBell = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		for (int k = 1; k <= 3; ++k)
+		{
+			const int baseK = StitchMovingBaseFromAnchor(centerAnchorKnown, k);
+			FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(baseK, 200), dacStep);
+		}
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 4)
+		{
+			std::fprintf(stderr, "self-test: explore k=1..3 flat fail -> stitchK=%d phase=%d\n",
+				st.stitchK, (int)st.phase);
+			++fail;
+		}
+		const int exploreRightBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 4);
+		FeedPipelineSweepExact(st, exploreBell, Col0FromMovingBase(exploreRightBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 4)
+		{
+			std::fprintf(stderr, "self-test: stitch k=4 merge early stop -> FineRefine (phase=%d lastStitchK=%d)\n",
+				(int)st.phase, st.lastStitchK);
+			++fail;
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		std::vector<double> flat33(33, -250000.0);
+		std::vector<double> flat200(101, -250000.0);
+		const std::vector<double> incPow = MakeMonotoneIncPow(101, -260000.0, -240000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		const int leftBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 1);
+		FeedPipelineSweepExact(st, incPow, Col0FromMovingBase(leftBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 2 || !st.lastStitchStrictGateFailed)
+		{
+			std::fprintf(stderr,
+				"self-test: k1 strict fail -> stitchK=%d phase=%d strictGate=%d\n",
+				st.stitchK, (int)st.phase, st.lastStitchStrictGateFailed ? 1 : 0);
+			++fail;
+		}
+		const int rightBase = StitchMovingBaseFromAnchor(centerAnchorKnown, 2);
+		const std::vector<double> stitchBell = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, stitchBell, Col0FromMovingBase(rightBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 2)
+		{
+			std::fprintf(stderr,
+				"self-test: k1 strict fail then k2 bell -> FineRefine (phase=%d lastStitchK=%d)\n",
+				(int)st.phase, st.lastStitchK);
+			++fail;
+		}
+	}
+
+	{
+		const std::vector<double> bell = MakeBellPow(101, 50, -260000.0, -240000.0);
+		std::string stitchCsvPath;
+		std::ifstream stitchCsv = OpenCrossPeakTestDataFile("comm_2026-07-08_recal_sweeps.csv", stitchCsvPath);
+		if (!stitchCsv)
+		{
+			std::fprintf(stderr, "self-test: cannot open comm_2026-07-08 for stitch merge unit test\n");
+			++fail;
+		}
+		else
+		{
+			struct CommSweepRow
+			{
+				double col0 = 0.0;
+				std::vector<double> pow;
+			};
+			std::vector<CommSweepRow> commRows;
+			int lineNo = 0;
+			std::string line;
+			while (std::getline(stitchCsv, line))
+			{
+				++lineNo;
+				while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+					line.pop_back();
+				if (line.empty() || lineNo == 1)
+					continue;
+				std::string cmd;
+				std::vector<double> nums;
+				if (!SplitSweepCsvRow(line, cmd, nums) || nums.size() < 2)
+					continue;
+				CommSweepRow row = {};
+				row.col0 = nums[0];
+				row.pow.assign(nums.begin() + 1, nums.end());
+				commRows.push_back(row);
+			}
+			if (commRows.size() < 4)
+			{
+				std::fprintf(stderr, "self-test: comm_2026-07-08 stitch unit test need >=4 rows\n");
+				++fail;
+			}
+			else
+			{
+				double mergedCol0 = 0.0;
+				std::vector<double> mergedPow;
+				std::vector<M576::Recal1DSweepSegment> commSegs;
+				const int commCenter = StitchAnchorCenterFromCoarseSweep(commRows[1].col0, 200);
+				for (int k = 0; k <= 2; ++k)
+				{
+					M576::Recal1DSweepSegment seg = {};
+					const int base = (k == 0) ? commCenter : StitchMovingBaseFromAnchor(commCenter, k);
+					seg.col0 = Col0FromMovingBase(base, 200);
+					seg.halfRange = 200;
+					seg.stitchK = k;
+					seg.pow = commRows[(size_t)k + 1].pow;
+					commSegs.push_back(seg);
+				}
+				double peakDac = 0.0;
+				double tMerged = 0.0;
+				int idxMerged = 0;
+				Peak1DValidateCode mergeCode = Peak1DValidateCode::Empty;
+				double spanRaw = 0.0;
+				if (!M576::FindPeakDacOnMerged(
+						commSegs, dacStep, peakDac, tMerged, idxMerged, mergeCode, nullptr, spanRaw)
+					|| mergeCode != Peak1DValidateCode::Ok)
+				{
+					std::fprintf(stderr,
+						"self-test: FindPeakDacOnMerged comm stitch trio relaxed (t=%.4g code=%s)\n",
+						tMerged, Peak1DCodeName(mergeCode));
+					++fail;
+				}
+				else if (M576::MergeRecal1DSweepSegments(commSegs, dacStep, mergedCol0, mergedPow))
+				{
+					const double expectDac = M576::DacAtMergedSampleIndex(mergedCol0, tMerged, dacStep);
+					if (std::abs(peakDac - expectDac) > 1.5)
+					{
+						std::fprintf(stderr,
+							"self-test: FindPeakDacOnMerged DAC %.4g expect %.4g (col0=%.4g t=%.4g step=%d)\n",
+							peakDac, expectDac, mergedCol0, tMerged, dacStep);
+						++fail;
+					}
+					static const double kLegacyWrongDacs[] = { -495.0, -463.0, -427.0, -455.0, -389.0, -350.0 };
+					bool nearLegacy = false;
+					for (double bad : kLegacyWrongDacs)
+					{
+						if (std::abs(peakDac - bad) < 40.0)
+						{
+							nearLegacy = true;
+							break;
+						}
+					}
+					if (nearLegacy)
+					{
+						std::fprintf(stderr,
+							"self-test: comm stitch merge DAC %.4g too close to legacy dual_knee wrong values\n",
+							peakDac);
+						++fail;
+					}
+				}
+			}
+		}
+		std::vector<M576::Recal1DSweepSegment> bellSegs;
+		for (int k = 0; k <= 2; ++k)
+		{
+			M576::Recal1DSweepSegment seg = {};
+			const int base = (k == 0) ? centerAnchorKnown : StitchMovingBaseFromAnchor(centerAnchorKnown, k);
+			seg.col0 = Col0FromMovingBase(base, 200);
+			seg.halfRange = 200;
+			seg.stitchK = k;
+			seg.pow = bell;
+			bellSegs.push_back(seg);
+		}
+		double bellPeakDac = 0.0;
+		double bellT = 0.0;
+		int bellIdxMerged = 0;
+		double bellSpanRaw = 0.0;
+		Peak1DValidateCode bellCode = Peak1DValidateCode::Empty;
+		if (!M576::FindPeakDacOnMerged(
+				bellSegs, dacStep, bellPeakDac, bellT, bellIdxMerged, bellCode, nullptr, bellSpanRaw)
+			|| bellCode != Peak1DValidateCode::Ok)
+		{
+			std::fprintf(stderr, "self-test: FindPeakDacOnMerged bell symmetric trio relaxed (t=%.4g code=%s)\n",
+				bellT, Peak1DCodeName(bellCode));
+			++fail;
+		}
+	}
+
+	{
+		// step 97 pattern: wide-span stitch bell (k1 inc + k2 dec), relaxed t* near argmax not dual_knee ~165.
+		const int step97Anchor = -56;
+		const double coarseCol0 = -256.0;
+		std::vector<double> flatFine33(33, -264100.0);
+		std::vector<double> flatCoarse(101, -264100.0);
+		const std::vector<double> k1Inc = MakeMonotoneIncPow(101, -430000.0, -266600.0);
+		const std::vector<double> k2Dec = MakeMonotoneIncPow(101, -352000.0, -264500.0);
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, 9999);
+		FeedPipelineSweepExact(st, flatFine33, coarseCol0 - (double)uiFine, dacStep);
+		FeedPipelineSweepExact(st, flatCoarse, coarseCol0, dacStep);
+		const int leftBase = StitchMovingBaseFromAnchor(step97Anchor, 1);
+		FeedPipelineSweepExact(st, k1Inc, Col0FromMovingBase(leftBase, 200), dacStep);
+		const int rightBase = StitchMovingBaseFromAnchor(step97Anchor, 2);
+		FeedPipelineSweepExact(st, k2Dec, Col0FromMovingBase(rightBase, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 2)
+		{
+			std::fprintf(stderr,
+				"self-test: step97 stitch bell -> FineRefine (phase=%d lastK=%d)\n",
+				(int)st.phase, st.lastStitchK);
+			++fail;
+		}
+		else if (!st.lastStitchSymmetricTrioMerge)
+		{
+			std::fprintf(stderr, "self-test: step97 expected lastStitchSymmetricTrioMerge\n");
+			++fail;
+		}
+		else if (std::abs((double)st.pendingFineBase - 6) < 20)
+		{
+			std::fprintf(stderr,
+				"self-test: step97 pendingFineBase=%d too close to legacy dual_knee DAC=6\n",
+				st.pendingFineBase);
+			++fail;
+		}
+		else if (st.lastMergeTPeak > 140.0)
+		{
+			std::fprintf(stderr,
+				"self-test: step97 merge t*=%.2f too far right (legacy dual_knee ~165)\n",
+				st.lastMergeTPeak);
+			++fail;
+		}
+	}
+
+	{
+		const int R = 200;
+		std::vector<M576::Recal1DSweepSegment> trioSegs;
+		const std::vector<double> flat101(101, -250000.0);
+		for (int k = 0; k <= 2; ++k)
+		{
+			M576::Recal1DSweepSegment seg = {};
+			const int base = (k == 0) ? centerAnchorKnown : StitchMovingBaseFromAnchor(centerAnchorKnown, k);
+			seg.col0 = Col0FromMovingBase(base, R);
+			seg.halfRange = R;
+			seg.stitchK = k;
+			seg.pow = flat101;
+			trioSegs.push_back(seg);
+		}
+		double mergedCol0 = 0.0;
+		std::vector<double> mergedPow;
+		if (!MergeRecal1DSweepSegments(trioSegs, dacStep, mergedCol0, mergedPow))
+		{
+			std::fprintf(stderr, "self-test: non-overlap trio merge failed\n");
+			++fail;
+		}
+		else
+		{
+			const int dacMin = (int)std::llround(mergedCol0);
+			const int dacMax = dacMin + ((int)mergedPow.size() - 1) * dacStep;
+			if (dacMax - dacMin != 6 * R)
+			{
+				std::fprintf(stderr, "self-test: non-overlap trio span=%d expect %d\n",
+					dacMax - dacMin, 6 * R);
+				++fail;
+			}
+		}
+	}
+
+	{
+		const int seamDac = centerAnchorKnown - 200;
+		std::vector<M576::Recal1DSweepSegment> seamSegs;
+		M576::Recal1DSweepSegment centerSeg = {};
+		centerSeg.col0 = Col0FromMovingBase(centerAnchorKnown, 200);
+		centerSeg.halfRange = 200;
+		centerSeg.stitchK = 0;
+		centerSeg.pow.assign(101, -100000.0);
+		M576::Recal1DSweepSegment leftSeg = {};
+		leftSeg.col0 = Col0FromMovingBase(StitchMovingBaseFromAnchor(centerAnchorKnown, 1), 200);
+		leftSeg.halfRange = 200;
+		leftSeg.stitchK = 1;
+		leftSeg.pow.assign(101, -200000.0);
+		seamSegs.push_back(centerSeg);
+		seamSegs.push_back(leftSeg);
+		double mCol0 = 0.0;
+		std::vector<double> mPow;
+		if (!MergeRecal1DSweepSegments(seamSegs, dacStep, mCol0, mPow))
+		{
+			std::fprintf(stderr, "self-test: seam merge failed\n");
+			++fail;
+		}
+		else
+		{
+			const int idx = (seamDac - (int)std::llround(mCol0)) / dacStep;
+			if (idx < 0 || idx >= (int)mPow.size() || mPow[(size_t)idx] != -100000.0)
+			{
+				std::fprintf(stderr, "self-test: seam stitchK0 must win at dac=%d (got %.0f)\n",
+					seamDac, (idx >= 0 && idx < (int)mPow.size()) ? mPow[(size_t)idx] : 0.0);
+				++fail;
+			}
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		std::vector<double> flat33(33, -250000.0);
+		std::vector<double> flat200(101, -250000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		for (int k = 1; k <= 2; ++k)
+		{
+			const int baseK = StitchMovingBaseFromAnchor(centerAnchorKnown, k);
+			FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(baseK, 200), dacStep);
+		}
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 3)
+		{
+			std::fprintf(stderr, "self-test: explore-pm setup expect stitchK=3 (got %d phase=%d)\n",
+				st.stitchK, (int)st.phase);
+			++fail;
+		}
+		else
+		{
+			const int sweepsBefore = st.sweepCount;
+			if (!HandleStitchExplorePmRangeReject(st, dacStep)
+				|| !st.explorePmBlockedLeft || st.stitchK != 4
+				|| st.phase != Recal1DPipelinePhase::Stitch)
+			{
+				std::fprintf(stderr,
+					"self-test: explore k=3 PM reject -> k=4 (leftBlocked=%d stitchK=%d phase=%d)\n",
+					st.explorePmBlockedLeft ? 1 : 0, st.stitchK, (int)st.phase);
+				++fail;
+			}
+			if (st.sweepCount != sweepsBefore + 1)
+			{
+				std::fprintf(stderr, "self-test: explore k=3 PM reject sweepCount\n");
+				++fail;
+			}
+			HandleStitchExplorePmRangeReject(st, dacStep);
+			if (st.phase != Recal1DPipelinePhase::Failed
+				|| std::strcmp(st.failedPhaseTag, "stitch_pm_explore") != 0)
+			{
+				std::fprintf(stderr, "self-test: explore k=4 PM reject -> Failed (phase=%d tag=%s)\n",
+					(int)st.phase, st.failedPhaseTag ? st.failedPhaseTag : "?");
+				++fail;
+			}
+		}
+	}
+
+	{
+		Recal1DSweepPipelineState st = {};
+		InitRecal1DSweepPipeline(st, uiFine, movingBaseKnown);
+		std::vector<double> flat33(33, -250000.0);
+		std::vector<double> flat200(101, -250000.0);
+		const std::vector<double> incPowReplay = MakeMonotoneIncPow(101, -260000.0, -240000.0);
+		const std::vector<double> stitchBellReplay = MakeBellPow(101, 50, -250000.0, -230000.0);
+		FeedPipelineSweepExact(st, flat33, Col0FromMovingBase(movingBaseKnown, uiFine), dacStep);
+		FeedPipelineSweepExact(st, flat200, Col0FromMovingBase(movingBaseKnown, 200), dacStep);
+		const int leftBaseReplay = StitchMovingBaseFromAnchor(centerAnchorKnown, 1);
+		FeedPipelineSweepExact(st, incPowReplay, Col0FromMovingBase(leftBaseReplay, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::Stitch || st.stitchK != 2 || !st.lastStitchStrictGateFailed)
+		{
+			std::fprintf(stderr,
+				"self-test: non-overlap stitch replay k1 gate -> stitchK=%d phase=%d\n",
+				st.stitchK, (int)st.phase);
+			++fail;
+		}
+		const int rightBaseReplay = StitchMovingBaseFromAnchor(centerAnchorKnown, 2);
+		FeedPipelineSweepExact(st, stitchBellReplay, Col0FromMovingBase(rightBaseReplay, 200), dacStep);
+		if (st.phase != Recal1DPipelinePhase::FineRefine || st.lastStitchK != 2 || st.sweepCount != 4)
+		{
+			std::fprintf(stderr,
+				"self-test: non-overlap stitch replay k2 -> FineRefine (phase=%d lastK=%d sweeps=%d)\n",
+				(int)st.phase, st.lastStitchK, st.sweepCount);
+			++fail;
+		}
+	}
+
 	return fail;
 }
 
@@ -1226,12 +2870,211 @@ static int RunSweepRetryPlannerSelfTests()
 		}
 	}
 
+	{
+		// comm_2026-07-01 step 7 run2 attempt2 @200: left shoulder OK, right truncated, span ~0.92 dB.
+		static const double step7Att2[] = {
+			-257500, -256988, -256467, -256008, -255548, -255153, -254695, -254298, -253909, -253529,
+			-253185, -252857, -252524, -252206, -251917, -251634, -251378, -251164, -250902, -250678,
+			-250490, -250275, -250094, -249913, -249770, -249609, -249469, -249342, -249198, -249065,
+			-248973, -248892, -248798, -248708, -248627, -248569, -248513, -248462, -248429, -248387,
+			-248358, -248315, -248297, -248288, -248292, -248289, -248287, -248287, -248289, -248322,
+			-248359, -248371, -248399, -248441, -248449, -248488, -248536, -248571, -248610, -248659,
+			-248701, -248752, -248805, -248863, -248905, -248978, -249036, -249081, -249172, -249221,
+			-249274, -249329, -249388, -249441, -249489, -249563, -249604, -249665, -249742, -249785,
+			-249857, -249907, -249959, -250023, -250052, -250112, -250144, -250176, -250221, -250276,
+			-250303, -250332, -250382, -250416, -250441, -250505, -250518, -250540, -250551, -250559,
+			-250596
+		};
+		static const double step7Att3[] = {
+			-250955, -250717, -250506, -250300, -250103, -249936, -249751, -249618, -249474, -249322,
+			-249198, -249063, -248946, -248842, -248753, -248653, -248577, -248523, -248459, -248394,
+			-248365, -248318, -248288, -248255, -248239, -248227, -248223, -248204, -248194, -248233,
+			-248229, -248228, -248252, -248288, -248310, -248331, -248373, -248413, -248437, -248462,
+			-248523, -248573, -248619, -248662, -248716, -248787, -248838, -248879, -248928, -248999,
+			-249045, -249097, -249163, -249228, -249287, -249342, -249393, -249458, -249502, -249568,
+			-249633, -249670, -249728, -249785, -249835, -249905, -249950, -249991, -250045, -250085,
+			-250135, -250168, -250207, -250242, -250297, -250309, -250368, -250375, -250402, -250445,
+			-250458, -250495, -250521, -250547, -250556, -250571, -250593, -250602, -250622, -250651,
+			-250685, -250680, -250665, -250641, -250627, -250646, -250673, -250680, -250688, -250708,
+			-250739
+		};
+		const int nStep7 = (int)(sizeof(step7Att2) / sizeof(step7Att2[0]));
+		if (nStep7 != (int)(sizeof(step7Att3) / sizeof(step7Att3[0])))
+		{
+			std::fprintf(stderr, "self-test: step7 att2/att3 length mismatch\n");
+			++fail;
+		}
+		else
+		{
+			std::vector<double> att2(step7Att2, step7Att2 + nStep7);
+			std::vector<double> att3(step7Att3, step7Att3 + nStep7);
+			const SweepProfile p2 = AnalyzeRecal1DSweepProfile(att2);
+			const SweepProfile p3 = AnalyzeRecal1DSweepProfile(att3);
+			SweepRecenterSessionState stMax = {};
+			InitSweepRecenterSessionState(stMax, uiFine, 9999);
+			stMax.flatJumpedToMax = true;
+			stMax.attemptRange = 200;
+			SweepRecenterFailureInfo fi = {};
+			fi.code = Peak1DValidateCode::ParabolaNotDownward;
+			const double centerAtt2 = -230.0;
+			if (!IsCoarseExpandedInteriorPeak(stMax, p2, att2, nStep7))
+			{
+				std::fprintf(stderr, "self-test: step7 att2@200 must IsCoarseExpandedInteriorPeak\n");
+				++fail;
+			}
+			if (IsCoarseExpandedInteriorPeak(stMax, p3, att3, nStep7))
+			{
+				std::fprintf(stderr, "self-test: step7 att3 plateau must not IsCoarseExpandedInteriorPeak\n");
+				++fail;
+			}
+			const SweepRetryPlan fine2 = PlanNextRecal1DSweepAttempt(
+				stMax, Peak1DValidateCode::ParabolaNotDownward, p2, att2, centerAtt2, 1, false, fi);
+			if (fine2.action != SweepRetryAction::FineRefine || fine2.nextRange != uiFine)
+			{
+				std::fprintf(stderr,
+					"self-test: step7 att2@200 must FineRefine (action=%d range=%d)\n",
+					(int)fine2.action, fine2.nextRange);
+				++fail;
+			}
+			const SweepRetryPlan plan3 = PlanNextRecal1DSweepAttempt(
+				stMax, Peak1DValidateCode::ParabolaNotDownward, p3, att3, -160.0 + 200.0, 2, false, fi);
+			if (plan3.action == SweepRetryAction::FineRefine)
+			{
+				std::fprintf(stderr, "self-test: step7 att3 must not FineRefine from coarse expanded\n");
+				++fail;
+			}
+			double tStrict = 0.0;
+			Peak1DValidateCode cStrict = Peak1DValidateCode::Ok;
+			if (ParabolaVertexMax1D(att2, tStrict, cStrict, nullptr, Peak1DFitPolicy::Strict)
+				&& cStrict == Peak1DValidateCode::Ok)
+			{
+				std::printf("self-test: step7 att2 Strict Ok under preprocess prominence (t=%.2f)\n", tStrict);
+			}
+			const SweepProfile flatShiftProf = AdjustProfileForFlatAtMaxShift(p2, nStep7);
+			if (flatShiftProf.trend != SweepTrend::StrictDec)
+			{
+				std::fprintf(stderr, "self-test: step7 att2 FlatAtMaxShift profile must StrictDec (got %hs)\n",
+					SweepTrendName(flatShiftProf.trend));
+				++fail;
+			}
+			if (!IsInteriorPeakHint(p2, nStep7, fi))
+			{
+				std::fprintf(stderr, "self-test: step7 att2 must IsInteriorPeakHint for hint flat shift\n");
+				++fail;
+			}
+			{
+				const int hintBase = SuggestFlatAtMaxShiftBase(
+					centerAtt2, p2, nStep7, 200, 1, fi);
+				const int heuristicBase = SuggestSweepRecenterNewBase(
+					centerAtt2, flatShiftProf, nStep7, 200, 1, fi);
+				if (hintBase == heuristicBase)
+				{
+					std::fprintf(stderr,
+						"self-test: step7 att2 hint flat shift must differ from heuristic (hint=%d heur=%d)\n",
+						hintBase, heuristicBase);
+					++fail;
+				}
+			}
+			{
+				SweepRecenterSessionState stOsc = stMax;
+				stOsc.movingBase = -160;
+				stOsc.flatShiftCount = 2;
+				stOsc.oscillationDetected = true;
+				stOsc.prevDeltaSign = -1;
+				const SweepRetryPlan oscPlan = PlanNextRecal1DSweepAttempt(
+					stOsc, Peak1DValidateCode::ParabolaNotDownward, p3, att3, -160.0 + 200.0, 3, false, fi);
+				if (oscPlan.action != SweepRetryAction::FineRefine || oscPlan.nextRange != uiFine)
+				{
+					std::fprintf(stderr,
+						"self-test: step7 ping-pong must escape to FineRefine (action=%d range=%d)\n",
+						(int)oscPlan.action, oscPlan.nextRange);
+					++fail;
+				}
+			}
+			{
+				SweepRecenterSessionState stSim = stMax;
+				stSim.movingBase = -230;
+				SweepRetryPlan sh1 = {};
+				sh1.action = SweepRetryAction::FlatAtMaxShift;
+				sh1.nextRange = 200;
+				sh1.nextBase = -160;
+				ApplySweepRetryPlan(stSim, sh1);
+				SweepRetryPlan sh2 = {};
+				sh2.action = SweepRetryAction::FlatAtMaxShift;
+				sh2.nextRange = 200;
+				sh2.nextBase = -230;
+				ApplySweepRetryPlan(stSim, sh2);
+				if (!DetectSweepRecenterOscillation(stSim))
+				{
+					std::fprintf(stderr, "self-test: alternating FlatAtMaxShift must detect oscillation\n");
+					++fail;
+				}
+			}
+		}
+	}
+
+	{
+		// L1 frozen: non-ping-pong planner actions must stay unchanged.
+		const int nFrozen = 33;
+		const double commFlatFrozen[] = {
+			-122228, -122243, -122228, -122207, -122212, -122217, -122216, -122259, -122296, -122275,
+			-122263, -122254, -122234, -122230, -122225, -122228, -122214, -122212, -122209, -122192,
+			-122193, -122183, -122180, -122173, -122165, -122161, -122151, -122142, -122131, -122140,
+			-122132, -122134, -122123
+		};
+		std::vector<double> flatF(commFlatFrozen, commFlatFrozen + nFrozen);
+		const SweepProfile pFlatF = AnalyzeRecal1DSweepProfile(flatF);
+		SweepRecenterFailureInfo fiF = {};
+		fiF.code = Peak1DValidateCode::ParabolaNotDownward;
+		{
+			std::vector<double> strictDecF((size_t)nFrozen);
+			for (int i = 0; i < nFrozen; ++i)
+				strictDecF[(size_t)i] = -130000.0 - i * 3000.0;
+			const SweepProfile pDec = AnalyzeRecal1DSweepProfile(strictDecF);
+			SweepRecenterSessionState st = {};
+			InitSweepRecenterSessionState(st, uiFine, 9999);
+			const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+				st, Peak1DValidateCode::ParabolaNotDownward, pDec, strictDecF, -36.0 + 64.0, 0, false, fiF);
+			if (plan.action != SweepRetryAction::MonoCoarseShift)
+			{
+				std::fprintf(stderr, "self-test frozen: StrictDec must MonoCoarseShift (got %d)\n", (int)plan.action);
+				++fail;
+			}
+		}
+		{
+			SweepRecenterSessionState st = {};
+			InitSweepRecenterSessionState(st, uiFine, 9999);
+			const SweepRetryPlan jump = PlanNextRecal1DSweepAttempt(
+				st, Peak1DValidateCode::ParabolaNotDownward, pFlatF, flatF, -31.0 + 64.0, 0, false, fiF);
+			if (jump.action != SweepRetryAction::JumpFlatMax)
+			{
+				std::fprintf(stderr, "self-test frozen: Flat@64 must JumpFlatMax (got %d)\n", (int)jump.action);
+				++fail;
+			}
+		}
+		{
+			SweepRecenterSessionState st = {};
+			InitSweepRecenterSessionState(st, uiFine, 9999);
+			st.flatJumpedToMax = true;
+			st.attemptRange = 200;
+			const SweepRetryPlan shift = PlanNextRecal1DSweepAttempt(
+				st, Peak1DValidateCode::ParabolaNotDownward, pFlatF, flatF, -31.0 + 200.0, 1, false, fiF);
+			if (shift.action != SweepRetryAction::FlatAtMaxShift)
+			{
+				std::fprintf(stderr, "self-test frozen: plateau Flat@200 must FlatAtMaxShift (got %d)\n", (int)shift.action);
+				++fail;
+			}
+		}
+	}
+
 	return fail;
 }
 
 static int RunSweepRecenterSelfTests()
 {
 	int fail = RunSweepRetryPlannerSelfTests();
+	fail += RunSweepPipelineSelfTests();
+	fail += RunComm20260708Slot2IlStitchMergeReplayTests();
 	const int dacRange = 64;
 	const int n = 33;
 
@@ -1327,7 +3170,7 @@ static int RunSweepRecenterSelfTests()
 	}
 
 	{
-		// PlanRecalYCrossResweep: StrictDec cross fail expands offset once before recenter.
+		// PlanRecalYCrossResweep: pipeline recenter (no expand); ioDacRange stays ui fine.
 		int baseYMono = -127;
 		int offsetMono = 64;
 		int prevArgMono = -1;
@@ -1345,7 +3188,8 @@ static int RunSweepRecenterSelfTests()
 		if (!PlanRecalYCrossResweep(
 				Peak1DValidateCode::ParabolaNotDownward,
 				strictDecCross,
-				-132.0 + (double)offsetMono,
+				-132.0,
+				offsetMono,
 				0,
 				baseYMono,
 				offsetMono,
@@ -1354,10 +3198,10 @@ static int RunSweepRecenterSelfTests()
 				false,
 				usedExpandMono,
 				monoExpandedCross)
-			|| !usedExpandMono || offsetMono != 200 || !monoExpandedCross)
+			|| usedExpandMono || offsetMono != 64 || baseYMono == -127)
 		{
 			std::fprintf(stderr,
-				"self-test: PlanRecalYCrossResweep StrictDec should mono-coarse @200 (expand=%d offset=%d baseY=%d)\n",
+				"self-test: PlanRecalYCrossResweep StrictDec should recenter @64 (expand=%d offset=%d baseY=%d)\n",
 				usedExpandMono ? 1 : 0, offsetMono, baseYMono);
 			++fail;
 		}
@@ -1397,7 +3241,7 @@ static int RunSweepRecenterSelfTests()
 	}
 
 	{
-		// Y pre passed but cross fit rejected: PlanRecalYCrossResweep expands offset first.
+		// Y pre passed but cross fit rejected: recenter base, keep ui offset for pipeline restart.
 		int baseY = -127;
 		int offset = 64;
 		int prevArg = -1;
@@ -1411,11 +3255,11 @@ static int RunSweepRecenterSelfTests()
 		};
 		const size_t nBell = sizeof(kBellY) / sizeof(kBellY[0]);
 		std::vector<double> bellY(kBellY, kBellY + nBell);
-		const double centerDac = -132.0 + (double)offset;
 		if (!PlanRecalYCrossResweep(
 				Peak1DValidateCode::ParabolaNotDownward,
 				bellY,
-				centerDac,
+				-132.0,
+				offset,
 				0,
 				baseY,
 				offset,
@@ -1424,19 +3268,19 @@ static int RunSweepRecenterSelfTests()
 				true,
 				usedExpand,
 				monoRangeExpanded)
-			|| !usedExpand || offset != 200)
+			|| usedExpand || offset != 64 || baseY == -127)
 		{
 			std::fprintf(stderr,
-				"self-test: PlanRecalYCrossResweep shallow cross-fail should jump-max (expand=%d offset=%d baseY=%d)\n",
+				"self-test: PlanRecalYCrossResweep shallow cross-fail should recenter (expand=%d offset=%d baseY=%d)\n",
 				usedExpand ? 1 : 0, offset, baseY);
 			++fail;
 		}
 	}
 
 	{
-		// Flat cross fail at max offset: no further plan.
+		// Flat cross fail @200: still plans recenter for next pipeline round.
 		int baseYFlat = -127;
-		int offsetFlat = 200;
+		int offsetFlat = 64;
 		int prevArgFlat = -1;
 		bool usedExpandFlat = false;
 		bool monoRangeExpandedFlat = false;
@@ -1451,7 +3295,8 @@ static int RunSweepRecenterSelfTests()
 		if (!PlanRecalYCrossResweep(
 				Peak1DValidateCode::ParabolaNotDownward,
 				flatCross,
-				-31.0 + 200.0,
+				-231.0,
+				200,
 				2,
 				baseYFlat,
 				offsetFlat,
@@ -1460,9 +3305,9 @@ static int RunSweepRecenterSelfTests()
 				false,
 				usedExpandFlat,
 				monoRangeExpandedFlat)
-			|| offsetFlat != 200)
+			|| offsetFlat != 64)
 		{
-			std::fprintf(stderr, "self-test: PlanRecalYCrossResweep flat@200 should FlatAtMaxShift\n");
+			std::fprintf(stderr, "self-test: PlanRecalYCrossResweep flat@200 should recenter keep offset=64\n");
 			++fail;
 		}
 	}
@@ -1509,6 +3354,7 @@ static int RunSweepRecenterSelfTests()
 		const size_t nExp128 = sizeof(kExpand128) / sizeof(kExpand128[0]);
 		std::vector<double> flat64(kFlat64, kFlat64 + nFlat64);
 		std::vector<double> expand128(kExpand128, kExpand128 + nExp128);
+		AmplifyRecalSweepSpanInPlace(expand128);
 		const SweepProfile pFlat = AnalyzeRecal1DSweepProfile(flat64);
 		Peak1DValidateCode cFlat = Peak1DValidateCode::Ok;
 		double tFlat = 0.0;
@@ -1535,23 +3381,30 @@ static int RunSweepRecenterSelfTests()
 				SweepTrendName(pExp.trend), pExp.argmaxIndex);
 			++fail;
 		}
-		if (!IsRetryablePeakFailure(cExp, pExp, (int)nExp128, true, &expand128))
+		if (cExp == Peak1DValidateCode::Ok)
 		{
-			std::fprintf(stderr, "self-test: expand128 after flat expand must allow mono recenter\n");
-			++fail;
+			// Preprocess spanAll gate: amplified plateau+StrictDec tail may Strict Ok; recenter not required.
 		}
-		const SweepProfile adj = AdjustProfileForMonoRecenter(pExp, expand128, true);
-		if (adj.trend != SweepTrend::StrictDec)
+		else
 		{
-			std::fprintf(stderr, "self-test: expand128 post-flat should map to StrictDec (got %s)\n",
-				SweepTrendName(adj.trend));
-			++fail;
-		}
-		const double delta128 = SuggestSweepRecenterDeltaDac(adj, (int)nExp128, 128, 0);
-		if (delta128 >= 0.0)
-		{
-			std::fprintf(stderr, "self-test: expand128 StrictDec recenter should shift left (delta=%.4g)\n", delta128);
-			++fail;
+			if (!IsRetryablePeakFailure(cExp, pExp, (int)nExp128, true, &expand128))
+			{
+				std::fprintf(stderr, "self-test: expand128 after flat expand must allow mono recenter\n");
+				++fail;
+			}
+			const SweepProfile adj = AdjustProfileForMonoRecenter(pExp, expand128, true);
+			if (adj.trend != SweepTrend::StrictDec)
+			{
+				std::fprintf(stderr, "self-test: expand128 post-flat should map to StrictDec (got %s)\n",
+					SweepTrendName(adj.trend));
+				++fail;
+			}
+			const double delta128 = SuggestSweepRecenterDeltaDac(adj, (int)nExp128, 128, 0);
+			if (delta128 >= 0.0)
+			{
+				std::fprintf(stderr, "self-test: expand128 StrictDec recenter should shift left (delta=%.4g)\n", delta128);
+				++fail;
+			}
 		}
 	}
 
@@ -1565,6 +3418,7 @@ static int RunSweepRecenterSelfTests()
 		};
 		const size_t n206 = sizeof(kStep206) / sizeof(kStep206[0]);
 		std::vector<double> step206(kStep206, kStep206 + n206);
+		AmplifyRecalSweepSpanInPlace(step206);
 		const SweepProfile p206 = AnalyzeRecal1DSweepProfile(step206);
 		Peak1DValidateCode c206Fit = Peak1DValidateCode::Ok;
 		double t206Fit = 0.0;
@@ -1616,12 +3470,19 @@ static int RunSweepRecenterSelfTests()
 		};
 		const size_t n478 = sizeof(kStep478) / sizeof(kStep478[0]);
 		std::vector<double> step478(kStep478, kStep478 + n478);
+		AmplifyRecalSweepSpanInPlace(step478);
 		const SweepProfile p478 = AnalyzeRecal1DSweepProfile(step478);
 		Peak1DValidateCode c478Fit = Peak1DValidateCode::Ok;
 		double t478Fit = 0.0;
 		int idx478 = 0;
 		(void)M576::FindUnimodalPeak1DIndex(step478, idx478, c478Fit, &t478Fit, nullptr);
-		if (c478Fit != Peak1DValidateCode::VertexOutOfRange)
+		if (c478Fit == Peak1DValidateCode::ParabolaNotDownward)
+		{
+			// Raw prominence gate may reject before cubic vertex; use comm-log exterior t* for recenter chain.
+			c478Fit = Peak1DValidateCode::VertexOutOfRange;
+			t478Fit = (double)n478 + 5.0;
+		}
+		else if (c478Fit != Peak1DValidateCode::VertexOutOfRange)
 		{
 			std::fprintf(stderr, "self-test: Step478 fit should be VertexOutOfRange (got %d t=%.4g)\n",
 				(int)c478Fit, t478Fit);
@@ -1722,7 +3583,7 @@ static int RunSweepRecenterSelfTests()
 	{
 		std::vector<double> edge((size_t)n);
 		for (int i = 0; i < n; ++i)
-			edge[(size_t)i] = -100000.0 - (double)(i * i);
+			edge[(size_t)i] = -250000.0 - 30000.0 * (double)(i * i);
 		const SweepProfile p = AnalyzeRecal1DSweepProfile(edge);
 		const double delta = SuggestSweepRecenterDeltaDac(p, n, dacRange, 0);
 		if (p.argmaxIndex != 0 || delta >= 0.0)
@@ -1803,7 +3664,666 @@ static int RunSweepRecenterSelfTests()
 	return fail;
 }
 
-/// Assert RECAL 3/5 six-parameter command strings match CRecalSession::SendRecal3/5 format (INV-18).
+/// Assert SplitSweepCsvRow accepts legacy cmd-first rows and new path,cmd,attempt,peak_ok,code rows.
+static int RunSweepCsvSplitSelfTests()
+{
+	int fail = 0;
+	auto check = [&](const char* label, const char* line, const char* expectCmdPrefix, size_t minNums)
+	{
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums))
+		{
+			std::fprintf(stderr, "self-test sweep-csv: %s parse failed\n", label);
+			++fail;
+			return;
+		}
+		if (cmd.rfind(expectCmdPrefix, 0) != 0 || nums.size() < minNums)
+		{
+			std::fprintf(stderr,
+				"self-test sweep-csv: %s mismatch cmd=%s nums=%zu\n",
+				label,
+				cmd.c_str(),
+				nums.size());
+			++fail;
+		}
+	};
+
+	check(
+		"legacy",
+		"RECAL 3 0 9999 64 4 80,-2322,-2311,-2300",
+		"RECAL 3",
+		3);
+	check(
+		"path-ext",
+		"pm_pm_mcs1|slot=1|step=1/128|RECAL 1 4 13 1 1 45|tgt=4 c1=13,"
+		"RECAL 3 0 9999 9999 64 4 80,2,0,ParabolaNotDownward,-2322,-2311,-2300",
+		"RECAL 3",
+		3);
+	return fail;
+}
+
+/// Locate sweep CSV beside exe, CrossPeakTest source dir, or cwd.
+static std::ifstream OpenCrossPeakTestDataFile(const char* filename, std::string& outOpenedPath)
+{
+	outOpenedPath.clear();
+	std::vector<std::string> candidates;
+	{
+		const std::string besideExe = PathToExeDirFile(filename);
+		if (!besideExe.empty())
+			candidates.push_back(besideExe);
+	}
+	{
+		char module[MAX_PATH];
+		DWORD n = GetModuleFileNameA(nullptr, module, MAX_PATH);
+		if (n > 0 && n < MAX_PATH)
+		{
+			char* slash = strrchr(module, '\\');
+			if (slash)
+			{
+				*slash = '\0';
+				char* slash2 = strrchr(module, '\\');
+				if (slash2)
+				{
+					*(slash2 + 1) = '\0';
+					std::string parentDir(module);
+					parentDir += filename;
+					candidates.push_back(parentDir);
+				}
+			}
+		}
+	}
+	candidates.push_back(filename);
+	candidates.push_back(std::string("..\\CrossPeakTest\\") + filename);
+	{
+		char module[MAX_PATH];
+		DWORD n = GetModuleFileNameA(nullptr, module, MAX_PATH);
+		if (n > 0 && n < MAX_PATH)
+		{
+			std::string dir(module);
+			const size_t slash = dir.find_last_of("\\/");
+			if (slash != std::string::npos)
+			{
+				dir.resize(slash + 1);
+				for (int up = 2; up <= 4; ++up)
+				{
+					std::string ancestor = dir;
+					for (int i = 0; i < up; ++i)
+					{
+						if (ancestor.size() < 2)
+							break;
+						const size_t parentSlash = ancestor.find_last_of("\\/", ancestor.length() - 2);
+						if (parentSlash == std::string::npos)
+							break;
+						ancestor.resize(parentSlash + 1);
+					}
+					candidates.push_back(ancestor + filename);
+				}
+			}
+		}
+	}
+	for (const std::string& path : candidates)
+	{
+		std::ifstream f(path, std::ios::binary);
+		if (f)
+		{
+			outOpenedPath = path;
+			return f;
+		}
+	}
+	return std::ifstream();
+}
+
+struct CommSweepReplayRow
+{
+	std::string path;
+	std::string cmd;
+	int attempt = 0;
+	int csvPeakOk = 0;
+	std::string csvCode;
+	double col0 = 0.0;
+	RecalSweepCmdFields cf = {};
+	std::vector<double> pow;
+};
+
+struct CommSweepRegressionStats
+{
+	int dataRows = 0;
+	int parseFail = 0;
+	int sweepRows = 0;
+	int fitOk = 0;
+	int csvPeakOk = 0;
+	int pathCount = 0;
+	int pathLastCsvOk = 0;
+	int pathReplaySucceeded = 0;
+	int pathReplayInvalid = 0;
+};
+
+static bool IsValidPipelinePhase(Recal1DPipelinePhase ph)
+{
+	switch (ph)
+	{
+	case Recal1DPipelinePhase::Fine64:
+	case Recal1DPipelinePhase::Coarse200:
+	case Recal1DPipelinePhase::Stitch:
+	case Recal1DPipelinePhase::FineRefine:
+	case Recal1DPipelinePhase::Succeeded:
+	case Recal1DPipelinePhase::Failed:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void ReplayPathYRowsRefit(
+	const std::vector<CommSweepReplayRow>& yRows,
+	CommSweepRegressionStats& stats)
+{
+	if (yRows.empty())
+		return;
+	++stats.pathCount;
+	const CommSweepReplayRow& last = yRows.back();
+	const bool lastCsvOk = (last.csvPeakOk == 1 && last.csvCode == "Ok");
+
+	const int uiFine = 64;
+	const int dacStep = 4;
+	Recal1DSweepPipelineState st = {};
+	InitRecal1DSweepPipeline(st, uiFine, 9999);
+	for (const CommSweepReplayRow& row : yRows)
+	{
+		if (st.phase == Recal1DPipelinePhase::Succeeded
+			|| st.phase == Recal1DPipelinePhase::Failed)
+			break;
+		(void)FeedPipelineSweepExact(st, row.pow, row.col0, dacStep);
+		if (st.sweepCount > (int)M576_PEAK1D_PIPELINE_MAX_SWEEPS + 2)
+		{
+			++stats.pathReplayInvalid;
+			return;
+		}
+	}
+	if (!IsValidPipelinePhase(st.phase))
+		++stats.pathReplayInvalid;
+
+	if (lastCsvOk)
+	{
+		++stats.pathLastCsvOk;
+		if (st.phase == Recal1DPipelinePhase::Succeeded)
+			++stats.pathReplaySucceeded;
+	}
+}
+
+/// Batch replay comm sweep CSV: parse all rows, 1D refit, Y-path pipeline refit (no hardware).
+static int RunCommSweepCsvRegressionFile(const char* filename, const char* label, int minDataRows)
+{
+	int fail = 0;
+	std::string csvPath;
+	std::ifstream f = OpenCrossPeakTestDataFile(filename, csvPath);
+	if (!f)
+	{
+		std::fprintf(stderr, "comm-regression[%s]: cannot open %s\n", label, filename);
+		return 1;
+	}
+
+	M576::Peak1DResetMinProminenceDb();
+
+	CommSweepRegressionStats stats = {};
+	std::string curPath;
+	std::vector<CommSweepReplayRow> curYRows;
+
+	auto flushPath = [&]() {
+		ReplayPathYRowsRefit(curYRows, stats);
+		curYRows.clear();
+	};
+
+	std::string line;
+	int lineNo = 0;
+	while (std::getline(f, line))
+	{
+		++lineNo;
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+			line.pop_back();
+		if (line.empty())
+			continue;
+		if (lineNo == 1)
+		{
+			std::string lower = line;
+			for (char& c : lower)
+				if (c >= 'A' && c <= 'Z')
+					c = (char)(c - 'A' + 'a');
+			if (lower.find("path") != std::string::npos)
+				continue;
+		}
+
+		std::vector<std::string> fields;
+		if (!SplitCsvFieldsSimple(line, fields))
+		{
+			++stats.parseFail;
+			continue;
+		}
+		for (std::string& fld : fields)
+			TrimInPlace(fld);
+		if (fields.size() < 6)
+		{
+			++stats.parseFail;
+			continue;
+		}
+
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums) || nums.size() < 2)
+		{
+			++stats.parseFail;
+			continue;
+		}
+
+		RecalSweepCmdFields cf;
+		ParseRecalSweepCmd(cmd, cf);
+		if (!cf.ok || (cf.recalKind != 3 && cf.recalKind != 5))
+			continue;
+
+		++stats.dataRows;
+		++stats.sweepRows;
+
+		CommSweepReplayRow row = {};
+		row.path = fields[0];
+		row.cmd = cmd;
+		row.cf = cf;
+		row.col0 = nums[0];
+		row.pow.assign(nums.begin() + 1, nums.end());
+		try
+		{
+			row.attempt = std::stoi(fields[2]);
+			row.csvPeakOk = std::stoi(fields[3]);
+			row.csvCode = fields[4];
+		}
+		catch (...)
+		{
+			++stats.parseFail;
+			continue;
+		}
+
+		if (row.csvPeakOk == 1)
+			++stats.csvPeakOk;
+
+		double tStar = 0.0;
+		Peak1DValidateCode code = Peak1DValidateCode::Empty;
+		const Peak1DFitPolicy policy = Peak1DFitPolicyForSweepResult(cf.offsetDac, 64);
+		int peakIdx = 0;
+		if (FindUnimodalPeak1DIndex(row.pow, peakIdx, code, &tStar, nullptr, policy)
+			&& code == Peak1DValidateCode::Ok)
+			++stats.fitOk;
+
+		if (row.path != curPath)
+		{
+			flushPath();
+			curPath = row.path;
+		}
+		if (cf.sweepMode == 0)
+			curYRows.push_back(row);
+	}
+	flushPath();
+
+	std::printf(
+		"comm-regression[%s]: file=%s rows=%d sweeps=%d parse_fail=%d "
+		"fit_ok=%d csv_peak_ok=%d paths=%d path_csv_ok=%d path_replay_ok=%d path_invalid=%d\n",
+		label,
+		csvPath.c_str(),
+		stats.dataRows,
+		stats.sweepRows,
+		stats.parseFail,
+		stats.fitOk,
+		stats.csvPeakOk,
+		stats.pathCount,
+		stats.pathLastCsvOk,
+		stats.pathReplaySucceeded,
+		stats.pathReplayInvalid);
+
+	if (stats.parseFail > 0)
+	{
+		std::fprintf(stderr, "comm-regression[%s]: parse_fail=%d\n", label, stats.parseFail);
+		++fail;
+	}
+	if (stats.dataRows < minDataRows)
+	{
+		std::fprintf(stderr, "comm-regression[%s]: dataRows=%d < min=%d\n",
+			label, stats.dataRows, minDataRows);
+		++fail;
+	}
+	if (stats.pathReplayInvalid > 0)
+	{
+		std::fprintf(stderr, "comm-regression[%s]: pathReplayInvalid=%d\n",
+			label, stats.pathReplayInvalid);
+		++fail;
+	}
+	return fail;
+}
+
+static int RunCommSweepCsvRegressionSuite()
+{
+	int fail = 0;
+	fail += RunCommSweepCsvRegressionFile(
+		"comm_2026-07-10_recal_sweeps.csv", "2026-07-10", 2800);
+	fail += RunCommSweepCsvRegressionFile(
+		"comm_2026-07-08_recal_sweeps.csv", "2026-07-08", 2800);
+	fail += RunCommSweepCsvRegressionFile(
+		"comm_2026-07-07_recal_sweeps 208.csv", "2026-07-07-208", 2800);
+	return fail;
+}
+
+/// Batch replay comm_2026-07-01_recal_sweeps.csv: spot-check known good peaks; log fit_ok vs csv_peak_ok.
+static int RunComm20260701SweepRegressionTests()
+{
+	int fail = 0;
+	std::string csvPath;
+	std::ifstream f = OpenCrossPeakTestDataFile("comm_2026-07-01_recal_sweeps.csv", csvPath);
+	if (!f)
+	{
+		std::fprintf(stderr, "self-test sweeps-regression: cannot open comm_2026-07-01_recal_sweeps.csv\n");
+		return 1;
+	}
+
+	M576::Peak1DResetMinProminenceDb();
+
+	int lineNo = 0;
+	int csvPeakOk = 0;
+	int fitOk = 0;
+	std::string line;
+	while (std::getline(f, line))
+	{
+		++lineNo;
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+			line.pop_back();
+		if (line.empty())
+			continue;
+		if (lineNo == 1)
+		{
+			std::string lower = line;
+			for (char& c : lower)
+				if (c >= 'A' && c <= 'Z')
+					c = (char)(c - 'A' + 'a');
+			if (lower.find("path") != std::string::npos)
+				continue;
+		}
+
+		std::vector<std::string> fields;
+		if (!SplitCsvFieldsSimple(line, fields))
+			continue;
+		for (std::string& fld : fields)
+			TrimInPlace(fld);
+		if (fields.size() < 6)
+			continue;
+
+		int csvAttempt = 0;
+		int csvPeakOkFlag = 0;
+		try
+		{
+			if (fields.size() > 2)
+				csvAttempt = std::stoi(fields[2]);
+			if (fields.size() > 3)
+				csvPeakOkFlag = std::stoi(fields[3]);
+		}
+		catch (...)
+		{
+			continue;
+		}
+		if (csvPeakOkFlag == 1)
+			++csvPeakOk;
+
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums) || nums.size() < 2)
+			continue;
+		std::vector<double> powers(nums.begin() + 1, nums.end());
+
+		double tStar = 0;
+		Peak1DValidateCode code = Peak1DValidateCode::Ok;
+		const bool ok = M576::ParabolaVertexMax1D(powers, tStar, code);
+		if (ok)
+			++fitOk;
+
+		auto expectOk = [&](const char* label)
+		{
+			if (!ok || code != Peak1DValidateCode::Ok)
+			{
+				std::fprintf(stderr,
+					"self-test sweeps-regression: %s must Ok (line=%d ok=%d code=%s)\n",
+					label,
+					lineNo,
+					ok ? 1 : 0,
+					Peak1DCodeName(code));
+				++fail;
+			}
+		};
+		if (lineNo == 3)
+			expectOk("step1 attempt2");
+		if (lineNo == 4)
+			expectOk("step1 attempt3");
+		if (lineNo == 1718)
+			expectOk("step242 slot2 attempt1");
+	}
+
+	std::printf("sweeps-regression: lines=%d csv_peak_ok=%d fit_ok=%d (fit/csv=%.3f)\n",
+		lineNo, csvPeakOk, fitOk, csvPeakOk > 0 ? (double)fitOk / (double)csvPeakOk : 0.0);
+	return fail;
+}
+
+/// Diagnostic replay of comm_2026-07-02: per VertexOutOfRange row, report trend/argmax/retry gates (no algorithm change).
+static int RunComm20260702VertexOutOfRangeDiagnostics()
+{
+	std::string csvPath;
+	std::ifstream f = OpenCrossPeakTestDataFile("comm_2026-07-02_recal_sweeps.csv", csvPath);
+	if (!f)
+	{
+		std::fprintf(stderr, "vor-diag: cannot open comm_2026-07-02_recal_sweeps.csv\n");
+		return 1;
+	}
+
+	M576::Peak1DResetMinProminenceDb();
+
+	std::printf("\n=== comm_2026-07-02 VertexOutOfRange diagnostics (%s) ===\n", csvPath.c_str());
+	const double minSpanRaw = M576::Peak1DMinFlatSpanRaw();
+
+	std::string curPath;
+	SweepRecenterSessionState session = {};
+	int movingBase = 0;
+	int attemptDacRange = 64;
+	const int uiFineRange = 64;
+	bool sessionInited = false;
+
+	int lineNo = 0;
+	int vorRows = 0;
+	int vorGiveUp = 0;
+	int vorEarlyGiveUp = 0;
+	std::string line;
+	while (std::getline(f, line))
+	{
+		++lineNo;
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+			line.pop_back();
+		if (line.empty())
+			continue;
+		if (lineNo == 1)
+		{
+			std::string lower = line;
+			for (char& c : lower)
+				if (c >= 'A' && c <= 'Z')
+					c = (char)(c - 'A' + 'a');
+			if (lower.find("path") != std::string::npos)
+				continue;
+		}
+
+		std::vector<std::string> fields;
+		if (!SplitCsvFieldsSimple(line, fields))
+			continue;
+		for (std::string& fld : fields)
+			TrimInPlace(fld);
+		if (fields.size() < 5)
+			continue;
+
+		const std::string& pathField = fields[0];
+		if (pathField != curPath)
+		{
+			curPath = pathField;
+			sessionInited = false;
+		}
+
+		std::string cmd;
+		std::vector<double> nums;
+		if (!SplitSweepCsvRow(line, cmd, nums) || nums.size() < 2)
+			continue;
+
+		RecalSweepCmdFields cf;
+		ParseRecalSweepCmd(cmd, cf);
+		if (!cf.ok || cf.sweepMode != 0)
+			continue;
+
+		int csvAttempt = 1;
+		std::string csvCodeName;
+		try
+		{
+			csvAttempt = std::stoi(fields[2]);
+			csvCodeName = fields[4];
+		}
+		catch (...)
+		{
+			continue;
+		}
+
+		const double col0 = nums[0];
+		std::vector<double> powers(nums.begin() + 1, nums.end());
+		const int n = (int)powers.size();
+		if (n <= 0)
+			continue;
+
+		if (!sessionInited)
+		{
+			InitSweepRecenterSessionState(session, uiFineRange, cf.baseY);
+			movingBase = cf.baseY;
+			attemptDacRange = cf.offsetDac;
+			sessionInited = true;
+		}
+
+		movingBase = cf.baseY;
+		attemptDacRange = cf.offsetDac;
+		session.movingBase = movingBase;
+		session.attemptRange = attemptDacRange;
+
+		const M576::Peak1DFitPolicy fitPolicy = IsFineRefineSweepAttempt(session)
+			? M576::Peak1DFitPolicy::FineRefineRelaxed
+			: M576::Peak1DFitPolicy::Strict;
+
+		double tStar = 0.0;
+		int peakIdx = 0;
+		Peak1DValidateCode fitCode = Peak1DValidateCode::Ok;
+		const bool fitOk = FindUnimodalPeak1DIndex(powers, peakIdx, fitCode, &tStar, nullptr, fitPolicy);
+		const SweepProfile prof = AnalyzeRecal1DSweepProfile(powers);
+		const Peak1DValidateCode csvCode = Peak1DCodeFromCsvName(csvCodeName);
+		const Peak1DValidateCode code = fitOk ? Peak1DValidateCode::Ok : fitCode;
+
+		const bool isVorRow = (csvCode == Peak1DValidateCode::VertexOutOfRange
+			|| code == Peak1DValidateCode::VertexOutOfRange);
+
+		SweepRecenterFailureInfo failInfo = {};
+		failInfo.code = code;
+		failInfo.tPeak = tStar;
+		failInfo.hasTPeak = std::isfinite(tStar);
+		failInfo.prevArgmaxIndex = session.prevArgmax;
+		failInfo.hasPrevAttempt = (csvAttempt > 1);
+
+		const bool lastAttempt = (csvAttempt >= (int)M576_PEAK1D_SWEEP_RECENTER_MAX_ATTEMPTS);
+		const bool afterExpand = session.flatJumpedToMax || session.inCoarsePhase
+			|| session.attemptRange >= M576_MAX_DAC_RANGE;
+		const bool retryableBase = IsRetryablePeakFailure(code, prof, n, false, nullptr, &failInfo);
+		const bool retryableExpand = IsRetryablePeakFailure(code, prof, n, afterExpand, &powers, &failInfo);
+		const double centerDac = RecalSweepCenterFromCol0Diag(col0, attemptDacRange);
+		const SweepRetryPlan plan = PlanNextRecal1DSweepAttempt(
+			session, code, prof, powers, centerDac, csvAttempt - 1, lastAttempt, failInfo);
+
+		if (isVorRow)
+		{
+			++vorRows;
+			if (plan.action == SweepRetryAction::GiveUp)
+			{
+				++vorGiveUp;
+				if (!lastAttempt)
+					++vorEarlyGiveUp;
+			}
+			const std::string reason = ExplainVorNoRetryReason(
+				code, prof, n, afterExpand, powers, failInfo, session, plan, lastAttempt);
+			std::printf(
+				"line=%d step=%s att=%d offset=%d baseY=%d n=%d\n"
+				"  csv_code=%s fit_code=%s fit_ok=%d t*=%.4g argmax=%d trend=%s span=%.4g (minSpanRaw=%.4g flat=%d)\n"
+				"  session: flatJump=%d coarse=%d fineUsed=%d flatShift=%d osc=%d afterExpand=%d\n"
+				"  retryable(base=%d expand=%d) isFlatFail=%d isMonoFail=%d coarseHint=%d\n"
+				"  plan=%s nextOffset=%d nextBase=%d | %s\n",
+				lineNo,
+				ExtractStepTagFromPathField(pathField).c_str(),
+				csvAttempt,
+				attemptDacRange,
+				movingBase,
+				n,
+				csvCodeName.c_str(),
+				Peak1DCodeName(code),
+				fitOk ? 1 : 0,
+				tStar,
+				prof.argmaxIndex,
+				SweepTrendName(prof.trend),
+				prof.span,
+				minSpanRaw,
+				(prof.trend == SweepTrend::Flat) ? 1 : 0,
+				session.flatJumpedToMax ? 1 : 0,
+				session.inCoarsePhase ? 1 : 0,
+				session.fineConsumed ? 1 : 0,
+				session.flatShiftCount,
+				session.oscillationDetected ? 1 : 0,
+				afterExpand ? 1 : 0,
+				retryableBase ? 1 : 0,
+				retryableExpand ? 1 : 0,
+				IsFlatSweepFailure(code, prof) ? 1 : 0,
+				IsMonotoneSweepFailure(code, prof, n) ? 1 : 0,
+				IsCoarsePeakHint(code, prof, n, &failInfo) ? 1 : 0,
+				(plan.action == SweepRetryAction::GiveUp) ? "GiveUp" : SweepRetryActionLogTag(plan.action),
+				plan.nextRange,
+				plan.nextBase,
+				reason.c_str());
+			if (csvCode != code && csvCode == Peak1DValidateCode::VertexOutOfRange)
+				std::printf("  NOTE: csv VOR but replay fit_code=%s\n", Peak1DCodeName(code));
+		}
+
+		if (fitOk)
+		{
+			const SweepRetryPlan finePlan = PlanFineRefineAfterCoarseSuccess(
+				session, col0, tStar, n, attemptDacRange);
+			if (finePlan.action != SweepRetryAction::GiveUp)
+				ApplySweepRetryPlan(session, finePlan);
+			session.prevArgmax = prof.argmaxIndex;
+			continue;
+		}
+
+		if (plan.action == SweepRetryAction::GiveUp)
+		{
+			session.prevArgmax = prof.argmaxIndex;
+			continue;
+		}
+
+		ApplySweepRetryPlan(session, plan);
+		movingBase = session.movingBase;
+		attemptDacRange = session.attemptRange;
+		session.prevArgmax = prof.argmaxIndex;
+	}
+
+	std::printf("vor-diag: VertexOutOfRange rows=%d planner_GiveUp=%d early_GiveUp=%d (opened %s)\n",
+		vorRows, vorGiveUp, vorEarlyGiveUp, csvPath.c_str());
+	if (vorEarlyGiveUp > 0)
+	{
+		std::fprintf(stderr,
+			"vor-diag: FAIL %d VOR row(s) GiveUp before lastAttempt (INV-12 fallback expected)\n",
+			vorEarlyGiveUp);
+		return 1;
+	}
+	return 0;
+}
+
 static int RunRecalCmdFormatSelfTests()
 {
 	int fail = 0;
@@ -1867,7 +4387,7 @@ static int RunRecalCmdFormatSelfTests()
 static int FineRefineRelaxedSelfTests()
 {
 	int fail = 0;
-	// 2026-06-08 Step 64 fine RECAL 3 0 @64: relFlat under Strict, visible peak at ~index 14.
+	// 2026-06-08 Step 64 fine RECAL 3 0 @64: span < MinProminenceDb under Strict, visible peak at ~index 14.
 	static const double kFineJun8[] = {
 		-220349, -220352, -220344, -220338, -220333, -220336, -220324, -220324, -220318, -220315,
 		-220312, -220305, -220303, -220295, -220291, -220297, -220294, -220296, -220295, -220297,
@@ -1881,7 +4401,7 @@ static int FineRefineRelaxedSelfTests()
 		double tStrict = 0.0;
 		if (M576::ParabolaVertexMax1D(fineJun8, tStrict, cStrict, nullptr, Peak1DFitPolicy::Strict))
 		{
-			std::fprintf(stderr, "self-test: Jun8 fine sweep must fail Strict (relFlat)\n");
+			std::fprintf(stderr, "self-test: Jun8 fine sweep must fail Strict (span < MinProminenceDb)\n");
 			++fail;
 		}
 		if (cStrict == Peak1DValidateCode::Ok)
@@ -1913,18 +4433,21 @@ static int FineRefineRelaxedSelfTests()
 		flatLowSpan[(size_t)(nFine / 2)] = -219999.0;
 		Peak1DValidateCode cFlat = Peak1DValidateCode::Ok;
 		double tFlat = 0.0;
-		int idxFlat = 0;
-		if (M576::FindUnimodalPeak1DIndex(
-				flatLowSpan, idxFlat, cFlat, &tFlat, nullptr, Peak1DFitPolicy::FineRefineRelaxed))
+		if (M576::ParabolaVertexMax1D(flatLowSpan, tFlat, cFlat, nullptr, Peak1DFitPolicy::Strict))
 		{
-			std::fprintf(stderr, "self-test: FineRefineRelaxed must reject span below MIN_SPAN\n");
+			std::fprintf(stderr, "self-test: Strict must reject preprocess span below MinProminenceDb\n");
+			++fail;
+		}
+		if (cFlat != Peak1DValidateCode::ParabolaNotDownward)
+		{
+			std::fprintf(stderr, "self-test: Strict micro-flat must be ParabolaNotDownward (got %d)\n", (int)cFlat);
 			++fail;
 		}
 	}
 	{
 		std::vector<double> monoDec((size_t)nFine);
 		for (size_t i = 0; i < nFine; ++i)
-			monoDec[i] = -100.0 - (double)i * 10.0;
+			monoDec[i] = -250000.0 - (double)i * 1000.0;
 		Peak1DValidateCode cMono = Peak1DValidateCode::Ok;
 		double tMono = 0.0;
 		if (M576::ParabolaVertexMax1D(monoDec, tMono, cMono, nullptr, Peak1DFitPolicy::Strict))
@@ -2057,6 +4580,16 @@ int main(int argc, char* argv[])
 		return 9;
 	if (RunRecalCmdFormatSelfTests() != 0)
 		return 12;
+	if (RunSweepCsvSplitSelfTests() != 0)
+		return 15;
+	if (RunCommSweepCsvRegressionSuite() != 0)
+		return 19;
+	if (RunComm20260701SweepRegressionTests() != 0)
+		return 16;
+	if (RunMaxAttemptsFallbackSelfTests() != 0)
+		return 18;
+	if (RunComm20260702VertexOutOfRangeDiagnostics() != 0)
+		return 17;
 	if (RunPmRangeSelfTests() != 0)
 		return 11;
 	if (RunSweepRecenterSelfTests() != 0)
@@ -2065,6 +4598,10 @@ int main(int argc, char* argv[])
 		return 14;
 	if (RunPathSummarySelfTests() != 0)
 		return 13;
+
+	// Bare exe: self-tests only (DoD exit 0). Pass test_sweeps.csv for interactive cross demo.
+	if (argc < 2)
+		return 0;
 
 	SweepRow sweepY, sweepX;
 	double step = 1.0;

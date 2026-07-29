@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "Pm1x64Mapping.h"
+// Pm1x64Mapping.cpp：PM 路径与 pm_1x64_*Mapping.csv 行对齐；解析 SW/CH_y 供 MEMS 低温 DAC 写入。
 
+// 由 pm_1x64_N.csv 推导同目录 Mapping 文件名（插入 "Mapping"）。
 BOOL Pm1x64ResolveMappingPath(LPCTSTR pmCsvPath, CString& outMappingPath)
 {
 	outMappingPath.Empty();
