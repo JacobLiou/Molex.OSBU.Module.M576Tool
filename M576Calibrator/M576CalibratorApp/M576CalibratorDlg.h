@@ -49,6 +49,8 @@ public:
 	BOOL BeginIlTestSession(CString& outDirAbs, CString& err);
 	void EndIlTestSession();
 	CDiagnosisSession* GetDiagnosisSessionForIlTest();
+	/// Shared 439F / Z4671 command object (IL temp monitor, FW tunnel, etc.).
+	Z4671Command& Device429f() { return m_dev429f; }
 	BOOL IsBackgroundBusyForIlTest() const;
 	/// Absolute path of the active IL Test comm log (empty when not in session).
 	CString GetIlTestCommLogPathAbs() const { return m_ilTestCommLogPathAbs; }

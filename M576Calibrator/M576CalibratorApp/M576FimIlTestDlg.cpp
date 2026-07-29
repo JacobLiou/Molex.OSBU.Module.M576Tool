@@ -6,6 +6,7 @@
 #include "IlTestCsv.h"
 #include "CalibConstants.h"
 #include "McsFwTransport.h"
+#include "M576TempMonitor.h"
 #include "resource.h"
 
 #include <commctrl.h>
@@ -22,6 +23,7 @@ constexpr UINT WM_M576_FIM_IL_LOG = WM_APP + 220;
 constexpr UINT WM_M576_FIM_IL_ROW_FLUSH = WM_APP + 221;
 constexpr UINT WM_M576_FIM_IL_STATUS = WM_APP + 222;
 constexpr UINT WM_M576_FIM_IL_FINISHED = WM_APP + 223;
+constexpr UINT WM_M576_FIM_IL_TEMPS = WM_APP + 224;
 
 constexpr int kFimChannelCount = 576;
 
@@ -789,6 +791,7 @@ BEGIN_MESSAGE_MAP(CM576FimIlTestDlg, CDialogEx)
 	ON_MESSAGE(WM_M576_FIM_IL_LOG, &CM576FimIlTestDlg::OnUiLog)
 	ON_MESSAGE(WM_M576_FIM_IL_ROW_FLUSH, &CM576FimIlTestDlg::OnUiRowFlush)
 	ON_MESSAGE(WM_M576_FIM_IL_STATUS, &CM576FimIlTestDlg::OnUiStatus)
+	ON_MESSAGE(WM_M576_FIM_IL_TEMPS, &CM576FimIlTestDlg::OnUiTemps)
 	ON_MESSAGE(WM_M576_FIM_IL_FINISHED, &CM576FimIlTestDlg::OnUiFinished)
 END_MESSAGE_MAP()
 
@@ -1172,6 +1175,24 @@ void CM576FimIlTestDlg::WorkerEntry(
 		if (m_hWnd && ::IsWindow(m_hWnd))
 			::PostMessage(m_hWnd, WM_M576_FIM_IL_STATUS, 0, (LPARAM)new CString(s));
 	};
+	auto PostTemps = [this](const CString& s) {
+		if (m_hWnd && ::IsWindow(m_hWnd))
+			::PostMessage(m_hWnd, WM_M576_FIM_IL_TEMPS, 0, (LPARAM)new CString(s));
+	};
+	auto RefreshTemps = [this, &PostLog, &PostTemps]() {
+		if (!m_pOwner)
+			return;
+		M576FiveTemps temps;
+		CString detail;
+		(void)M576ReadAllFiveTempsC(m_pOwner->Device429f(), temps, detail);
+		PostTemps(M576FormatFiveTempsUiLine(temps));
+		CStringArray lines;
+		M576AppendFiveTempsLogLines(temps, lines);
+		for (int i = 0; i < lines.GetSize(); ++i)
+			PostLog(lines[i]);
+		if (!detail.IsEmpty())
+			PostLog(_T("[TEMP] partial failures: ") + detail);
+	};
 
 	const int port1x8 = IlTestSwlChannel(wl);
 	const int wlNm = IlTestWavelengthNm(wl);
@@ -1224,6 +1245,11 @@ void CM576FimIlTestDlg::WorkerEntry(
 		}
 		COpComm& comm = session->Comm();
 		CString err;
+
+		if (!m_stop)
+			RefreshTemps();
+		if (m_stop)
+			break;
 
 		// Once: OPM AUTO + SWL (FIM SetTestWL; no SW 3 ?? driver stub).
 		if (!armedWl)
@@ -1436,6 +1462,17 @@ LRESULT CM576FimIlTestDlg::OnUiStatus(WPARAM, LPARAM lParam)
 	if (p)
 	{
 		SetDlgItemText(IDC_FIM_IL_STATIC_STATUS, *p);
+		delete p;
+	}
+	return 0;
+}
+
+LRESULT CM576FimIlTestDlg::OnUiTemps(WPARAM, LPARAM lParam)
+{
+	CString* p = (CString*)lParam;
+	if (p)
+	{
+		SetDlgItemText(IDC_FIM_IL_STATIC_TEMPS, *p);
 		delete p;
 	}
 	return 0;

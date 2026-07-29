@@ -5,6 +5,7 @@
 #include "IlTestCsv.h"
 #include "CalibConstants.h"
 #include "DiagnosisSession.h"
+#include "M576TempMonitor.h"
 #include "resource.h"
 
 #include <commctrl.h>
@@ -16,6 +17,7 @@ constexpr UINT WM_M576_IL_LOG = WM_APP + 210;
 constexpr UINT WM_M576_IL_ROW_FLUSH = WM_APP + 211;
 constexpr UINT WM_M576_IL_STATUS = WM_APP + 212;
 constexpr UINT WM_M576_IL_FINISHED = WM_APP + 213;
+constexpr UINT WM_M576_IL_TEMPS = WM_APP + 214;
 
 CString NowTimeStamp()
 {
@@ -77,6 +79,7 @@ BEGIN_MESSAGE_MAP(CM576IlTestDlg, CDialogEx)
 	ON_MESSAGE(WM_M576_IL_LOG, &CM576IlTestDlg::OnUiLog)
 	ON_MESSAGE(WM_M576_IL_ROW_FLUSH, &CM576IlTestDlg::OnUiRowFlush)
 	ON_MESSAGE(WM_M576_IL_STATUS, &CM576IlTestDlg::OnUiStatus)
+	ON_MESSAGE(WM_M576_IL_TEMPS, &CM576IlTestDlg::OnUiTemps)
 	ON_MESSAGE(WM_M576_IL_FINISHED, &CM576IlTestDlg::OnUiFinished)
 END_MESSAGE_MAP()
 
@@ -531,6 +534,24 @@ void CM576IlTestDlg::WorkerEntry(
 		if (m_hWnd && ::IsWindow(m_hWnd))
 			::PostMessage(m_hWnd, WM_M576_IL_STATUS, 0, (LPARAM)new CString(s));
 	};
+	auto PostTemps = [this](const CString& s) {
+		if (m_hWnd && ::IsWindow(m_hWnd))
+			::PostMessage(m_hWnd, WM_M576_IL_TEMPS, 0, (LPARAM)new CString(s));
+	};
+	auto RefreshTemps = [this, &PostLog, &PostTemps]() {
+		if (!m_pOwner)
+			return;
+		M576FiveTemps temps;
+		CString detail;
+		(void)M576ReadAllFiveTempsC(m_pOwner->Device429f(), temps, detail);
+		PostTemps(M576FormatFiveTempsUiLine(temps));
+		CStringArray lines;
+		M576AppendFiveTempsLogLines(temps, lines);
+		for (int i = 0; i < lines.GetSize(); ++i)
+			PostLog(lines[i]);
+		if (!detail.IsEmpty())
+			PostLog(_T("[TEMP] partial failures: ") + detail);
+	};
 	DWORD lastStatusTick = 0;
 
 	auto DelayMs = [this, kSliceMs](DWORD delayMs) {
@@ -585,6 +606,12 @@ void CM576IlTestDlg::WorkerEntry(
 			PostLog(_T("[ILTEST] serial session closed; aborting."));
 			break;
 		}
+
+		// Temperature monitor: main MT + four sub-board box temps (does not abort on failure).
+		if (!m_stop)
+			RefreshTemps();
+		if (m_stop)
+			break;
 
 		// Once per run (before first channel): OPM AUTO + 1x2 DUT (FIM ILTest / SetPMRange).
 		if (!armedOpmAuto)
@@ -896,6 +923,17 @@ LRESULT CM576IlTestDlg::OnUiStatus(WPARAM, LPARAM lParam)
 	if (p)
 	{
 		SetDlgItemText(IDC_IL_STATIC_STATUS, *p);
+		delete p;
+	}
+	return 0;
+}
+
+LRESULT CM576IlTestDlg::OnUiTemps(WPARAM, LPARAM lParam)
+{
+	CString* p = (CString*)lParam;
+	if (p)
+	{
+		SetDlgItemText(IDC_IL_STATIC_TEMPS, *p);
 		delete p;
 	}
 	return 0;

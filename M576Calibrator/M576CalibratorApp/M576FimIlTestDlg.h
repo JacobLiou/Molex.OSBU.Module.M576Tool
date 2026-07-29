@@ -86,5 +86,6 @@ private:
 	afx_msg LRESULT OnUiLog(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnUiRowFlush(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnUiStatus(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnUiTemps(WPARAM wParam, LPARAM lParam);
 	afx_msg LRESULT OnUiFinished(WPARAM wParam, LPARAM lParam);
 };
