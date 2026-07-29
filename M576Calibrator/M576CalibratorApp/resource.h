@@ -15,6 +15,7 @@
 #define IDD_M576_FINE_TUNE              113
 #define IDD_M576_IL_TEST                114
 #define IDD_M576_FIM_IL_TEST            115
+#define IDD_M576_CHASSIS_DEBUG          116
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -81,6 +82,24 @@
 #define IDC_BTN_EXPORT_CALIB_STATS      1040
 #define IDC_BTN_TEST_CONNECTION         1041
 #define IDC_BTN_BURN_BOARD              2184
+#define IDC_BTN_CHASSIS_DEBUG           2242
+#define IDC_CHASSIS_COMBO_1X8           2243
+#define IDC_CHASSIS_BTN_1X8             2244
+#define IDC_CHASSIS_COMBO_1X2           2245
+#define IDC_CHASSIS_BTN_1X2             2246
+#define IDC_CHASSIS_COMBO_1X64_1        2247
+#define IDC_CHASSIS_BTN_1X64_1          2248
+#define IDC_CHASSIS_COMBO_1X64_2        2249
+#define IDC_CHASSIS_BTN_1X64_2          2250
+#define IDC_CHASSIS_COMBO_MCS1_IDX      2251
+#define IDC_CHASSIS_COMBO_MCS1_PORT     2252
+#define IDC_CHASSIS_BTN_MCS1            2253
+#define IDC_CHASSIS_COMBO_MCS2_IDX      2254
+#define IDC_CHASSIS_COMBO_MCS2_PORT     2255
+#define IDC_CHASSIS_BTN_MCS2            2256
+#define IDC_CHASSIS_BTN_READ_TLS        2257
+#define IDC_CHASSIS_BTN_READ_OPM        2258
+#define IDC_CHASSIS_EDIT_LOG            2259
 #define IDC_RADIO_CAL_PM                1023
 #define IDC_RADIO_CAL_PD                1024
 #define IDC_EDIT_RECAL_DELAY            1025
@@ -688,9 +707,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        116
+#define _APS_NEXT_RESOURCE_VALUE        117
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2242
+#define _APS_NEXT_CONTROL_VALUE         2260
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

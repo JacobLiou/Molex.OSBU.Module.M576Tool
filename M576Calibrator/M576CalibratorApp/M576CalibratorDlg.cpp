@@ -8,6 +8,7 @@
 #include "M576FineTuneDlg.h"
 #include "M576IlTestDlg.h"
 #include "M576FimIlTestDlg.h"
+#include "M576ChassisDebugDlg.h"
 #include "IlTestCsv.h"
 #include "LutMerge1310.h"
 #include "LutMerge1550.h"
@@ -1477,6 +1478,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
 	ON_BN_CLICKED(IDC_BTN_TEST_CONNECTION, &CM576CalibratorDlg::OnBnClickedTestConnection)
 	ON_BN_CLICKED(IDC_BTN_BURN_BOARD, &CM576CalibratorDlg::OnBnClickedBurnBoard)
+	ON_BN_CLICKED(IDC_BTN_CHASSIS_DEBUG, &CM576CalibratorDlg::OnBnClickedChassisDebug)
 	ON_BN_CLICKED(IDC_BTN_CLOSE_PORT, &CM576CalibratorDlg::OnBnClickedClosePort)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
@@ -2041,6 +2043,8 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 	if (CWnd* p = GetDlgItem(IDC_BTN_TEST_CONNECTION))
 		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_BURN_BOARD))
+		p->EnableWindow(!busy);
+	if (CWnd* p = GetDlgItem(IDC_BTN_CHASSIS_DEBUG))
 		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
 		p->EnableWindow(!busy);
@@ -2774,6 +2778,31 @@ void CM576CalibratorDlg::OnBnClickedTestConnection()
 		box.Format(_T("439F connection test OK.\n\ninfo<CR> reply:\n\n%s"), (LPCTSTR)resp);
 		MessageBoxM576(box, MB_OK | MB_ICONINFORMATION);
 	}
+}
+
+void CM576CalibratorDlg::OnBnClickedChassisDebug()
+{
+	UpdateData(TRUE);
+	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
+		|| m_burnFlashRunning.load() || m_burnBoardRunning.load() || m_diagRunning.load();
+	if (busy)
+	{
+		AppendLog(_T("Chassis Debug: a background task is running; wait for it to finish."));
+		return;
+	}
+	if (!IsSerialPortOpen())
+	{
+		AppendLog(_T("Chassis Debug: opening port first..."));
+		if (!OpenPort())
+		{
+			AppendLog(_T("Open the serial port first."));
+			MessageBoxM576(_T("Open the serial port first."), MB_OK | MB_ICONINFORMATION);
+			return;
+		}
+		SyncSerialPortUi();
+	}
+	CM576ChassisDebugDlg dlg(this, this);
+	dlg.DoModal();
 }
 
 void CM576CalibratorDlg::OnBnClickedBurnBoard()
@@ -4433,13 +4462,8 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 		err = _T("Run Path: port session not ready (open port first).");
 		return FALSE;
 	}
-	const int tlsSource = m_tlsIndex + 1;
-	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
-	{
-		err.Format(_T("Run Path: TLS source %d out of range %d..%d."),
-			tlsSource, M576_MIN_TLS_SOURCE, M576_MAX_TLS_SOURCE);
-		return FALSE;
-	}
+	// External source on fixed TLS channel 8 (same as Diagnosis / IL SWL).
+	const int tlsSource = M576_DIAG_SWL_TLS_SOURCE;
 	if (wavelengthNm != 1310 && wavelengthNm != 1550)
 	{
 		err.Format(_T("Run Path: SWL requires wavelength 1310 or 1550 nm (UI has %d)."),
@@ -4449,7 +4473,7 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 	CStringA wire;
 	FormatSwlWire(wire, tlsSource, wavelengthNm);
 	CString label;
-	FormatSwlLabel(label, _T("(Run Path)"), tlsSource, wavelengthNm);
+	FormatSwlLabel(label, _T("(Run Path, external)"), tlsSource, wavelengthNm);
 	CStringA reply;
 	DWORD ms = 0;
 	if (!m_pDiag->ExchangeAsciiLine(label, wire, reply, 3000, ms, err))
@@ -4515,11 +4539,6 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		return;
 	}
 	StartSessionCalibPolicyFromWavelength(wavelengthNm);
-	//if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
-	//{
-	//	SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
-	//	return;
-	//}
 	const int tlsSource = m_tlsIndex + 1;
 	const int pmRange = m_pmRangeIndex;
 	{
@@ -4538,6 +4557,12 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 				tlsSource, wavelengthNm, pmRange, CString(line0));
 			SafeAppendLog(msg);
 		}
+	}
+	// External source: SWL 8 <UI wavelength> after RECAL 0 (e.g. RECAL 0 … 1310 … then SWL 8 1310).
+	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
+	{
+		SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL 8 (external source wavelength) failed.") : err);
+		return;
 	}
 
 	int globalProgress = 0;
@@ -5708,11 +5733,6 @@ void CM576CalibratorDlg::RunPathPd()
 		else
 			StartSessionCalibPolicyFromWavelength(M576_DEFAULT_WAVELENGTH_NM);
 	}
-	//if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
-	//{
-	//	SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (set TLS/wavelength) failed.") : err);
-	//	return;
-	//}
 	ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet();
 	{
 		CString axisMsg;
@@ -5724,6 +5744,12 @@ void CM576CalibratorDlg::RunPathPd()
 	}
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
+	/// Still set external-source wavelength via SWL 8 <nm> (same wire as PM after RECAL 0).
+	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
+	{
+		SafeAppendLog(err.IsEmpty() ? _T("Run Path PD: SWL 8 (external source wavelength) failed.") : err);
+		return;
+	}
 
 	int globalProgress = 0;
 	for (int fs = 0; fs < 4; ++fs)

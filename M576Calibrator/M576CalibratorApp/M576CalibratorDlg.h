@@ -231,7 +231,8 @@ private:
 		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
 		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
-	/// Before RECAL path: set TLS source + wavelength via ASCII `SWL <tls 1-8> <1310|1550>`.
+	/// External-source wavelength for Run Path: ASCII `SWL 8 <1310|1550>` (fixed TLS ch 8).
+	/// PM: call after successful RECAL 0; PD: call at path start (no RECAL 0).
 	BOOL ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err);
 	void RunPathPowerMeter();
 	void RunPathPd();
@@ -322,6 +323,7 @@ private:
 	afx_msg void OnBnClickedOpenPorts();
 	afx_msg void OnBnClickedTestConnection();
 	afx_msg void OnBnClickedBurnBoard();
+	afx_msg void OnBnClickedChassisDebug();
 	afx_msg void OnBnClickedClosePort();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();
