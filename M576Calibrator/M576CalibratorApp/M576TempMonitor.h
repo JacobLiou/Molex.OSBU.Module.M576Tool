@@ -8,7 +8,7 @@ struct M576FiveTemps
 {
 	double mainC = NAN;
 	double subC[4] = { NAN, NAN, NAN, NAN };       // MCS1, MCS2, 1x64#1, 1x64#2 (box)
-	double edfaOut1C[4] = { NAN, NAN, NAN, NAN }; // aux from B2 id 0x29
+	double edfaOut1C[4] = { NAN, NAN, NAN, NAN }; // unused (kept for API)
 	bool hasMain = false;
 	bool hasSub[4] = {};
 	bool hasEdfa[4] = {};
@@ -17,7 +17,8 @@ struct M576FiveTemps
 /// ASCII `MT` on 439F management port; reply integer is degC * 10 (259 -> 25.9).
 BOOL M576ReadMainBoardTempC(Z4671Command& cmd, double& outC, CString& err);
 
-/// `trans N` then Z4671 B2 len=2 payload 00 29; box = ObjId 0x00, EDFA OUT1 = 0x29 (degC * 10).
+/// `trans N` then: MCS (1/2) GetMCSTemp; 1x64 (3/4) ASCII `GTMP\r` (°C = reply/100).
+/// Retries whole tunnel+read up to M576_TEMP_SUB_RETRY_MAX (flaky 439F / Invalid command). edfaOut1C unset.
 BOOL M576ReadSubBoardBoxTempC(
 	Z4671Command& cmd,
 	int trans1to4,

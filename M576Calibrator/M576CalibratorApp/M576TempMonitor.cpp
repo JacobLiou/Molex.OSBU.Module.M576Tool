@@ -1,8 +1,10 @@
 #include "stdafx.h"
 #include "M576TempMonitor.h"
 #include "Board439fTransTunnel.h"
+#include "CalibConstants.h"
 
 #include <cstdlib>
+#include <cstring>
 
 namespace
 {
@@ -37,53 +39,83 @@ namespace
 		return TRUE;
 	}
 
-	/// Payload after decode: optional B2 echo, then 5-byte records (id + BE32 value ??0.1 ??C).
-	static BOOL ParseB2BoxEdfaReply(const BYTE* data, int n, double& boxC, double& edfaC, CString& err)
+	static bool ReplyLooksInvalidCommand(const CStringA& reply)
+	{
+		CStringA low(reply);
+		low.MakeLower();
+		return low.Find("invalid") >= 0;
+	}
+
+	/// 1x64 Switch GetModuleTemp: ASCII `GTMP\r`, reply /100 °C.
+	static BOOL ParseGtmpReply(const CStringA& reply, double& outC, CString& err)
+	{
+		err.Empty();
+		if (ReplyLooksInvalidCommand(reply))
+		{
+			err.Format(_T("GTMP: Invalid command (%s)."), CString(reply).GetString());
+			return FALSE;
+		}
+		const char* p = reply.GetString();
+		while (*p && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n'))
+			++p;
+		if (!*p)
+		{
+			err = _T("GTMP: empty reply.");
+			return FALSE;
+		}
+		char* end = nullptr;
+		const double v = strtod(p, &end);
+		if (end == p)
+		{
+			err.Format(_T("GTMP: cannot parse from '%s'."), CString(reply).GetString());
+			return FALSE;
+		}
+		outC = v / 100.0;
+		return TRUE;
+	}
+
+	static BOOL Read1x64GtmpOnTunnel(Z4671Command& cmd, double& boxC, CString& err)
 	{
 		err.Empty();
 		boxC = NAN;
-		edfaC = NAN;
-		if (!data || n < 8)
+		char wire[] = "GTMP\r";
+		if (!cmd.WriteBufferNoPurge(wire, (DWORD)strlen(wire)))
 		{
-			err = _T("B2 temp: reply too short.");
+			err = _T("GTMP: write failed.");
 			return FALSE;
 		}
-		if (data[1] != 0)
+		Sleep(50);
+		BYTE buf[256] = {};
+		DWORD n = 0;
+		if (!cmd.ReadBuffer((char*)buf, sizeof(buf), &n) || n == 0)
 		{
-			err.Format(_T("B2 temp: status 0x%02X."), data[1]);
+			err = _T("GTMP: read failed or empty.");
 			return FALSE;
 		}
-		const int payloadLen = (int)data[3] * 256 + (int)data[4];
-		int off = 5;
-		if (off < n && data[off] == 0xB2)
-			++off;
-		const int end = 5 + payloadLen;
-		bool gotBox = false;
-		bool gotEdfa = false;
-		while (off + 5 <= n && off + 5 <= end)
+		buf[sizeof(buf) - 1] = 0;
+		CStringA reply((const char*)buf, (int)strnlen((const char*)buf, n));
+		cmd.TraceInfo(_T("TEMP"), _T("GTMP reply: %s"), CString(reply).GetString());
+		return ParseGtmpReply(reply, boxC, err);
+	}
+
+	static BOOL ReadMcsTempOnTunnel(Z4671Command& cmd, double& boxC, CString& err)
+	{
+		err.Empty();
+		boxC = NAN;
+		double t = 0.0;
+		if (!cmd.GetMCSTemp(&t))
 		{
-			const BYTE id = data[off];
-			const DWORD raw = ((DWORD)data[off + 1] << 24) | ((DWORD)data[off + 2] << 16)
-				| ((DWORD)data[off + 3] << 8) | (DWORD)data[off + 4];
-			const double c = (double)(LONG)raw / 10.0;
-			if (id == 0x00)
+			err = _T("MCS temp: GetMCSTemp failed.");
+			if (!cmd.m_strLogInfo.IsEmpty())
 			{
-				boxC = c;
-				gotBox = true;
+				err += _T(" ");
+				err += cmd.m_strLogInfo;
+				if (ReplyLooksInvalidCommand(CStringA(cmd.m_strLogInfo)))
+					err += _T(" (Invalid command)");
 			}
-			else if (id == 0x29)
-			{
-				edfaC = c;
-				gotEdfa = true;
-			}
-			off += 5;
-		}
-		if (!gotBox)
-		{
-			err = _T("B2 temp: box ObjId 0x00 not found.");
 			return FALSE;
 		}
-		(void)gotEdfa;
+		boxC = t;
 		return TRUE;
 	}
 }
@@ -128,79 +160,84 @@ BOOL M576ReadSubBoardBoxTempC(
 	edfaOut1C = NAN;
 	if (trans1to4 < 1 || trans1to4 > 4)
 	{
-		err.Format(_T("B2 temp: trans %d out of range 1..4."), trans1to4);
+		err.Format(_T("sub temp: trans %d out of range 1..4."), trans1to4);
 		return FALSE;
 	}
 
-	if (!Board439fTransTunnel::BeginTrans(cmd, trans1to4, err))
-		return FALSE;
+	CString lastErr;
+	const int maxAttempts = (int)M576_TEMP_SUB_RETRY_MAX;
+	for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+	{
+		boxC = NAN;
+		CString attemptErr;
 
-	BYTE byData[16] = {};
-	byData[0] = START_CMD;
-	byData[1] = 0xB2;
-	byData[2] = 0x00;
-	byData[3] = 0x00;
-	byData[4] = 0x02;
-	byData[5] = 0x00;
-	byData[6] = 0x29;
-	const int nLength = byData[3] * 256 + byData[4] + 4;
-	int nCheckSum = 0;
-	for (int i = 1; i <= nLength; ++i)
-		nCheckSum = nCheckSum ^ byData[i];
-	byData[7] = (BYTE)(nCheckSum - 1);
-	byData[8] = END_CMD;
-	WORD nCmdLength = 9;
-	PBYTE pSend = NULL;
-	if (!cmd.CmdSendExchange(byData, nCmdLength, &pSend, &nCmdLength))
-	{
-		err = _T("B2 temp: CmdSendExchange failed.");
-		CString e2;
-		(void)Board439fTransTunnel::EndTrans(cmd, e2);
-		return FALSE;
-	}
-	if (!cmd.WriteBuffer((char*)pSend, nCmdLength))
-	{
-		err = _T("B2 temp: write failed.");
-		CString e2;
-		(void)Board439fTransTunnel::EndTrans(cmd, e2);
-		return FALSE;
-	}
-	Sleep(50);
-	BYTE byGet[256] = {};
-	DWORD got = 0;
-	if (!cmd.ReadBuffer((char*)byGet, sizeof(byGet), &got) || got == 0)
-	{
-		err = _T("B2 temp: read failed or empty.");
-		CString e2;
-		(void)Board439fTransTunnel::EndTrans(cmd, e2);
-		return FALSE;
+		// Clear stale tunnel / ASCII echo before each try (439F sometimes replies Invalid command).
+		CString discard;
+		(void)Board439fTransTunnel::EndTrans(cmd, discard);
+
+		if (!Board439fTransTunnel::BeginTrans(cmd, trans1to4, attemptErr))
+		{
+			lastErr = attemptErr;
+			cmd.TraceError(
+				_T("TEMP"),
+				_T("trans %d begin failed attempt %d/%d: %s"),
+				trans1to4,
+				attempt,
+				maxAttempts,
+				attemptErr.GetString());
+			if (attempt < maxAttempts)
+				Sleep(M576_TEMP_SUB_RETRY_DELAY_MS);
+			continue;
+		}
+
+		BOOL ok = FALSE;
+		if (trans1to4 <= 2)
+			ok = ReadMcsTempOnTunnel(cmd, boxC, attemptErr);
+		else
+			ok = Read1x64GtmpOnTunnel(cmd, boxC, attemptErr);
+
+		CString endErr;
+		const BOOL endOk = Board439fTransTunnel::EndTrans(cmd, endErr);
+		if (!endOk)
+		{
+			if (attemptErr.IsEmpty())
+				attemptErr = endErr;
+			else if (!endErr.IsEmpty())
+				attemptErr += _T("; ") + endErr;
+			ok = FALSE;
+		}
+
+		if (ok)
+		{
+			if (attempt > 1)
+			{
+				cmd.TraceInfo(
+					_T("TEMP"),
+					_T("trans %d temp OK on attempt %d/%d"),
+					trans1to4,
+					attempt,
+					maxAttempts);
+			}
+			err.Empty();
+			return TRUE;
+		}
+
+		lastErr = attemptErr;
+		cmd.TraceError(
+			_T("TEMP"),
+			_T("trans %d temp failed attempt %d/%d: %s"),
+			trans1to4,
+			attempt,
+			maxAttempts,
+			attemptErr.GetString());
+		if (attempt < maxAttempts)
+			Sleep(M576_TEMP_SUB_RETRY_DELAY_MS);
 	}
 
-	PBYTE pDecoded = NULL;
-	WORD decodedLen = 0;
-	if (!cmd.CmdReadExchange(byGet, (WORD)got, &pDecoded, &decodedLen))
-	{
-		err = _T("B2 temp: CmdReadExchange failed.");
-		CString e2;
-		(void)Board439fTransTunnel::EndTrans(cmd, e2);
-		return FALSE;
-	}
-
-	CString parseErr;
-	const BOOL ok = ParseB2BoxEdfaReply(pDecoded, (int)decodedLen, boxC, edfaOut1C, parseErr);
-	if (!ok)
-		err = parseErr;
-
-	CString endErr;
-	if (!Board439fTransTunnel::EndTrans(cmd, endErr))
-	{
-		if (err.IsEmpty())
-			err = endErr;
-		else if (!endErr.IsEmpty())
-			err += _T("; ") + endErr;
-		return FALSE;
-	}
-	return ok;
+	err = lastErr;
+	if (err.IsEmpty())
+		err.Format(_T("sub temp: failed after %d attempts."), maxAttempts);
+	return FALSE;
 }
 
 BOOL M576ReadAllFiveTempsC(Z4671Command& cmd, M576FiveTemps& out, CString& errDetail)

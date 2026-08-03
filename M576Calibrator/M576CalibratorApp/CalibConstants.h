@@ -192,6 +192,13 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 #ifndef M576_COMM_WRITE_RETRY_MAX
 #define M576_COMM_WRITE_RETRY_MAX M576_COMM_RETRY_MAX_ATTEMPTS
 #endif
+/// Sub-board temp after `trans N` (MCS GetMCSTemp / 1x64 GTMP): full tunnel+read retries for flaky 439F.
+#ifndef M576_TEMP_SUB_RETRY_MAX
+#define M576_TEMP_SUB_RETRY_MAX 6
+#endif
+#ifndef M576_TEMP_SUB_RETRY_DELAY_MS
+#define M576_TEMP_SUB_RETRY_DELAY_MS 200U
+#endif
 
 /// 439F passthrough: ASCII command / drain timing (tune with firmware).
 // 439F 透传 trans：ASCII 下发后排空接收、结束 trans 的等待上界/空闲判据，与固件调参。
