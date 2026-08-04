@@ -13,7 +13,7 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// ????(???ùù?ùù?) resources
+// ????(???ÔøΩÔøΩ?ÔøΩÔøΩ?) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
 LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
@@ -218,7 +218,7 @@ BEGIN
     PUSHBUTTON      "Cancel",IDCANCEL,241,190,65,13
 END
 
-IDD_M576_FINE_TUNE DIALOGEX 0, 0, 420, 268
+IDD_M576_FINE_TUNE DIALOGEX 0, 0, 420, 318
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "FineTune: patch low-temp DAC in bin"
 FONT 9, "Segoe UI", 400, 0, 0x0
@@ -252,9 +252,11 @@ BEGIN
     EDITTEXT        IDC_FT_EDIT_NEW_DACX,80,202,50,12,ES_AUTOHSCROLL
     LTEXT           "DAC_Y:",-1,140,204,30,8
     EDITTEXT        IDC_FT_EDIT_NEW_DACY,172,202,50,12,ES_AUTOHSCROLL
-    PUSHBUTTON      "Refresh",IDC_FT_BTN_REFRESH,10,238,60,16
-    DEFPUSHBUTTON   "Write Bin",IDC_FT_BTN_WRITE,180,238,70,16
-    PUSHBUTTON      "Close",IDCANCEL,340,238,60,16
+    LTEXT           "",IDC_FT_STATIC_STATUS,10,232,400,28
+    PUSHBUTTON      "Refresh",IDC_FT_BTN_REFRESH,10,270,60,16
+    DEFPUSHBUTTON   "Write Bin",IDC_FT_BTN_WRITE,80,270,70,16
+    PUSHBUTTON      "Small Range",IDC_FT_BTN_SMALL_RANGE,180,270,90,16
+    PUSHBUTTON      "Close",IDCANCEL,340,270,60,16
 END
 
 IDD_M576_IL_TEST DIALOGEX 0, 0, 665, 400
@@ -416,7 +418,7 @@ BEGIN
     0
 END
 
-#endif    // ????(???ùù?ùù?) resources
+#endif    // ????(???ÔøΩÔøΩ?ÔøΩÔøΩ?) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

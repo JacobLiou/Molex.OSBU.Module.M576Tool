@@ -189,6 +189,8 @@
 #define IDC_FT_BTN_WRITE               2209
 #define IDC_FT_STATIC_RECAL            2221
 #define IDC_FT_COMBO_RECAL             2222
+#define IDC_FT_STATIC_STATUS           2228
+#define IDC_FT_BTN_SMALL_RANGE         2229
 #define IDC_IL_RADIO_SFP1550           2210
 #define IDC_IL_RADIO_SFP1310           2211
 #define IDC_IL_RADIO_LASER1310         2212

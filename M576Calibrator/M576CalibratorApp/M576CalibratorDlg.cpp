@@ -23,6 +23,7 @@
 #include "PmRangeValidation.h"
 #include "LutPeakApply.h"
 #include "Pm1x64Mapping.h"
+#include "SmallRangeCalibSelection.h"
 #include "M576GlobalException.h"
 #include "M576AppConfig.h"
 #include "M576Version.h"
@@ -1420,6 +1421,8 @@ CM576CalibratorDlg::CM576CalibratorDlg(CWnd* pParent)
 	, m_burnFlashLastOk(FALSE)
 	, m_burnFlashLastPartial(FALSE)
 	, m_burnFlashLastRecover(FALSE)
+	, m_fineTuneChannelsSnBoundValid(FALSE)
+	, m_smallRangeMode(FALSE)
 {
 	for (int i = 0; i < 4; ++i)
 	{
@@ -2136,10 +2139,15 @@ LRESULT CM576CalibratorDlg::OnPathFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	const BOOL stopped = m_bStop;
 	m_bStop = FALSE;
+	const BOOL wasSmallRange = m_smallRangeMode;
+	m_smallRangeMode = FALSE;
+	m_smallRangeWhitelist.clear();
 	if (m_pathShowFinishInfoBox)
 	{
 		if (stopped)
-			AppendLog(_T("Run Path stopped by user."));
+			AppendLog(wasSmallRange ? _T("Small Range stopped by user.") : _T("Run Path stopped by user."));
+		else if (wasSmallRange)
+			AppendLog(_T("Small Range finished (PM whitelist)."));
 		ShowRunPathSummaryDialog(stopped);
 	}
 	m_pathShowFinishInfoBox = TRUE;
@@ -2171,6 +2179,7 @@ LRESULT CM576CalibratorDlg::OnReadAllSnFinished(WPARAM, LPARAM)
 	SetPathActionButtonsEnabled(TRUE);
 	if (m_readSnLastOk)
 	{
+		MaybeClearFineTuneChannelsOnSnChange(m_readSnLastValues);
 		m_snInfo = m_readSnLastValues;
 		UpdateData(FALSE);
 		BeginArchiveSession();
@@ -3984,49 +3993,127 @@ BOOL CM576CalibratorDlg::GenerateStandardBinFiles(
 
 // 起路径定标工作线程（PathWorkerEntry），并设 UI 为运行中态。
 
-void CM576CalibratorDlg::OnBnClickedRunPath()
+BOOL CM576CalibratorDlg::BeginPathWorker(BOOL smallRangeMode, CString& errMsg)
 {
+	errMsg.Empty();
 	if (m_pathRunning.load())
-		return;
+	{
+		errMsg = _T("Run Path already in progress.");
+		return FALSE;
+	}
 	if (m_burnFlashRunning.load() || m_burnBoardRunning.load())
 	{
-		AppendLog(_T("Flash/board burn in progress; wait before running path."));
-		return;
+		errMsg = _T("Flash/board burn in progress; wait before running path.");
+		return FALSE;
 	}
 	if (m_readBackupRunning.load())
 	{
-		AppendLog(_T("Read Flash backup in progress; wait for it to finish before running path."));
-		return;
+		errMsg = _T("Read Flash backup in progress; wait for it to finish before running path.");
+		return FALSE;
+	}
+	if (m_readSnRunning.load())
+	{
+		errMsg = _T("Read All SN in progress; wait before running path.");
+		return FALSE;
 	}
 	if (!UpdateData(TRUE))
-		return;
+	{
+		errMsg = _T("Failed to read UI parameters.");
+		return FALSE;
+	}
+
+	const int savedMode = m_nCalMode;
+	if (smallRangeMode)
+		m_nCalMode = 0; // force PM
 	SyncCsvPathWithMode();
 	CString valErr;
 	if (!ValidateRunPathInputs(valErr))
 	{
-		MessageBoxM576(valErr, MB_OK | MB_ICONWARNING);
-		return;
+		m_nCalMode = savedMode;
+		SyncCsvPathWithMode();
+		errMsg = valErr;
+		return FALSE;
 	}
 	CString snErr;
 	if (!ValidateSnBeforeBinOp(snErr))
 	{
-		AppendLog(snErr);
-		MessageBoxM576(
-			snErr + _T("\n\nRun Read All SN first, then Run Path."),
-			MB_OK | MB_ICONWARNING);
-		return;
+		m_nCalMode = savedMode;
+		SyncCsvPathWithMode();
+		errMsg = snErr + _T("\n\nRun Read All SN first.");
+		return FALSE;
 	}
+
+	if (smallRangeMode)
+	{
+		std::vector<SmallRangeWhitelistEntry> wl;
+		CString wlErr;
+		if (!BuildSmallRangeWhitelistFromRecorded(wl, wlErr))
+		{
+			m_nCalMode = savedMode;
+			SyncCsvPathWithMode();
+			errMsg = wlErr;
+			return FALSE;
+		}
+		m_smallRangeWhitelist = std::move(wl);
+		m_smallRangeMode = TRUE;
+	}
+	else
+	{
+		m_smallRangeMode = FALSE;
+		m_smallRangeWhitelist.clear();
+	}
+
 	m_bStop = FALSE;
 	if (m_pathThread.joinable())
 		m_pathThread.join();
 	m_pathShowFinishInfoBox = TRUE;
 	m_pathRunning = true;
 	m_suppressPathProgress = false;
-	AppendLog(_T("Run Path Started"));
+	if (smallRangeMode)
+	{
+		CString start;
+		start.Format(
+			_T("Small Range Started (PM): %d channel(s)"),
+			(int)m_smallRangeWhitelist.size());
+		AppendLog(start);
+		for (const SmallRangeWhitelistEntry& e : m_smallRangeWhitelist)
+		{
+			CString line;
+			line.Format(
+				_T("  target: %s -> slot=%d step=%d tgt=%d c1=%d c2=%d c3=%d c4=%d"),
+				CString(e.label.c_str()).GetString(),
+				e.fileSlot + 1,
+				e.stepIndex0 + 1,
+				e.step.targetSwitchIndex,
+				e.step.c1,
+				e.step.c2,
+				e.step.c3,
+				e.step.c4);
+			AppendLog(line);
+		}
+	}
+	else
+		AppendLog(_T("Run Path Started"));
 	SetPathActionButtonsEnabled(FALSE);
 	if (CWnd* pStop = GetDlgItem(IDC_BTN_STOP))
 		pStop->EnableWindow(TRUE);
+	CheckRadioButton(IDC_RADIO_CAL_PM, IDC_RADIO_CAL_PD, m_nCalMode == 0 ? IDC_RADIO_CAL_PM : IDC_RADIO_CAL_PD);
+	UpdateData(FALSE);
 	m_pathThread = std::thread([this]() { PathWorkerEntry(); });
+	return TRUE;
+}
+
+void CM576CalibratorDlg::OnBnClickedRunPath()
+{
+	CString err;
+	if (!BeginPathWorker(FALSE, err))
+	{
+		if (!err.IsEmpty())
+		{
+			AppendLog(err);
+			MessageBoxM576(err, MB_OK | MB_ICONWARNING);
+		}
+	}
 }
 
 void CM576CalibratorDlg::OnBnClickedClearLog()
@@ -4470,18 +4557,95 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 			wavelengthNm);
 		return FALSE;
 	}
+
+	// 1) Settle: 439F often returns FAIL if SWL follows RECAL 0 with no pause (manual OK needs delay).
+	if (M576_SWL_POST_RECAL_SETTLE_MS > 0)
+	{
+		CString settleMsg;
+		settleMsg.Format(_T("  SWL: settle %lums before send"), (unsigned long)M576_SWL_POST_RECAL_SETTLE_MS);
+		SafeAppendLog(settleMsg);
+		Sleep(M576_SWL_POST_RECAL_SETTLE_MS);
+	}
+
 	CStringA wire;
 	FormatSwlWire(wire, tlsSource, wavelengthNm);
 	CString label;
 	FormatSwlLabel(label, _T("(Run Path, external)"), tlsSource, wavelengthNm);
-	CStringA reply;
-	DWORD ms = 0;
-	if (!m_pDiag->ExchangeAsciiLine(label, wire, reply, 3000, ms, err))
-		return FALSE;
-	CString msg;
-	msg.Format(_T("  %s -> %s (%lums)"), label.GetString(), CString(reply), (unsigned long)ms);
-	SafeAppendLog(msg);
-	return TRUE;
+
+	COpComm& comm = m_pDiag->Comm();
+	auto drainRxBeforeSwl = [&]()
+	{
+		HANDLE h = comm.GetPortHandle();
+		if (h && h != INVALID_HANDLE_VALUE)
+			(void)PurgeComm(h, PURGE_RXCLEAR);
+		const DWORD t0 = GetTickCount();
+		DWORD lastDataTick = t0;
+		while (GetTickCount() - t0 < M576_SWL_RX_DRAIN_MAX_MS)
+		{
+			const DWORD avail = comm.RxBytesWaiting();
+			if (avail > 0)
+			{
+				char buf[256];
+				const DWORD chunk = (avail < (DWORD)sizeof(buf)) ? avail : (DWORD)sizeof(buf);
+				DWORD nread = 0;
+				(void)comm.ReadBuffer(buf, chunk, &nread);
+				lastDataTick = GetTickCount();
+				continue;
+			}
+			if (GetTickCount() - lastDataTick >= M576_SWL_RX_DRAIN_IDLE_MS)
+				break;
+			Sleep(1);
+		}
+	};
+
+	CString lastErr;
+	const int maxAttempts = (int)M576_SWL_RETRY_MAX;
+	for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+	{
+		// 2) Drain stale RX so we do not treat leftover FAIL/OK as this SWL reply.
+		drainRxBeforeSwl();
+
+		CStringA reply;
+		DWORD ms = 0;
+		CString attemptErr;
+		CString attemptLabel;
+		attemptLabel.Format(_T("%s attempt %d/%d"), label.GetString(), attempt, maxAttempts);
+		const BOOL gotLine = m_pDiag->ExchangeAsciiLine(
+			attemptLabel, wire, reply, M576_SWL_READ_TIMEOUT_MS, ms, attemptErr);
+		if (!gotLine)
+		{
+			lastErr = attemptErr;
+			SafeAppendLog(attemptErr.IsEmpty()
+				? _T("  SWL: read/write failed.")
+				: (_T("  ") + attemptErr));
+			if (attempt < maxAttempts)
+				Sleep(M576_SWL_RETRY_DELAY_MS);
+			continue;
+		}
+
+		// 3) Require OK (same rule as RECAL 0); FAIL/other -> retry.
+		const BOOL good = (reply.CompareNoCase("OK") == 0);
+		CString msg;
+		msg.Format(
+			_T("  %s -> %s (%lums) attempt %d/%d"),
+			label.GetString(),
+			CString(reply).GetString(),
+			(unsigned long)ms,
+			attempt,
+			maxAttempts);
+		SafeAppendLog(msg);
+		if (good)
+			return TRUE;
+
+		lastErr.Format(_T("SWL: expected OK, got '%s'."), CString(reply).GetString());
+		if (attempt < maxAttempts)
+			Sleep(M576_SWL_RETRY_DELAY_MS);
+	}
+
+	err = lastErr;
+	if (err.IsEmpty())
+		err.Format(_T("SWL: no OK after %d attempt(s)."), maxAttempts);
+	return FALSE;
 }
 
 // --- PM 定标：RECAL0 + 分文件 CSV、RECAL1/3、寻峰写 LUT 槽、合并/进度 ---
@@ -4492,22 +4656,32 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 	ClearPathOutcomes();
 	CString err;
 	int totalAll = 0;
-	for (int fs = 0; fs < 4; ++fs)
+	if (m_smallRangeMode)
 	{
-		const CString rel = m_strCsvPm[fs].Trim();
-		if (rel.IsEmpty())
-			continue;
-		const CString abs = ResolveFilePath(rel);
-		if (GetFileAttributes(abs) == INVALID_FILE_ATTRIBUTES)
-			continue;
-		CArray<SPathStep, SPathStep const&> tmp;
-		if (!LoadPathCsv(abs, tmp, err))
-			continue;
-		totalAll += (int)tmp.GetSize();
+		totalAll = (int)m_smallRangeWhitelist.size();
+		SafeAppendLog(_T("Small Range: using FineTune PM whitelist (original CSV filtered in memory)."));
+	}
+	else
+	{
+		for (int fs = 0; fs < 4; ++fs)
+		{
+			const CString rel = m_strCsvPm[fs].Trim();
+			if (rel.IsEmpty())
+				continue;
+			const CString abs = ResolveFilePath(rel);
+			if (GetFileAttributes(abs) == INVALID_FILE_ATTRIBUTES)
+				continue;
+			CArray<SPathStep, SPathStep const&> tmp;
+			if (!LoadPathCsv(abs, tmp, err))
+				continue;
+			totalAll += (int)tmp.GetSize();
+		}
 	}
 	if (totalAll == 0)
 	{
-		SafeAppendLog(_T("PM: no CSV rows (missing paths or empty files)."));
+		SafeAppendLog(m_smallRangeMode
+			? _T("Small Range: whitelist empty.")
+			: _T("PM: no CSV rows (missing paths or empty files)."));
 		return;
 	}
 	SafeSetProgressRange(0, totalAll);
@@ -4592,16 +4766,37 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 		}
 		if (steps.GetSize() == 0)
 			continue;
+		if (m_smallRangeMode && SmallRangeWhitelistCountForSlot(m_smallRangeWhitelist, fs) == 0)
 		{
 			CString m;
-			m.Format(_T("PM slot %d (%s): %d rows"), fs + 1, rel.GetString(), (int)steps.GetSize());
+			m.Format(_T("PM slot %d (%s): no small-range targets, skip."), fs + 1, rel.GetString());
+			SafeAppendLog(m);
+			continue;
+		}
+		{
+			CString m;
+			if (m_smallRangeMode)
+			{
+				m.Format(
+					_T("PM slot %d (%s): %d CSV rows, %d small-range target(s)"),
+					fs + 1,
+					rel.GetString(),
+					(int)steps.GetSize(),
+					SmallRangeWhitelistCountForSlot(m_smallRangeWhitelist, fs));
+			}
+			else
+			{
+				m.Format(_T("PM slot %d (%s): %d rows"), fs + 1, rel.GetString(), (int)steps.GetSize());
+			}
 			SafeAppendLog(m);
 		}
 		int occT3 = 0;
 		int occT4 = 0;
 		RunPathPowerMeterFile(fs, steps, globalProgress, totalAll, occT3, occT4, abs);
 	}
-	SafeAppendLog(_T("Path run finished (PM all slots)."));
+	SafeAppendLog(m_smallRangeMode
+		? _T("Small Range finished (PM whitelist slots).")
+		: _T("Path run finished (PM all slots)."));
 	{
 		std::lock_guard<std::mutex> lock(m_statsRowsMutex);
 		CString m;
@@ -4626,6 +4821,9 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 	const int memsCalibSlot = MemsPrimaryCalibSlot(m_sessionCalibPolicy);
 	CString err;
 	const int total = (int)steps.GetSize();
+	const int slotWhitelistCount = m_smallRangeMode
+		? SmallRangeWhitelistCountForSlot(m_smallRangeWhitelist, fileSlot)
+		: total;
 	CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> map1x64Rows;
 	if (fileSlot >= 2)
 	{
@@ -4646,6 +4844,8 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			TruncatePathOutcomeDetail(detail);
 			for (int si = 0; si < total; ++si)
 			{
+				if (m_smallRangeMode && !SmallRangeWhitelistContains(m_smallRangeWhitelist, fileSlot, si))
+					continue;
 				SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBase, si + 1, steps[si]);
 				o.result = CalibPathStepResult::Skipped;
 				o.failCategory = CalibPathFailCategory::FileMappingSkip;
@@ -4653,7 +4853,7 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 				o.commDetail = detail;
 				PushPathFailureOutcome(o);
 			}
-			globalProgress += total;
+			globalProgress += slotWhitelistCount;
 			SafeSetProgressPos(globalProgress);
 			return;
 		}
@@ -4664,10 +4864,15 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 	CStringA lineOk, lineY, lineX;
 	for (int i = 0; i < total; ++i)
 	{
+		if (m_smallRangeMode && !SmallRangeWhitelistContains(m_smallRangeWhitelist, fileSlot, i))
+			continue;
+
 		if (m_bStop)
 		{
 			for (int j = i; j < total; ++j)
 			{
+				if (m_smallRangeMode && !SmallRangeWhitelistContains(m_smallRangeWhitelist, fileSlot, j))
+					continue;
 				SCalibPathStepOutcome o = M576MakePmOutcome(fileSlot, csvBasename, j + 1, steps[j]);
 				o.result = CalibPathStepResult::Skipped;
 				o.failCategory = CalibPathFailCategory::UserStop;
@@ -4711,8 +4916,13 @@ void CM576CalibratorDlg::RunPathPowerMeterFile(
 			SafeSetProgressPos(globalProgress);
 			continue;
 		}
-		const int idxOcc3 = (st.targetSwitchIndex == 3) ? occT3 : -1;
-		const int idxOcc4 = (st.targetSwitchIndex == 4) ? occT4 : -1;
+		// Small-range MCS: use CSV row index so LUT/stats match full-run occurrence semantics.
+		const int idxOcc3 = (st.targetSwitchIndex == 3)
+			? (m_smallRangeMode ? i : occT3)
+			: -1;
+		const int idxOcc4 = (st.targetSwitchIndex == 4)
+			? (m_smallRangeMode ? i : occT4)
+			: -1;
 		if (st.targetSwitchIndex == 3)
 			occT3++;
 		else if (st.targetSwitchIndex == 4)
@@ -6620,7 +6830,171 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 	(void)globalTotal;
 }
 
-void CM576CalibratorDlg::OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path)
+static BOOL M576SnInfoEqual(const M576TransSnPnInfo& a, const M576TransSnPnInfo& b)
+{
+	for (int m = 0; m < 2; ++m)
+	{
+		if (a.mcsSn[m] != b.mcsSn[m])
+			return FALSE;
+	}
+	for (int d = 0; d < 2; ++d)
+	{
+		for (int sw = 0; sw < 4; ++sw)
+		{
+			if (a.oneX64Sn[d][sw] != b.oneX64Sn[d][sw])
+				return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+void CM576CalibratorDlg::ClearFineTuneChannels(LPCTSTR reason)
+{
+	if (m_fineTuneChannels.empty() && !m_fineTuneChannelsSnBoundValid)
+		return;
+	const int n = (int)m_fineTuneChannels.size();
+	m_fineTuneChannels.clear();
+	m_fineTuneChannelsSnBound = M576TransSnPnInfo{};
+	m_fineTuneChannelsSnBoundValid = FALSE;
+	CString m;
+	m.Format(
+		_T("FineTune channel memory cleared (%d): %s"),
+		n,
+		reason ? reason : _T("(no reason)"));
+	AppendLog(m);
+}
+
+void CM576CalibratorDlg::MaybeClearFineTuneChannelsOnSnChange(const M576TransSnPnInfo& newSn)
+{
+	if (!m_fineTuneChannelsSnBoundValid)
+		return;
+	if (M576SnInfoEqual(m_fineTuneChannelsSnBound, newSn))
+		return;
+	ClearFineTuneChannels(_T("Read All SN reported a different device SN set"));
+}
+
+int CM576CalibratorDlg::GetFineTuneChannelCount() const
+{
+	return (int)m_fineTuneChannels.size();
+}
+
+CString CM576CalibratorDlg::FormatFineTuneChannelsStatusLine() const
+{
+	CString s;
+	s.Format(_T("FineTune recorded channels: %d"), (int)m_fineTuneChannels.size());
+	return s;
+}
+
+CString CM576CalibratorDlg::FormatFineTuneChannelsListForPrompt() const
+{
+	if (m_fineTuneChannels.empty())
+		return _T("(none)");
+	CString out;
+	const int n = (int)m_fineTuneChannels.size();
+	const int show = (n > 12) ? 12 : n;
+	for (int i = 0; i < show; ++i)
+	{
+		if (!out.IsEmpty())
+			out += _T("\n");
+		CString line;
+		line.Format(_T("  %d) %s"), i + 1, FineTuneAddressFormatLabel(m_fineTuneChannels[(size_t)i]).GetString());
+		out += line;
+	}
+	if (n > show)
+	{
+		CString more;
+		more.Format(_T("\n  ... and %d more"), n - show);
+		out += more;
+	}
+	return out;
+}
+
+BOOL CM576CalibratorDlg::BuildSmallRangeWhitelistFromRecorded(
+	std::vector<SmallRangeWhitelistEntry>& out,
+	CString& errMsg)
+{
+	out.clear();
+	errMsg.Empty();
+	if (m_fineTuneChannels.empty())
+	{
+		errMsg = _T("Small Range: no FineTune channels recorded. Write Bin at least one channel first.");
+		return FALSE;
+	}
+
+	std::vector<SmallRangePmStep> pmStepsBySlot[4];
+	std::vector<SmallRangeMapRow> mapRowsBySlot[4];
+	CString loadErr;
+	for (int fs = 0; fs < 4; ++fs)
+	{
+		const CString rel = m_strCsvPm[fs].Trim();
+		if (rel.IsEmpty())
+			continue;
+		const CString abs = ResolveFilePath(rel);
+		if (GetFileAttributes(abs) == INVALID_FILE_ATTRIBUTES)
+			continue;
+		CArray<SPathStep, SPathStep const&> steps;
+		if (!LoadPathCsv(abs, steps, loadErr))
+		{
+			errMsg.Format(_T("Small Range: failed to load PM CSV slot %d: %s"), fs + 1, loadErr.GetString());
+			return FALSE;
+		}
+		pmStepsBySlot[fs].reserve((size_t)steps.GetSize());
+		for (int i = 0; i < steps.GetSize(); ++i)
+		{
+			SmallRangePmStep s{};
+			s.targetSwitchIndex = steps[i].targetSwitchIndex;
+			s.c1 = steps[i].c1;
+			s.c2 = steps[i].c2;
+			s.c3 = steps[i].c3;
+			s.c4 = steps[i].c4;
+			pmStepsBySlot[fs].push_back(s);
+		}
+		if (fs >= 2)
+		{
+			// Optional here: resolve fails later only if a recorded 1x64 address needs Mapping.
+			CString mapPath;
+			CString mapErr;
+			CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> mapRows;
+			if (Pm1x64ResolveMappingPath(abs, mapPath) && LoadPm1x64MappingCsv(mapPath, mapRows, mapErr))
+			{
+				mapRowsBySlot[fs].reserve((size_t)mapRows.GetSize());
+				for (int i = 0; i < mapRows.GetSize(); ++i)
+				{
+					SmallRangeMapRow m{};
+					m.targetSwitchIndex = mapRows[i].targetSwitchIndex;
+					m.c1 = mapRows[i].c1;
+					m.c2 = mapRows[i].c2;
+					m.c3 = mapRows[i].c3;
+					m.c4 = mapRows[i].c4;
+					m.sw1to4 = mapRows[i].sw1to4;
+					m.chY1based = mapRows[i].chY1based;
+					mapRowsBySlot[fs].push_back(m);
+				}
+			}
+		}
+	}
+
+	std::string errA;
+	if (!SmallRangeResolvePmWhitelist(m_fineTuneChannels, pmStepsBySlot, mapRowsBySlot, out, errA))
+	{
+		errMsg = CString(errA.c_str());
+		if (errMsg.IsEmpty())
+			errMsg = _T("Small Range: whitelist resolve failed.");
+		return FALSE;
+	}
+	return TRUE;
+}
+
+BOOL CM576CalibratorDlg::StartSmallRangePmRunPath(CString& errMsg)
+{
+	return BeginPathWorker(TRUE, errMsg);
+}
+
+void CM576CalibratorDlg::OnFineTuneBinPatched(
+	const FineTuneSyncPayload& sync,
+	LPCTSTR path,
+	const FineTuneAddress& addr,
+	M576BinFileRole role)
 {
 	if (sync.isMcs)
 	{
@@ -6632,8 +7006,22 @@ void CM576CalibratorDlg::OnFineTuneBinPatched(const FineTuneSyncPayload& sync, L
 	{
 		memcpy(&m_mems1x64[sync.oneX64Dev][sync.oneX64Sw], &sync.mems, sizeof(sync.mems));
 	}
+
+	if (!m_fineTuneChannelsSnBoundValid)
+	{
+		m_fineTuneChannelsSnBound = m_snInfo;
+		m_fineTuneChannelsSnBoundValid = TRUE;
+	}
+	const bool added = SmallRangeAppendUnique(m_fineTuneChannels, addr);
+	const LPCTSTR roleTag = (role == M576BinFileRole::Standard) ? _T("standard") : _T("backup");
 	CString m;
-	m.Format(_T("FineTune: patched %s"), path ? path : _T("(null)"));
+	m.Format(
+		_T("FineTune: patched %s [%s] role=%s%s (recorded=%d)"),
+		FineTuneAddressFormatLabel(addr).GetString(),
+		path ? path : _T("(null)"),
+		roleTag,
+		added ? _T("") : _T(" (duplicate)"),
+		(int)m_fineTuneChannels.size());
 	AppendLog(m);
 }
 
@@ -6662,8 +7050,21 @@ void CM576CalibratorDlg::OnBnClickedFineTune()
 		MessageBoxM576(_T("BIN output directory is empty."), MB_OK | MB_ICONWARNING);
 		return;
 	}
+
+	AppendLog(_T("FineTune: Write Bin -> Burn Flash / Recover Flash -> Small Range (PM) to verify channels."));
 	CM576FineTuneDlg dlg(this, absOutDir, m_snInfo, this);
 	dlg.DoModal();
+	if (!dlg.WantsSmallRangeCalib())
+		return;
+
+	CString err;
+	if (!StartSmallRangePmRunPath(err))
+	{
+		AppendLog(err.IsEmpty() ? _T("Small Range failed to start.") : err);
+		MessageBoxM576(
+			err.IsEmpty() ? _T("Small Range failed to start.") : err,
+			MB_OK | MB_ICONWARNING);
+	}
 }
 
 BOOL CM576CalibratorDlg::IsBackgroundBusyForIlTest() const

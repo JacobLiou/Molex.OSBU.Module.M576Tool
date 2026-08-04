@@ -99,6 +99,7 @@
     <ClCompile Include="..\M576CalibratorApp\Peak1DSweepPipeline.cpp" />
     <ClCompile Include="..\M576CalibratorApp\PmRangeValidation.cpp" />
     <ClCompile Include="..\M576CalibratorApp\CalibPathOutcome.cpp" />
+    <ClCompile Include="..\M576CalibratorApp\SmallRangeCalibSelection.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="test_sweeps.csv" />

@@ -10,6 +10,7 @@
 
 #include <commctrl.h>
 #include <algorithm>
+#include <vector>
 
 namespace
 {
@@ -615,7 +616,7 @@ void CM576IlTestDlg::OnBnClickedStart()
 	}
 	CString startMsg;
 	startMsg.Format(
-		_T("[ILTEST] start ch=%d %s SW3=1 %d SWL %d %d SW4 alternate IN/OUT (odd/even lap) OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
+		_T("[ILTEST] start ch=%d %s SW3=1 %d SWL %d %d SW1 IN/OUT swap (odd/even lap) OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
 		(int)rows.size(),
 		IlTestWlLabel(wl),
 		IlTestSw3Third(wl),
@@ -625,7 +626,7 @@ void CM576IlTestDlg::OnBnClickedStart()
 		gate.absIlMaxDb,
 		gate.spanMaxDb);
 	AppendLogLine(startMsg);
-	AppendLogLine(_T("[ILTEST] Half: odd lap=IN (SW4 1), even lap=OUT (SW4 2); Span tracked per half."));
+	AppendLogLine(_T("[ILTEST] Half: odd lap=IN (SW1 sw/sw+32), even lap=OUT (SW1 swapped); SW2 unchanged; Span per half."));
 	AppendLogLine(_T("[ILTEST] CSV ") + M576GetIlTestLogCsvPath(outDir, mcs1Sn));
 	AppendLogLine(_T("[ILTEST] Span CSV (on Stop) ") + M576GetIlTestSpanCsvPath(outDir, mcs1Sn));
 	AppendLogLine(_T("[ILTEST] CommLog file ") + (commLogPath.IsEmpty() ? CString(_T("(none)")) : commLogPath));
@@ -738,7 +739,7 @@ void CM576IlTestDlg::WorkerEntry(
 	};
 
 	// FIM-align source/WL once per run: SW 3 1 <port>, SWL <port> <nm>, OPM 4 1 0.
-	// SW 4 (1x2) alternates each lap: odd=IN(1), even=OUT(2).
+	// Half: odd=IN / even=OUT via SW1 1x64 port swap (not SW4).
 	int armedSw3 = -1;
 	int armedSwlCh = -1;
 	int armedWlNm = -1;
@@ -761,8 +762,11 @@ void CM576IlTestDlg::WorkerEntry(
 		BeginLapUi(N, fullLaps);
 		{
 			CString lapNote;
-			lapNote.Format(_T("[ILTEST] --- lap %d begin half=%s SW4 %d (%d ch) ---"),
-				fullLaps, halfLabel.GetString(), half, N);
+			lapNote.Format(_T("[ILTEST] --- lap %d begin half=%s SW1 %s (%d ch) ---"),
+				fullLaps,
+				halfLabel.GetString(),
+				(half == 2) ? _T("swap(OUT)") : _T("normal(IN)"),
+				N);
 			PostLog(lapNote);
 		}
 
@@ -791,20 +795,6 @@ void CM576IlTestDlg::WorkerEntry(
 			(void)session->ExchangeAsciiLine(_T("OPM4"), CStringA("OPM 4 1 0"), opm4Reply, 3000, ms, errOpm4);
 			armedOpmAuto = true;
 		}
-		// Each lap: 1x2 DUT half (IN/OUT).
-		{
-			MaybeDelay();
-			if (m_stop)
-				break;
-			CStringA sw4;
-			sw4.Format("SW 4 %d", half);
-			CStringA sw4Reply;
-			DWORD ms = 0;
-			CString errSw4;
-			CString labelSw4;
-			labelSw4.Format(_T("SW4 %s"), halfLabel.GetString());
-			(void)session->ExchangeAsciiLine(labelSw4, sw4, sw4Reply, 3000, ms, errSw4);
-		}
 
 		for (int i = 0; i < N; ++i)
 		{
@@ -829,7 +819,23 @@ void CM576IlTestDlg::WorkerEntry(
 				mpoPath = _T("-");
 
 			CString err;
-			for (size_t k = 0; k < src.swCommands.size(); ++k)
+			std::vector<CStringA> swCmds;
+			if (chIdx >= 1)
+			{
+				CString buildErr;
+				if (!IlTestBuildSwCommandsForChannelHalf(chIdx, half, swCmds, buildErr))
+				{
+					PostLog(buildErr.IsEmpty()
+						? _T("IL Test: SW build failed.")
+						: buildErr);
+					swCmds = src.swCommands;
+				}
+			}
+			else
+			{
+				swCmds = src.swCommands;
+			}
+			for (size_t k = 0; k < swCmds.size(); ++k)
 			{
 				if (m_stop)
 					break;
@@ -837,10 +843,10 @@ void CM576IlTestDlg::WorkerEntry(
 				if (m_stop)
 					break;
 				CString labelSw;
-				labelSw.Format(_T("SW %d.%d/%d"), i + 1, (int)k + 1, (int)src.swCommands.size());
+				labelSw.Format(_T("SW %d.%d/%d"), i + 1, (int)k + 1, (int)swCmds.size());
 				CStringA reply;
 				DWORD ms = 0;
-				const BOOL ok = session->ExchangeAsciiLine(labelSw, src.swCommands[k], reply, 3000, ms, err);
+				const BOOL ok = session->ExchangeAsciiLine(labelSw, swCmds[k], reply, 3000, ms, err);
 				if (!ok || reply.CompareNoCase("OK") != 0)
 				{
 					CString log;

@@ -32,6 +32,27 @@
 #ifndef M576_DIAG_SWL_TLS_SOURCE
 #define M576_DIAG_SWL_TLS_SOURCE 8
 #endif
+/// Run Path: settle after RECAL 0 (or before SWL on PD) so 439F accepts SWL (manual OK needs a pause).
+#ifndef M576_SWL_POST_RECAL_SETTLE_MS
+#define M576_SWL_POST_RECAL_SETTLE_MS 300U
+#endif
+/// Drain stale RX before each SWL attempt (avoid reading leftover FAIL/OK).
+#ifndef M576_SWL_RX_DRAIN_MAX_MS
+#define M576_SWL_RX_DRAIN_MAX_MS 200U
+#endif
+#ifndef M576_SWL_RX_DRAIN_IDLE_MS
+#define M576_SWL_RX_DRAIN_IDLE_MS 50U
+#endif
+/// SWL must reply OK; total attempts (same style as RECAL 0).
+#ifndef M576_SWL_RETRY_MAX
+#define M576_SWL_RETRY_MAX 5
+#endif
+#ifndef M576_SWL_RETRY_DELAY_MS
+#define M576_SWL_RETRY_DELAY_MS 200U
+#endif
+#ifndef M576_SWL_READ_TIMEOUT_MS
+#define M576_SWL_READ_TIMEOUT_MS 3000U
+#endif
 /// IL Test hang-up: fail if IL outside [min, max] dB, or rolling Span=Max-Min > spanMax.
 /// Formula: IL = OPM - PD (same as FIM ILTest). Min/Max/Span accumulate per channel across laps.
 #ifndef M576_IL_TEST_DEFAULT_ABS_MIN_DB

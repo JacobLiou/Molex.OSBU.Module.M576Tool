@@ -26,6 +26,7 @@ void CM576FineTuneDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_FT_BTN_REFRESH, &CM576FineTuneDlg::OnBnClickedRefresh)
 	ON_BN_CLICKED(IDC_FT_BTN_WRITE, &CM576FineTuneDlg::OnBnClickedWrite)
+	ON_BN_CLICKED(IDC_FT_BTN_SMALL_RANGE, &CM576FineTuneDlg::OnBnClickedSmallRange)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS1, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS2, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_1, &CM576FineTuneDlg::OnDeviceRadioChanged)
@@ -54,6 +55,7 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	RebuildRecalCombo();
 	CString err;
 	(void)ResolveAndShowPath(err);
+	RefreshStatusHint();
 	return TRUE;
 }
 
@@ -314,7 +316,50 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 	SetDlgItemText(IDC_FT_EDIT_CUR_DACY, curY);
 
 	if (m_pOwner != NULL)
-		m_pOwner->OnFineTuneBinPatched(sync, path);
+		m_pOwner->OnFineTuneBinPatched(sync, path, addr, SelectedRole());
 
+	RefreshStatusHint();
 	MessageBox(_T("Bin updated successfully."), _T("FineTune"), MB_OK | MB_ICONINFORMATION);
+}
+
+void CM576FineTuneDlg::RefreshStatusHint()
+{
+	const int n = (m_pOwner != NULL) ? m_pOwner->GetFineTuneChannelCount() : 0;
+	CString line;
+	line.Format(
+		_T("Recorded %d FineTune channel(s). After Write Bin, Burn Flash or Recover Flash; then click Small Range (PM-only verify for these channels)."),
+		n);
+	SetDlgItemText(IDC_FT_STATIC_STATUS, line);
+}
+
+void CM576FineTuneDlg::OnBnClickedSmallRange()
+{
+	if (m_pOwner == NULL)
+	{
+		MessageBox(_T("Internal error: no owner dialog."), _T("FineTune"), MB_OK | MB_ICONERROR);
+		return;
+	}
+	const int n = m_pOwner->GetFineTuneChannelCount();
+	if (n <= 0)
+	{
+		MessageBox(
+			_T("No FineTune channels recorded. Write Bin for at least one channel first, then run Small Range."),
+			_T("Small Range"),
+			MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	CString prompt;
+	prompt.Format(
+		_T("Run Small Range calibration (PM Run Path) for the following %d recorded channel(s).\n\n")
+		_T("%s\n\n")
+		_T("Confirm the matching Bin has been downloaded to device Flash via Burn Flash or Recover Flash.\n\n")
+		_T("Continue?"),
+		n,
+		m_pOwner->FormatFineTuneChannelsListForPrompt().GetString());
+	if (MessageBox(prompt, _T("Small Range"), MB_YESNO | MB_ICONQUESTION) != IDYES)
+		return;
+
+	m_requestSmallRange = TRUE;
+	EndDialog(IDOK);
 }

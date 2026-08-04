@@ -2,29 +2,17 @@
 // Fine-tune a single Backup/Standard burn file: patch 1310 low-temp DAC and write back.
 // Write Bin keeps the dialog open so multiple Address slots can be patched in one session.
 
+#include "FineTuneTypes.h"
 #include "McsFwTransport.h"
 #include "M576OneX64Coef.h"
 #include "Pm1x64Mapping.h"
 #include "Z4767StructDefine.h"
 
-enum class FineTuneDeviceKind
+/// MFC-friendly label for logs / FineTune UI status.
+inline CString FineTuneAddressFormatLabel(const FineTuneAddress& addr)
 {
-	Mcs1 = 0,
-	Mcs2,
-	OneX64_1,
-	OneX64_2,
-};
-
-struct FineTuneAddress
-{
-	FineTuneDeviceKind device = FineTuneDeviceKind::Mcs1;
-	/// MCS: block 1..32, channel 1..18.
-	int mcsBlock1to32 = 1;
-	int mcsCh1to18 = 1;
-	/// 1x64 Mapping: SW 1..4, CH_y 1..17.
-	int sw1to4 = 1;
-	int chY1to17 = 1;
-};
+	return CString(FineTuneAddressFormatLabelA(addr).c_str());
+}
 
 struct FineTuneSyncPayload
 {

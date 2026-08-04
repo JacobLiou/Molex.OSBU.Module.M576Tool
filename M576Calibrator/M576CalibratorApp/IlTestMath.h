@@ -6,6 +6,7 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <vector>
 
 /// IL Test wavelength/source (matches Diagnosis s1/s2/s3).
 enum class IlTestWlKind
@@ -49,7 +50,7 @@ inline int IlTestWavelengthNm(IlTestWlKind k)
 	return (k == IlTestWlKind::Sfp1550) ? 1550 : 1310;
 }
 
-/// Hang-up optical half from 1-based lap: odd=IN (SW4=1), even=OUT (SW4=2).
+/// Hang-up optical half from 1-based lap: odd=IN, even=OUT (SW1 1x64 ports swapped).
 inline int IlTestHalfFromLap(int lap1based)
 {
 	if (lap1based < 1)
@@ -57,7 +58,7 @@ inline int IlTestHalfFromLap(int lap1based)
 	return ((lap1based - 1) % 2) + 1;
 }
 
-/// Half label for UI / CSV: 1 -> IN, 2 -> OUT.
+/// Half label for UI / CSV: 1 -> IN, 2 -> OUT (OUT = SW1 port swap; SW2 unchanged).
 inline LPCTSTR IlTestHalfLabel(int half)
 {
 	return (half == 2) ? _T("OUT") : _T("IN");
@@ -90,9 +91,13 @@ BOOL IlTestChannelToMpoPath(int channel1to576, CString& outPath);
 /// CH k (1..576) -> InPort "MPOa-b", OutPort "MPOc-b" (same packing as IlTestChannelToMpoPath).
 BOOL IlTestChannelToMpoPorts(int channel1to576, CString& inPort, CString& outPort);
 
-/// Build one diagnosis SW group from CH k (1..576), same mapping as diagnosis_sw.csv / generate_diagnosis_sw_576.py:
-///   sw=(k-1)/18+1, mcsCh=(k-1)%18+1
-///   SW 1 1 {sw}|SW 1 2 {sw+32}|SW 2 {sw} {mcsCh}|SW 2 {sw+32} {mcsCh}
+/// Build 4 SW cmds for CH k + half (1=IN, 2=OUT).
+/// IN:  SW 1 1 {sw}|SW 1 2 {sw+32}|SW 2 {sw} {mcsCh}|SW 2 {sw+32} {mcsCh}
+/// OUT: SW 1 1 {sw+32}|SW 1 2 {sw}|SW 2 {sw} {mcsCh}|SW 2 {sw+32} {mcsCh}  (SW1 ports swapped)
+BOOL IlTestBuildSwCommandsForChannelHalf(
+	int ch1to576, int half, std::vector<CStringA>& outCmds, CString& err);
+
+/// Build one diagnosis SW group (IN half / diagnosis_sw.csv). Uses IlTestBuildSwCommandsForChannelHalf(half=1).
 BOOL IlTestBuildDiagnosisRowFromChannel(int ch1to576, M576DiagnosisRow& out, CString& err);
 
 struct IlTestGateParams

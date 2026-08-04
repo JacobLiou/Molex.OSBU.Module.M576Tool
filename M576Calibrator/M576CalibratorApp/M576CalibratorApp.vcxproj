@@ -162,6 +162,8 @@
     <ClInclude Include="M576IlTestDlg.h" />
     <ClInclude Include="M576FimIlTestDlg.h" />
     <ClInclude Include="FineTuneBinPatch.h" />
+    <ClInclude Include="FineTuneTypes.h" />
+    <ClInclude Include="SmallRangeCalibSelection.h" />
     <ClInclude Include="IlTestMath.h" />
     <ClInclude Include="IlTestCsv.h" />
     <ClInclude Include="M576OutputArchive.h" />
@@ -207,6 +209,9 @@
     <ClCompile Include="M576IlTestDlg.cpp" />
     <ClCompile Include="M576FimIlTestDlg.cpp" />
     <ClCompile Include="FineTuneBinPatch.cpp" />
+    <ClCompile Include="SmallRangeCalibSelection.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="IlTestMath.cpp" />
     <ClCompile Include="IlTestCsv.cpp" />
     <ClCompile Include="M576OutputArchive.cpp" />

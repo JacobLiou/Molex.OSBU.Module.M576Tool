@@ -72,31 +72,51 @@ BOOL IlTestChannelToMpoPath(int channel1to576, CString& outPath)
 	return TRUE;
 }
 
-BOOL IlTestBuildDiagnosisRowFromChannel(int ch1to576, M576DiagnosisRow& out, CString& err)
+BOOL IlTestBuildSwCommandsForChannelHalf(
+	int ch1to576, int half, std::vector<CStringA>& outCmds, CString& err)
 {
 	err.Empty();
-	out = M576DiagnosisRow{};
+	outCmds.clear();
 	if (ch1to576 < 1 || ch1to576 > 576)
 	{
 		err.Format(_T("Channel %d out of range 1..576."), ch1to576);
 		return FALSE;
 	}
+	if (half != 1 && half != 2)
+	{
+		err.Format(_T("IL half %d invalid (use 1=IN or 2=OUT)."), half);
+		return FALSE;
+	}
 	const int sw = (ch1to576 - 1) / 18 + 1;
 	const int mcsCh = (ch1to576 - 1) % 18 + 1;
 	const int pb = sw + 32;
+	// IN: SW1 ports sw / sw+32; OUT: SW1 ports swapped (firmware diagnosis_sw group2).
+	const int sw1a = (half == 2) ? pb : sw;
+	const int sw1b = (half == 2) ? sw : pb;
+
+	CStringA c1, c2, c3, c4;
+	c1.Format("SW 1 1 %d", sw1a);
+	c2.Format("SW 1 2 %d", sw1b);
+	c3.Format("SW 2 %d %d", sw, mcsCh);
+	c4.Format("SW 2 %d %d", pb, mcsCh);
+	outCmds.push_back(c1);
+	outCmds.push_back(c2);
+	outCmds.push_back(c3);
+	outCmds.push_back(c4);
+	return TRUE;
+}
+
+BOOL IlTestBuildDiagnosisRowFromChannel(int ch1to576, M576DiagnosisRow& out, CString& err)
+{
+	err.Empty();
+	out = M576DiagnosisRow{};
+	std::vector<CStringA> cmds;
+	if (!IlTestBuildSwCommandsForChannelHalf(ch1to576, 1, cmds, err))
+		return FALSE;
 	CStringA chLabel;
 	chLabel.Format("CH%d", ch1to576);
 	out.channel = chLabel;
 	out.label = chLabel;
-
-	CStringA c1, c2, c3, c4;
-	c1.Format("SW 1 1 %d", sw);
-	c2.Format("SW 1 2 %d", pb);
-	c3.Format("SW 2 %d %d", sw, mcsCh);
-	c4.Format("SW 2 %d %d", pb, mcsCh);
-	out.swCommands.push_back(c1);
-	out.swCommands.push_back(c2);
-	out.swCommands.push_back(c3);
-	out.swCommands.push_back(c4);
+	out.swCommands = cmds;
 	return TRUE;
 }

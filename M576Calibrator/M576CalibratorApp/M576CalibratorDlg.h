@@ -28,6 +28,7 @@
 #include "Board439fFwBurnTransport.h"
 #include "M576OutputArchive.h"
 #include "FineTuneBinPatch.h"
+#include "SmallRangeCalibSelection.h"
 
 namespace M576 { struct Peak1DFitTrace; struct PeakPipelineFailureReport; }
 class CM576IlTestDlg;
@@ -42,7 +43,18 @@ public:
 	CM576CalibratorDlg(CWnd* pParent = NULL);
 
 	/// Called from FineTune dialog after a successful single-file DAC patch.
-	void OnFineTuneBinPatched(const FineTuneSyncPayload& sync, LPCTSTR path);
+	void OnFineTuneBinPatched(
+		const FineTuneSyncPayload& sync,
+		LPCTSTR path,
+		const FineTuneAddress& addr,
+		M576BinFileRole role);
+
+	/// Current-process FineTune channel memory (deduped; cleared on SN change / exit).
+	int GetFineTuneChannelCount() const;
+	CString FormatFineTuneChannelsStatusLine() const;
+	CString FormatFineTuneChannelsListForPrompt() const;
+	/// Start PM Run Path filtered to recorded FineTune channels (after Flash confirm).
+	BOOL StartSmallRangePmRunPath(CString& errMsg);
 
 	/// IL Test dialog: open port if needed, lock mutual exclusion, return output\ dir.
 	/// Also redirects Diagnosis Session comm log to `output\ILTestCommLog_YYYY-MM-DD.log`.
@@ -206,6 +218,19 @@ private:
 	void PushPathFailureOutcome(const SCalibPathStepOutcome& o);
 	void ShowRunPathSummaryDialog(BOOL userStopped);
 
+	/// FineTune session memory: successful Write Bin addresses for current SN set.
+	std::vector<FineTuneAddress> m_fineTuneChannels;
+	M576TransSnPnInfo m_fineTuneChannelsSnBound{};
+	BOOL m_fineTuneChannelsSnBoundValid = FALSE;
+	/// Immutable whitelist snapshot for one small-range Run Path worker.
+	std::vector<SmallRangeWhitelistEntry> m_smallRangeWhitelist;
+	BOOL m_smallRangeMode = FALSE;
+	void ClearFineTuneChannels(LPCTSTR reason);
+	void MaybeClearFineTuneChannelsOnSnChange(const M576TransSnPnInfo& newSn);
+	BOOL BuildSmallRangeWhitelistFromRecorded(std::vector<SmallRangeWhitelistEntry>& out, CString& errMsg);
+	/// Shared Run Path thread start (full or small-range). Assumes UI data already updated.
+	BOOL BeginPathWorker(BOOL smallRangeMode, CString& errMsg);
+
 	// --- 日志与 UI 安全调用（可跨线程）---
 	void AppendLog(LPCTSTR sz);
 	/// MessageBoxW；窄串先按 UTF-8（Z4671 /utf-8 错文）解码，失败再按系统 ACP（本机路径等）。
@@ -234,6 +259,7 @@ private:
 		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
 	/// External-source wavelength for Run Path: ASCII `SWL 8 <1310|1550>` (fixed TLS ch 8).
+	/// Settle + RX drain + require OK with retries (flaky 439F after RECAL 0).
 	/// PM: call after successful RECAL 0; PD: call at path start (no RECAL 0).
 	BOOL ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err);
 	void RunPathPowerMeter();

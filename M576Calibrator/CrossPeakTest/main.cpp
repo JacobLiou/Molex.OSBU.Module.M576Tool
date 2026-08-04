@@ -13,6 +13,7 @@
 #include "Peak1DSweepPipeline.h"
 #include "PmRangeValidation.h"
 #include "CalibPathOutcome.h"
+#include "SmallRangeCalibSelection.h"
 #include "M576Peak1DConstants.h"
 #include <windows.h>
 #include <cstdio>
@@ -4517,6 +4518,203 @@ static int FineRefineRelaxedSelfTests()
 	return fail;
 }
 
+static int RunSmallRangeCalibSelectionSelfTests()
+{
+	int fail = 0;
+
+	// Dedup: same MCS address written twice counts once.
+	{
+		std::vector<FineTuneAddress> ch;
+		FineTuneAddress a{};
+		a.device = FineTuneDeviceKind::Mcs1;
+		a.mcsBlock1to32 = 1;
+		a.mcsCh1to18 = 1;
+		if (!SmallRangeAppendUnique(ch, a) || ch.size() != 1)
+		{
+			std::printf("FAIL SmallRange dedup first insert\n");
+			++fail;
+		}
+		if (SmallRangeAppendUnique(ch, a) || ch.size() != 1)
+		{
+			std::printf("FAIL SmallRange dedup second insert\n");
+			++fail;
+		}
+		FineTuneAddress b = a;
+		b.mcsCh1to18 = 2;
+		if (!SmallRangeAppendUnique(ch, b) || ch.size() != 2)
+		{
+			std::printf("FAIL SmallRange dedup different channel\n");
+			++fail;
+		}
+	}
+
+	// MCS first/last index mapping + resolve.
+	{
+		std::vector<SmallRangePmStep> slots[4];
+		std::vector<SmallRangeMapRow> maps[4];
+		for (int block = 1; block <= 32; ++block)
+		{
+			for (int ch = 1; ch <= 18; ++ch)
+			{
+				SmallRangePmStep s{};
+				s.targetSwitchIndex = 3;
+				s.c1 = block;
+				s.c2 = ch;
+				s.c3 = ch;
+				s.c4 = block + 32;
+				slots[0].push_back(s);
+				SmallRangePmStep s2 = s;
+				s2.targetSwitchIndex = 4;
+				slots[1].push_back(s2);
+			}
+		}
+		if (FineTuneMcsPmStepIndex0(1, 1) != 0 || FineTuneMcsPmStepIndex0(32, 18) != 575)
+		{
+			std::printf("FAIL SmallRange MCS index ends\n");
+			++fail;
+		}
+
+		std::vector<FineTuneAddress> addrs;
+		FineTuneAddress a1{};
+		a1.device = FineTuneDeviceKind::Mcs1;
+		a1.mcsBlock1to32 = 1;
+		a1.mcsCh1to18 = 1;
+		FineTuneAddress a2{};
+		a2.device = FineTuneDeviceKind::Mcs2;
+		a2.mcsBlock1to32 = 32;
+		a2.mcsCh1to18 = 18;
+		addrs.push_back(a1);
+		addrs.push_back(a2);
+		addrs.push_back(a1); // duplicate
+
+		std::vector<SmallRangeWhitelistEntry> wl;
+		std::string err;
+		if (!SmallRangeResolvePmWhitelist(addrs, slots, maps, wl, err) || wl.size() != 2)
+		{
+			std::printf("FAIL SmallRange MCS resolve: %s\n", err.c_str());
+			++fail;
+		}
+		else if (wl[0].fileSlot != 0 || wl[0].stepIndex0 != 0
+			|| wl[1].fileSlot != 1 || wl[1].stepIndex0 != 575)
+		{
+			std::printf("FAIL SmallRange MCS whitelist slots/indices\n");
+			++fail;
+		}
+		if (SmallRangeWhitelistCountForSlot(wl, 0) != 1
+			|| SmallRangeWhitelistCountForSlot(wl, 1) != 1
+			|| !SmallRangeWhitelistContains(wl, 0, 0)
+			|| !SmallRangeWhitelistContains(wl, 1, 575))
+		{
+			std::printf("FAIL SmallRange whitelist contains/count\n");
+			++fail;
+		}
+	}
+
+	// 1x64 Mapping exact match + mixed devices.
+	{
+		std::vector<SmallRangePmStep> slots[4];
+		std::vector<SmallRangeMapRow> maps[4];
+		for (int i = 0; i < 3; ++i)
+		{
+			SmallRangePmStep s{};
+			s.targetSwitchIndex = 1;
+			s.c1 = i + 1;
+			s.c2 = 1;
+			s.c3 = 1;
+			s.c4 = 33 + i;
+			slots[2].push_back(s);
+			SmallRangeMapRow m{};
+			m.targetSwitchIndex = s.targetSwitchIndex;
+			m.c1 = s.c1;
+			m.c2 = s.c2;
+			m.c3 = s.c3;
+			m.c4 = s.c4;
+			m.sw1to4 = 1;
+			m.chY1based = i + 1;
+			maps[2].push_back(m);
+		}
+		// Minimal MCS1 CSV so mixed resolve can include MCS.
+		{
+			SmallRangePmStep s{};
+			s.targetSwitchIndex = 3;
+			s.c1 = 1;
+			s.c2 = 1;
+			s.c3 = 1;
+			s.c4 = 33;
+			slots[0].push_back(s);
+		}
+
+		std::vector<FineTuneAddress> addrs;
+		FineTuneAddress mcs{};
+		mcs.device = FineTuneDeviceKind::Mcs1;
+		mcs.mcsBlock1to32 = 1;
+		mcs.mcsCh1to18 = 1;
+		FineTuneAddress x64{};
+		x64.device = FineTuneDeviceKind::OneX64_1;
+		x64.sw1to4 = 1;
+		x64.chY1to17 = 2;
+		addrs.push_back(mcs);
+		addrs.push_back(x64);
+
+		std::vector<SmallRangeWhitelistEntry> wl;
+		std::string err;
+		if (!SmallRangeResolvePmWhitelist(addrs, slots, maps, wl, err) || wl.size() != 2)
+		{
+			std::printf("FAIL SmallRange mixed resolve: %s\n", err.c_str());
+			++fail;
+		}
+		else if (!SmallRangeWhitelistContains(wl, 2, 1))
+		{
+			std::printf("FAIL SmallRange 1x64 step index\n");
+			++fail;
+		}
+	}
+
+	// Missing Mapping / ambiguous PM must reject whole resolve.
+	{
+		std::vector<SmallRangePmStep> slots[4];
+		std::vector<SmallRangeMapRow> maps[4];
+		SmallRangePmStep s{};
+		s.targetSwitchIndex = 1;
+		s.c1 = 1;
+		s.c2 = 1;
+		s.c3 = 1;
+		s.c4 = 33;
+		slots[2].push_back(s);
+		slots[2].push_back(s); // ambiguous duplicate
+
+		FineTuneAddress x64{};
+		x64.device = FineTuneDeviceKind::OneX64_1;
+		x64.sw1to4 = 1;
+		x64.chY1to17 = 1;
+		std::vector<FineTuneAddress> addrs{ x64 };
+		std::vector<SmallRangeWhitelistEntry> wl;
+		std::string err;
+		if (SmallRangeResolvePmWhitelist(addrs, slots, maps, wl, err))
+		{
+			std::printf("FAIL SmallRange expected Mapping missing reject\n");
+			++fail;
+		}
+
+		SmallRangeMapRow m{};
+		m.targetSwitchIndex = 1;
+		m.c1 = 1;
+		m.c2 = 1;
+		m.c3 = 1;
+		m.c4 = 33;
+		m.sw1to4 = 1;
+		m.chY1based = 1;
+		maps[2].push_back(m);
+		if (SmallRangeResolvePmWhitelist(addrs, slots, maps, wl, err))
+		{
+			std::printf("FAIL SmallRange expected ambiguous PM reject\n");
+			++fail;
+		}
+	}
+
+	return fail;
+}
+
 static int RunPathSummarySelfTests()
 {
 	int fail = 0;
@@ -4578,6 +4776,8 @@ int main(int argc, char* argv[])
 
 	if (RunPeak1DSelfTests() != 0)
 		return 9;
+	if (RunSmallRangeCalibSelectionSelfTests() != 0)
+		return 20;
 	if (RunRecalCmdFormatSelfTests() != 0)
 		return 12;
 	if (RunSweepCsvSplitSelfTests() != 0)

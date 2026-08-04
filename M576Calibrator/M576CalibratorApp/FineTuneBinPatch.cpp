@@ -8,14 +8,9 @@
 
 namespace {
 
-BOOL IsMcsDevice(FineTuneDeviceKind d)
-{
-	return d == FineTuneDeviceKind::Mcs1 || d == FineTuneDeviceKind::Mcs2;
-}
-
 BOOL ValidateAddress(const FineTuneAddress& addr, CString& errMsg)
 {
-	if (IsMcsDevice(addr.device))
+	if (FineTuneIsMcsDevice(addr.device))
 	{
 		if (addr.mcsBlock1to32 < 1 || addr.mcsBlock1to32 > 32)
 		{
@@ -29,11 +24,13 @@ BOOL ValidateAddress(const FineTuneAddress& addr, CString& errMsg)
 		}
 		return TRUE;
 	}
+
 	if (addr.sw1to4 < 1 || addr.sw1to4 > 4)
 	{
 		errMsg = _T("1x64 SW must be 1..4.");
 		return FALSE;
 	}
+
 	if (addr.chY1to17 < 1 || addr.chY1to17 > 17)
 	{
 		errMsg = _T("1x64 CH_y must be 1..17.");
@@ -138,7 +135,7 @@ BOOL FineTuneReadCurrentDac(
 		return FALSE;
 	}
 
-	if (IsMcsDevice(addr.device))
+	if (FineTuneIsMcsDevice(addr.device))
 	{
 		stLutSettingZ4671 lut;
 		ZeroMemory(&lut, sizeof(lut));
@@ -191,7 +188,7 @@ BOOL FineTuneWriteDac(
 	unsigned short ux = 0, uy = 0;
 	RawCrossPeakDacToU16Pair((double)dacX, (double)dacY, ux, uy);
 
-	if (IsMcsDevice(addr.device))
+	if (FineTuneIsMcsDevice(addr.device))
 	{
 		stLutSettingZ4671 lut;
 		ZeroMemory(&lut, sizeof(lut));
