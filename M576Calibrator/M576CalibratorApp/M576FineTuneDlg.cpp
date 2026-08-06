@@ -2,7 +2,10 @@
 #include "M576Calibrator.h"
 #include "M576FineTuneDlg.h"
 #include "M576CalibratorDlg.h"
+#include "PathCsvDriver.h"
 #include "resource.h"
+
+#include <vector>
 
 CM576FineTuneDlg::CM576FineTuneDlg(
 	CM576CalibratorDlg* pOwner,
@@ -27,13 +30,18 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_FT_BTN_REFRESH, &CM576FineTuneDlg::OnBnClickedRefresh)
 	ON_BN_CLICKED(IDC_FT_BTN_WRITE, &CM576FineTuneDlg::OnBnClickedWrite)
 	ON_BN_CLICKED(IDC_FT_BTN_SMALL_RANGE, &CM576FineTuneDlg::OnBnClickedSmallRange)
+	ON_BN_CLICKED(IDC_FT_BTN_READ_BEFORE, &CM576FineTuneDlg::OnBnClickedReadBefore)
+	ON_BN_CLICKED(IDC_FT_BTN_READ_AFTER, &CM576FineTuneDlg::OnBnClickedReadAfter)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS1, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS2, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_1, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_2, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_CBN_SELCHANGE(IDC_FT_COMBO_ROLE, &CM576FineTuneDlg::OnRoleChanged)
 	ON_CBN_SELCHANGE(IDC_FT_COMBO_RECAL, &CM576FineTuneDlg::OnRecalSelChanged)
-	ON_EN_CHANGE(IDC_FT_EDIT_SW, &CM576FineTuneDlg::OnRoleChanged)
+	ON_EN_CHANGE(IDC_FT_EDIT_MCS_BLOCK, &CM576FineTuneDlg::OnAddressFieldChanged)
+	ON_EN_CHANGE(IDC_FT_EDIT_MCS_CH, &CM576FineTuneDlg::OnAddressFieldChanged)
+	ON_EN_CHANGE(IDC_FT_EDIT_SW, &CM576FineTuneDlg::OnAddressFieldChanged)
+	ON_EN_CHANGE(IDC_FT_EDIT_CHY, &CM576FineTuneDlg::OnAddressFieldChanged)
 END_MESSAGE_MAP()
 
 BOOL CM576FineTuneDlg::OnInitDialog()
@@ -43,10 +51,12 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	m_comboRole.AddString(_T("Standard"));
 	m_comboRole.SetCurSel(0);
 	CheckRadioButton(IDC_FT_RADIO_MCS1, IDC_FT_RADIO_1X64_2, IDC_FT_RADIO_MCS1);
+	m_clearPmOnAddressChange = FALSE;
 	SetDlgItemInt(IDC_FT_EDIT_MCS_BLOCK, 1, FALSE);
 	SetDlgItemInt(IDC_FT_EDIT_MCS_CH, 1, FALSE);
 	SetDlgItemInt(IDC_FT_EDIT_SW, 1, FALSE);
 	SetDlgItemInt(IDC_FT_EDIT_CHY, 1, FALSE);
+	m_clearPmOnAddressChange = TRUE;
 	SetDlgItemText(IDC_FT_EDIT_CUR_DACX, _T(""));
 	SetDlgItemText(IDC_FT_EDIT_CUR_DACY, _T(""));
 	SetDlgItemText(IDC_FT_EDIT_NEW_DACX, _T("0"));
@@ -55,6 +65,7 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	RebuildRecalCombo();
 	CString err;
 	(void)ResolveAndShowPath(err);
+	ClearPmCompare();
 	RefreshStatusHint();
 	return TRUE;
 }
@@ -166,23 +177,34 @@ void CM576FineTuneDlg::ApplyRecalSelection(BOOL doRefresh)
 	if (sel < 0)
 		return;
 
+	const BOOL prevClear = m_clearPmOnAddressChange;
+	m_clearPmOnAddressChange = FALSE;
+
 	const FineTuneDeviceKind device = SelectedDevice();
 	if (device == FineTuneDeviceKind::Mcs1 || device == FineTuneDeviceKind::Mcs2)
 	{
 		int block = 0, ch = 0;
 		if (!FineTuneMcsRecalIndexToBlockCh(sel, block, ch))
+		{
+			m_clearPmOnAddressChange = prevClear;
 			return;
+		}
 		SetDlgItemInt(IDC_FT_EDIT_MCS_BLOCK, block, FALSE);
 		SetDlgItemInt(IDC_FT_EDIT_MCS_CH, ch, FALSE);
 	}
 	else
 	{
 		if (sel >= m_map1x64Rows.GetSize())
+		{
+			m_clearPmOnAddressChange = prevClear;
 			return;
+		}
 		const SMems1x64PmMapRow& row = m_map1x64Rows[sel];
 		SetDlgItemInt(IDC_FT_EDIT_SW, row.sw1to4, FALSE);
 		SetDlgItemInt(IDC_FT_EDIT_CHY, row.chY1based, FALSE);
 	}
+
+	m_clearPmOnAddressChange = prevClear;
 
 	CString err;
 	(void)ResolveAndShowPath(err);
@@ -209,8 +231,255 @@ BOOL CM576FineTuneDlg::ResolveAndShowPath(CString& errMsg)
 	return TRUE;
 }
 
+void CM576FineTuneDlg::ClearPmCompare()
+{
+	m_havePmBefore = FALSE;
+	m_havePmAfter = FALSE;
+	m_pmBeforeDbm = 0.0;
+	m_pmAfterDbm = 0.0;
+	UpdatePmCompareUi();
+}
+
+void CM576FineTuneDlg::UpdatePmCompareUi()
+{
+	if (m_havePmBefore)
+	{
+		CString s;
+		s.Format(_T("%.4f dBm"), m_pmBeforeDbm);
+		SetDlgItemText(IDC_FT_STATIC_PM_BEFORE, s);
+	}
+	else
+	{
+		SetDlgItemText(IDC_FT_STATIC_PM_BEFORE, _T("-"));
+	}
+
+	if (m_havePmAfter)
+	{
+		CString s;
+		s.Format(_T("%.4f dBm"), m_pmAfterDbm);
+		SetDlgItemText(IDC_FT_STATIC_PM_AFTER, s);
+	}
+	else
+	{
+		SetDlgItemText(IDC_FT_STATIC_PM_AFTER, _T("-"));
+	}
+
+	if (m_havePmBefore && m_havePmAfter)
+	{
+		CString s;
+		s.Format(_T("%+.4f dB"), m_pmAfterDbm - m_pmBeforeDbm);
+		SetDlgItemText(IDC_FT_STATIC_PM_DELTA, s);
+	}
+	else
+	{
+		SetDlgItemText(IDC_FT_STATIC_PM_DELTA, _T("-"));
+	}
+}
+
+void CM576FineTuneDlg::BuildMapRowsForResolve(std::vector<SmallRangeMapRow>& out) const
+{
+	out.clear();
+	const int n = (int)m_map1x64Rows.GetSize();
+	out.reserve((size_t)n);
+	for (int i = 0; i < n; ++i)
+	{
+		const SMems1x64PmMapRow& src = m_map1x64Rows[i];
+		SmallRangeMapRow row{};
+		row.targetSwitchIndex = src.targetSwitchIndex;
+		row.c1 = src.c1;
+		row.c2 = src.c2;
+		row.c3 = src.c3;
+		row.c4 = src.c4;
+		row.sw1to4 = src.sw1to4;
+		row.chY1based = src.chY1based;
+		out.push_back(row);
+	}
+}
+
+void CM576FineTuneDlg::LogFineTunePm(LPCTSTR line)
+{
+	if (m_pOwner != NULL && line != NULL)
+		m_pOwner->AppendLogFromFineTune(line);
+}
+
+void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
+{
+	if (m_pOwner == NULL)
+	{
+		MessageBox(_T("Internal error: no owner dialog."), _T("FineTune"), MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	CString err;
+	FineTuneAddress addr = CollectAddress(err);
+	if (!err.IsEmpty())
+	{
+		MessageBox(err, _T("FineTune PM"), MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	std::vector<SmallRangeMapRow> mapRows;
+	if (!FineTuneIsMcsDevice(addr.device))
+		BuildMapRowsForResolve(mapRows);
+
+	SmallRangePmStep pmStep{};
+	std::string resolveErr;
+	if (!SmallRangeResolvePmStepFromAddress(addr, mapRows, pmStep, resolveErr))
+	{
+		CString msg(resolveErr.empty() ? "resolve failed" : resolveErr.c_str());
+		CString log;
+		log.Format(_T("[FineTune][PM] %s resolve failed: %s"),
+			isBefore ? _T("Before") : _T("After"),
+			msg.GetString());
+		LogFineTunePm(log);
+		SetDlgItemText(IDC_FT_STATIC_STATUS, msg);
+		MessageBox(msg, _T("FineTune PM"), MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	SPathStep step;
+	step.targetSwitchIndex = pmStep.targetSwitchIndex;
+	step.c1 = pmStep.c1;
+	step.c2 = pmStep.c2;
+	step.c3 = pmStep.c3;
+	step.c4 = pmStep.c4;
+
+	CString curX, curY, newX, newY;
+	GetDlgItemText(IDC_FT_EDIT_CUR_DACX, curX);
+	GetDlgItemText(IDC_FT_EDIT_CUR_DACY, curY);
+	GetDlgItemText(IDC_FT_EDIT_NEW_DACX, newX);
+	GetDlgItemText(IDC_FT_EDIT_NEW_DACY, newY);
+	if (curX.IsEmpty())
+		curX = _T("?");
+	if (curY.IsEmpty())
+		curY = _T("?");
+	if (newX.IsEmpty())
+		newX = _T("?");
+	if (newY.IsEmpty())
+		newY = _T("?");
+
+	CString addrLabel;
+	if (FineTuneIsMcsDevice(addr.device))
+	{
+		addrLabel.Format(
+			_T("%hs B%d CH%d"),
+			FineTuneDeviceKindNameA(addr.device),
+			addr.mcsBlock1to32,
+			addr.mcsCh1to18);
+	}
+	else
+	{
+		addrLabel.Format(
+			_T("%hs SW%d CH_y%d"),
+			FineTuneDeviceKindNameA(addr.device),
+			addr.sw1to4,
+			addr.chY1to17);
+	}
+
+	CString recalCmd;
+	recalCmd.Format(
+		_T("RECAL 1 %d %d %d %d %d"),
+		step.targetSwitchIndex,
+		step.c1,
+		step.c2,
+		step.c3,
+		step.c4);
+
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_BEFORE))
+		p->EnableWindow(FALSE);
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_AFTER))
+		p->EnableWindow(FALSE);
+
+	CString status;
+	status.Format(_T("Reading %s: %s …"), isBefore ? _T("Before") : _T("After"), recalCmd.GetString());
+	SetDlgItemText(IDC_FT_STATIC_STATUS, status);
+
+	double dbm = 0.0;
+	int raw = 0;
+	const BOOL ok = m_pOwner->FineTuneSwitchPathAndReadOpm(step, dbm, raw, err);
+
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_BEFORE))
+		p->EnableWindow(TRUE);
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_AFTER))
+		p->EnableWindow(TRUE);
+
+	if (!ok)
+	{
+		CString log;
+		log.Format(
+			_T("[FineTune][PM] %s FAIL %s %s %s"),
+			isBefore ? _T("Before") : _T("After"),
+			recalCmd.GetString(),
+			addrLabel.GetString(),
+			err.IsEmpty() ? _T("unknown error") : err.GetString());
+		LogFineTunePm(log);
+		SetDlgItemText(IDC_FT_STATIC_STATUS, err.IsEmpty() ? _T("PM read failed.") : err);
+		MessageBox(
+			err.IsEmpty() ? _T("PM read failed.") : err,
+			_T("FineTune PM"),
+			MB_OK | MB_ICONWARNING);
+		RefreshStatusHint();
+		return;
+	}
+
+	if (isBefore)
+	{
+		m_havePmBefore = TRUE;
+		m_pmBeforeDbm = dbm;
+	}
+	else
+	{
+		m_havePmAfter = TRUE;
+		m_pmAfterDbm = dbm;
+	}
+	UpdatePmCompareUi();
+
+	CString logOk;
+	logOk.Format(
+		_T("[FineTune][PM] %s %s %s OPM_raw=%d OPM=%.4f dBm curDAC=%s,%s newDAC=%s,%s"),
+		isBefore ? _T("Before") : _T("After"),
+		recalCmd.GetString(),
+		addrLabel.GetString(),
+		raw,
+		dbm,
+		curX.GetString(),
+		curY.GetString(),
+		newX.GetString(),
+		newY.GetString());
+	LogFineTunePm(logOk);
+
+	if (m_havePmBefore && m_havePmAfter)
+	{
+		CString logDelta;
+		logDelta.Format(
+			_T("[FineTune][PM] delta=%+.4f dB (After-Before) %s %s"),
+			m_pmAfterDbm - m_pmBeforeDbm,
+			recalCmd.GetString(),
+			addrLabel.GetString());
+		LogFineTunePm(logDelta);
+	}
+
+	status.Format(
+		_T("%s OK: %.4f dBm (%s)"),
+		isBefore ? _T("Before") : _T("After"),
+		dbm,
+		recalCmd.GetString());
+	SetDlgItemText(IDC_FT_STATIC_STATUS, status);
+}
+
+void CM576FineTuneDlg::OnBnClickedReadBefore()
+{
+	ReadPmSlot(TRUE);
+}
+
+void CM576FineTuneDlg::OnBnClickedReadAfter()
+{
+	ReadPmSlot(FALSE);
+}
+
 void CM576FineTuneDlg::OnDeviceRadioChanged()
 {
+	ClearPmCompare();
 	SyncAddressVisibility();
 	RebuildRecalCombo();
 	CString err;
@@ -227,7 +496,17 @@ void CM576FineTuneDlg::OnRecalSelChanged()
 {
 	if (m_rebuildingRecal)
 		return;
+	ClearPmCompare();
 	ApplyRecalSelection(TRUE);
+}
+
+void CM576FineTuneDlg::OnAddressFieldChanged()
+{
+	if (!m_clearPmOnAddressChange)
+		return;
+	ClearPmCompare();
+	CString err;
+	(void)ResolveAndShowPath(err);
 }
 
 void CM576FineTuneDlg::OnBnClickedRefresh()
@@ -327,7 +606,7 @@ void CM576FineTuneDlg::RefreshStatusHint()
 	const int n = (m_pOwner != NULL) ? m_pOwner->GetFineTuneChannelCount() : 0;
 	CString line;
 	line.Format(
-		_T("Recorded %d FineTune channel(s). After Write Bin, Burn Flash or Recover Flash; then click Small Range (PM-only verify for these channels)."),
+		_T("Recorded %d FineTune channel(s). Read Before/After: RECAL 1 + OPM. After Write Bin, Burn Flash; then Small Range if needed."),
 		n);
 	SetDlgItemText(IDC_FT_STATIC_STATUS, line);
 }

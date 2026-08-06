@@ -245,6 +245,8 @@ BOOL M576ReadAllFiveTempsC(Z4671Command& cmd, M576FiveTemps& out, CString& errDe
 	errDetail.Empty();
 	out = M576FiveTemps{};
 
+	// Main MT calls EndTrans ($$) first; disabled by default (interferes with IL/Diagnosis ASCII).
+#if M576_TEMP_READ_MAIN_BOARD
 	CString err;
 	double mainC = NAN;
 	if (M576ReadMainBoardTempC(cmd, mainC, err))
@@ -257,7 +259,12 @@ BOOL M576ReadAllFiveTempsC(Z4671Command& cmd, M576FiveTemps& out, CString& errDe
 		errDetail = err;
 		cmd.TraceError(_T("TEMP"), _T("Main MT failed: %s"), err.GetString());
 	}
+#else
+	(void)cmd;
+#endif
 
+	// Sub-board temps use trans 1..4; disabled by default (interferes with IL/Diagnosis ASCII).
+#if M576_TEMP_READ_SUB_BOARDS
 	static const LPCTSTR kSubNames[4] = {
 		_T("MCS1"), _T("MCS2"), _T("1x64#1"), _T("1x64#2")
 	};
@@ -286,6 +293,7 @@ BOOL M576ReadAllFiveTempsC(Z4671Command& cmd, M576FiveTemps& out, CString& errDe
 			cmd.TraceError(_T("TEMP"), _T("%s"), one.GetString());
 		}
 	}
+#endif
 	return out.hasMain || out.hasSub[0] || out.hasSub[1] || out.hasSub[2] || out.hasSub[3];
 }
 

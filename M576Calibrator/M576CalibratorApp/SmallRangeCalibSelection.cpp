@@ -49,6 +49,64 @@ bool SmallRangeOneX64AddressMatchesMapRow(const FineTuneAddress& addr, const Sma
 	return row.sw1to4 == addr.sw1to4 && row.chY1based == addr.chY1to17;
 }
 
+bool SmallRangeResolvePmStepFromAddress(
+	const FineTuneAddress& addr,
+	const std::vector<SmallRangeMapRow>& mapRows,
+	SmallRangePmStep& outStep,
+	std::string& errMsg)
+{
+	outStep = SmallRangePmStep{};
+	errMsg.clear();
+	const std::string label = FineTuneAddressFormatLabelA(addr);
+
+	if (FineTuneIsMcsDevice(addr.device))
+	{
+		if (!SmallRangeBuildMcsPmStep(addr, outStep))
+		{
+			errMsg = "FineTune PM: invalid MCS address for " + label;
+			return false;
+		}
+		return true;
+	}
+
+	if (addr.sw1to4 < 1 || addr.sw1to4 > 4 || addr.chY1to17 < 1 || addr.chY1to17 > 17)
+	{
+		errMsg = "FineTune PM: invalid 1x64 SW/CH_y for " + label;
+		return false;
+	}
+
+	int mapHits = 0;
+	int mapIndex = -1;
+	for (int i = 0; i < (int)mapRows.size(); ++i)
+	{
+		if (SmallRangeOneX64AddressMatchesMapRow(addr, mapRows[(size_t)i]))
+		{
+			++mapHits;
+			mapIndex = i;
+		}
+	}
+	if (mapHits == 0)
+	{
+		errMsg = "FineTune PM: no Mapping.csv row for " + label;
+		return false;
+	}
+	if (mapHits > 1)
+	{
+		std::ostringstream oss;
+		oss << "FineTune PM: ambiguous Mapping.csv (" << mapHits << " rows) for " << label;
+		errMsg = oss.str();
+		return false;
+	}
+
+	const SmallRangeMapRow& mr = mapRows[(size_t)mapIndex];
+	outStep.targetSwitchIndex = mr.targetSwitchIndex;
+	outStep.c1 = mr.c1;
+	outStep.c2 = mr.c2;
+	outStep.c3 = mr.c3;
+	outStep.c4 = mr.c4;
+	return true;
+}
+
 static bool PmStepsEqual(const SmallRangePmStep& a, const SmallRangePmStep& b)
 {
 	return a.targetSwitchIndex == b.targetSwitchIndex

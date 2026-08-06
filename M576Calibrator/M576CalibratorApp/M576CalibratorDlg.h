@@ -56,6 +56,17 @@ public:
 	/// Start PM Run Path filtered to recorded FineTune channels (after Flash confirm).
 	BOOL StartSmallRangePmRunPath(CString& errMsg);
 
+	/// FineTune Read Before/After: RECAL session (null if not ready).
+	CRecalSession* GetRecalSessionForFineTune();
+	/// FineTune only: RECAL 0 + SWL + RECAL 1 + OPM 3 1 (local drain/retry; not Run Path).
+	BOOL FineTuneSwitchPathAndReadOpm(
+		const SPathStep& step,
+		double& outDbm,
+		int& outRaw,
+		CString& err);
+	/// Main-window log from FineTune dialog (UI thread).
+	void AppendLogFromFineTune(LPCTSTR sz);
+
 	/// IL Test dialog: open port if needed, lock mutual exclusion, return output\ dir.
 	/// Also redirects Diagnosis Session comm log to `output\ILTestCommLog_YYYY-MM-DD.log`.
 	BOOL BeginIlTestSession(CString& outDirAbs, CString& err);

@@ -191,6 +191,12 @@
 #define IDC_FT_COMBO_RECAL             2222
 #define IDC_FT_STATIC_STATUS           2228
 #define IDC_FT_BTN_SMALL_RANGE         2229
+#define IDC_FT_BTN_READ_BEFORE         2268
+#define IDC_FT_BTN_READ_AFTER          2269
+#define IDC_FT_STATIC_PM_BEFORE        2270
+#define IDC_FT_STATIC_PM_AFTER         2271
+#define IDC_FT_STATIC_PM_DELTA         2272
+#define IDC_FT_GROUP_PM                2273
 #define IDC_IL_RADIO_SFP1550           2210
 #define IDC_IL_RADIO_SFP1310           2211
 #define IDC_IL_RADIO_LASER1310         2212

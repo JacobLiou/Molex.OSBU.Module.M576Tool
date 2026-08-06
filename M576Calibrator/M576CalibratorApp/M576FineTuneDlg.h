@@ -4,12 +4,14 @@
 #include "FineTuneBinPatch.h"
 #include "McsFwTransport.h"
 #include "Pm1x64Mapping.h"
+#include "SmallRangeCalibSelection.h"
 
 class CM576CalibratorDlg;
 
 /// Manual low-temp DAC patch for one Backup/Standard burn file (A/B experiment).
 /// Write Bin does not close the dialog — change Address and write additional slots in one session.
 /// Small-range calibrate requests close the dialog so the main window can run PM Run Path.
+/// Read Before/After: RECAL 1 path switch + OPM 3 1 for burn-before/after PM compare.
 class CM576FineTuneDlg : public CDialogEx
 {
 public:
@@ -38,6 +40,11 @@ private:
 	CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> m_map1x64Rows;
 	BOOL m_rebuildingRecal = FALSE;
 	BOOL m_requestSmallRange = FALSE;
+	BOOL m_havePmBefore = FALSE;
+	BOOL m_havePmAfter = FALSE;
+	double m_pmBeforeDbm = 0.0;
+	double m_pmAfterDbm = 0.0;
+	BOOL m_clearPmOnAddressChange = TRUE;
 
 	FineTuneAddress CollectAddress(CString& errMsg) const;
 	FineTuneDeviceKind SelectedDevice() const;
@@ -47,10 +54,18 @@ private:
 	void ApplyRecalSelection(BOOL doRefresh);
 	BOOL ResolveAndShowPath(CString& errMsg);
 	void RefreshStatusHint();
+	void ClearPmCompare();
+	void UpdatePmCompareUi();
+	void BuildMapRowsForResolve(std::vector<SmallRangeMapRow>& out) const;
+	void ReadPmSlot(BOOL isBefore);
+	void LogFineTunePm(LPCTSTR line);
 	afx_msg void OnBnClickedRefresh();
 	afx_msg void OnBnClickedWrite();
 	afx_msg void OnBnClickedSmallRange();
+	afx_msg void OnBnClickedReadBefore();
+	afx_msg void OnBnClickedReadAfter();
 	afx_msg void OnDeviceRadioChanged();
 	afx_msg void OnRoleChanged();
 	afx_msg void OnRecalSelChanged();
+	afx_msg void OnAddressFieldChanged();
 };

@@ -1262,17 +1262,24 @@ void CM576FimIlTestDlg::WorkerEntry(
 		COpComm& comm = session->Comm();
 		CString err;
 
+		// Temperature monitor disabled (MT uses $$ / sub-boards use trans; interferes with IL ASCII).
 		if (!m_stop)
 			RefreshTemps();
 		if (m_stop)
 			break;
 
-		// Once: OPM AUTO + SWL (FIM SetTestWL; no SW 3 ?? driver stub).
+		// Once: OPM AUTO + settle + SWL (FIM SetTestWL; no SW 3 ?? driver stub).
 		if (!armedWl)
 		{
 			CStringA reply;
 			DWORD ms = 0;
 			(void)session->ExchangeAsciiLine(_T("OPM4"), CStringA("OPM 4 1 0"), reply, 3000, ms, err);
+			::Sleep(M576_IL_OPM4_SETTLE_MS);
+			if (m_stop)
+			{
+				PostLog(_T("[FIMIL] stopped by user."));
+				break;
+			}
 			CStringA swl;
 			swl.Format("SWL %d %d", port1x8, wlNm);
 			CString label;

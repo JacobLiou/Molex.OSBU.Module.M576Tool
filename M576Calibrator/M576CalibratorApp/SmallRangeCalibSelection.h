@@ -52,6 +52,18 @@ bool SmallRangeOneX64AddressMatchesMapRow(const FineTuneAddress& addr, const Sma
 bool SmallRangeBuildMcsPmStep(const FineTuneAddress& addr, SmallRangePmStep& outStep);
 
 /**
+ * Resolve one FineTune address to a PM path step for RECAL 1 (no CSV row index).
+ * - MCS: closed form via SmallRangeBuildMcsPmStep (mapRows ignored).
+ * - 1x64: exactly one Mapping row matching SW/CH_y; copy that row's target/c1..c4.
+ * Fail-closed on 0 or >1 Mapping hits.
+ */
+bool SmallRangeResolvePmStepFromAddress(
+	const FineTuneAddress& addr,
+	const std::vector<SmallRangeMapRow>& mapRows,
+	SmallRangePmStep& outStep,
+	std::string& errMsg);
+
+/**
  * Resolve FineTune channels to an immutable PM whitelist.
  * - MCS: exact row at FineTuneMcsPmStepIndex0 in the device fileSlot; step must match expected c1..c4.
  * - 1x64: exactly one Mapping row with SW/CH_y; that row's (target,c1..c4) must appear exactly once in PM CSV.

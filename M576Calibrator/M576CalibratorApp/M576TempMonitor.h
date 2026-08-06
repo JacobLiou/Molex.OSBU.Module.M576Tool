@@ -26,7 +26,8 @@ BOOL M576ReadSubBoardBoxTempC(
 	double& edfaOut1C,
 	CString& err);
 
-/// Read all five; per-channel failures leave has*=false and continue.
+/// Read temps for IL/FIM. Main MT gated by M576_TEMP_READ_MAIN_BOARD (default 0: EndTrans/$$ interferes);
+/// sub-board trans gated by M576_TEMP_READ_SUB_BOARDS (default 0). Per-channel failures leave has*=false.
 BOOL M576ReadAllFiveTempsC(Z4671Command& cmd, M576FiveTemps& out, CString& errDetail);
 
 /// UI line: "Temp: Main 25.9  MCS1 25.0  MCS2 --.-  1x64#1 25.0  1x64#2 25.0 C"

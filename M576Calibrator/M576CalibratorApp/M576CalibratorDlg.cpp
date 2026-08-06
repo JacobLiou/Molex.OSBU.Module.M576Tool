@@ -24,6 +24,7 @@
 #include "LutPeakApply.h"
 #include "Pm1x64Mapping.h"
 #include "SmallRangeCalibSelection.h"
+#include "IlTestMath.h"
 #include "M576GlobalException.h"
 #include "M576AppConfig.h"
 #include "M576Version.h"
@@ -7171,6 +7172,248 @@ void CM576CalibratorDlg::EndIlTestSession()
 CDiagnosisSession* CM576CalibratorDlg::GetDiagnosisSessionForIlTest()
 {
 	return m_pDiag.get();
+}
+
+CRecalSession* CM576CalibratorDlg::GetRecalSessionForFineTune()
+{
+	return m_pRecal.get();
+}
+
+void CM576CalibratorDlg::AppendLogFromFineTune(LPCTSTR sz)
+{
+	AppendLog(sz);
+	// AppendIlTestCommLogLine(m_ilTestCommLogPathAbs, sz, errLog);
+	// if (m_pActiveIlTestDlg)
+	// 	m_pActiveIlTestDlg->PostCommLogLine(sz);
+}
+
+BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
+	const SPathStep& step,
+	double& outDbm,
+	int& outRaw,
+	CString& err)
+{
+	outDbm = 0.0;
+	outRaw = 0;
+	err.Empty();
+
+	if (IsBackgroundBusyForIlTest())
+	{
+		err = _T("Another background task is running; wait for it to finish.");
+		return FALSE;
+	}
+	if (!IsSerialPortOpen())
+	{
+		err = _T("Open the serial port (Open Port) first.");
+		return FALSE;
+	}
+	CRecalSession* recal = m_pRecal.get();
+	CDiagnosisSession* diag = m_pDiag.get();
+	if (!recal || !diag)
+	{
+		err = _T("Serial session not ready.");
+		return FALSE;
+	}
+
+	// FineTune-only: drain stale OK / leftover OPM integers so RECAL1↔OPM stay paired.
+	// Does not change CRecalSession::ExchangeRecal1ReadLine (Run Path unchanged).
+	COpComm& comm = diag->Comm();
+	auto drainFineTuneRx = [&]()
+	{
+		HANDLE h = comm.GetPortHandle();
+		if (h && h != INVALID_HANDLE_VALUE)
+			(void)PurgeComm(h, PURGE_RXCLEAR);
+		const DWORD t0 = GetTickCount();
+		DWORD lastDataTick = t0;
+		while (GetTickCount() - t0 < M576_FINETUNE_PM_RX_DRAIN_MAX_MS)
+		{
+			const DWORD avail = comm.RxBytesWaiting();
+			if (avail > 0)
+			{
+				char buf[256];
+				const DWORD chunk = (avail < (DWORD)sizeof(buf)) ? avail : (DWORD)sizeof(buf);
+				DWORD nread = 0;
+				(void)comm.ReadBuffer(buf, chunk, &nread);
+				lastDataTick = GetTickCount();
+				continue;
+			}
+			if (GetTickCount() - lastDataTick >= M576_FINETUNE_PM_RX_DRAIN_IDLE_MS)
+				break;
+			Sleep(1);
+		}
+	};
+
+	const int maxAttempts = (int)M576_FINETUNE_PM_RETRY_MAX_ATTEMPTS;
+	CString lastErr;
+
+	// Sync TLS / wavelength / PM range from main window combos (FineTune is modal over owner).
+	UpdateData(TRUE);
+	int wavelengthNm = 0;
+	if (!ParseWavelengthNm(m_strWavelength, wavelengthNm, err))
+	{
+		if (err.IsEmpty())
+			err = _T("FineTune PM: invalid wavelength.");
+		return FALSE;
+	}
+	if (wavelengthNm != 1310 && wavelengthNm != 1550)
+	{
+		err.Format(_T("FineTune PM: wavelength must be 1310 or 1550 nm (UI has %d)."), wavelengthNm);
+		return FALSE;
+	}
+	const int tlsSource = m_tlsIndex + 1;
+	const int pmRange = m_pmRangeIndex;
+
+	// 1) Light source + wavelength + PM range (same wire as Run Path env setup).
+	{
+		drainFineTuneRx();
+		CStringA line0;
+		CString recal0Err;
+		if (!recal->ExchangeRecal0ReadLine(
+				tlsSource, wavelengthNm, pmRange, line0, M576_FINETUNE_PM_ASCII_TIMEOUT_MS, recal0Err))
+		{
+			err = recal0Err.IsEmpty()
+				? _T("RECAL0: no OK line after retries.")
+				: (_T("RECAL0: ") + recal0Err);
+			return FALSE;
+		}
+		CString envLog;
+		envLog.Format(
+			_T("[FineTune][PM] RECAL 0 TLS=%d nm=%d PM=%d -> %hs"),
+			tlsSource,
+			wavelengthNm,
+			pmRange,
+			line0.GetString());
+		AppendLogFromFineTune(envLog);
+	}
+
+	// 2) External source wavelength: SWL 8 <nm> (after RECAL 0 settle; FineTune-local, not Run Path helper).
+	if (M576_SWL_POST_RECAL_SETTLE_MS > 0)
+		Sleep(M576_SWL_POST_RECAL_SETTLE_MS);
+	{
+		CStringA swlWire;
+		FormatSwlWire(swlWire, M576_DIAG_SWL_TLS_SOURCE, wavelengthNm);
+		BOOL swlOk = FALSE;
+		for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+		{
+			drainFineTuneRx();
+			CStringA swlReply;
+			DWORD ms = 0;
+			CString swlErr;
+			CString label;
+			label.Format(_T("SWL %d %d (FineTune)"), M576_DIAG_SWL_TLS_SOURCE, wavelengthNm);
+			if (!diag->ExchangeAsciiLine(
+					label, swlWire, swlReply, M576_FINETUNE_PM_ASCII_TIMEOUT_MS, ms, swlErr))
+			{
+				lastErr = swlErr.IsEmpty() ? _T("SWL: read/write failed.") : swlErr;
+				if (attempt < maxAttempts)
+					Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+				continue;
+			}
+			swlReply.Trim();
+			if (swlReply.CompareNoCase("OK") != 0)
+			{
+				lastErr.Format(_T("SWL: unexpected reply (%hs)"), swlReply.GetString());
+				if (attempt < maxAttempts)
+					Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+				continue;
+			}
+			swlOk = TRUE;
+			break;
+		}
+		if (!swlOk)
+		{
+			err = lastErr.IsEmpty() ? _T("SWL: failed.") : (_T("SWL: ") + lastErr);
+			return FALSE;
+		}
+		CString swlLog;
+		swlLog.Format(
+			_T("[FineTune][PM] SWL %d %d OK"),
+			M576_DIAG_SWL_TLS_SOURCE,
+			wavelengthNm);
+		AppendLogFromFineTune(swlLog);
+	}
+
+	// 3) Single-shot RECAL 1 per attempt (Send + ReadAsciiResponse), drain between tries —
+	// avoids ExchangeRecal1ReadLine multi-send without drain (desync: OPM sees OK).
+	BOOL recalOk = FALSE;
+	for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+	{
+		drainFineTuneRx();
+		CString sendErr;
+		if (!recal->SendRecal1(step, sendErr))
+		{
+			lastErr = sendErr.IsEmpty() ? _T("RECAL 1 write failed.") : sendErr;
+			if (attempt < maxAttempts)
+				Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+			continue;
+		}
+		CStringA lineOk;
+		CString readErr;
+		if (!recal->ReadAsciiResponse(lineOk, M576_FINETUNE_PM_ASCII_TIMEOUT_MS, readErr, attempt >= maxAttempts))
+		{
+			lastErr = readErr.IsEmpty() ? _T("RECAL 1: read timeout.") : readErr;
+			if (attempt < maxAttempts)
+				Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+			continue;
+		}
+		lineOk.Trim();
+		if (lineOk.CompareNoCase("OK") != 0)
+		{
+			lastErr.Format(_T("RECAL 1: unexpected reply (%hs)"), lineOk.GetString());
+			if (attempt < maxAttempts)
+				Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+			continue;
+		}
+		recalOk = TRUE;
+		break;
+	}
+	if (!recalOk)
+	{
+		err = lastErr.IsEmpty() ? _T("RECAL1: failed.") : (_T("RECAL1: ") + lastErr);
+		return FALSE;
+	}
+
+	::Sleep(M576_FINETUNE_PM_SETTLE_MS);
+
+	BOOL opmOk = FALSE;
+	for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+	{
+		drainFineTuneRx();
+		CStringA opmReply;
+		DWORD ms = 0;
+		CString opmErr;
+		if (!diag->ExchangeAsciiLine(
+				_T("OPM"),
+				CStringA("OPM 3 1"),
+				opmReply,
+				M576_FINETUNE_PM_ASCII_TIMEOUT_MS,
+				ms,
+				opmErr))
+		{
+			lastErr = opmErr.IsEmpty() ? _T("OPM: read failed.") : opmErr;
+			if (attempt < maxAttempts)
+				Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+			continue;
+		}
+		int raw = 0;
+		if (!IlTestParseIntReply(opmReply, raw))
+		{
+			lastErr.Format(_T("parse: OPM reply not an integer (%hs)"), opmReply.GetString());
+			if (attempt < maxAttempts)
+				Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+			continue;
+		}
+		outRaw = raw;
+		outDbm = IlTestOpmDbm(raw);
+		opmOk = TRUE;
+		break;
+	}
+	if (!opmOk)
+	{
+		err = lastErr.IsEmpty() ? _T("OPM: failed.") : (_T("OPM: ") + lastErr);
+		return FALSE;
+	}
+	return TRUE;
 }
 
 void CM576CalibratorDlg::OnBnClickedIlTest()

@@ -36,6 +36,20 @@
 #ifndef M576_SWL_POST_RECAL_SETTLE_MS
 #define M576_SWL_POST_RECAL_SETTLE_MS 300U
 #endif
+/// FineTune Read Before/After: settle after RECAL 1 before OPM 3 1 single-shot power.
+#ifndef M576_FINETUNE_PM_SETTLE_MS
+#define M576_FINETUNE_PM_SETTLE_MS 500U
+#endif
+#ifndef M576_FINETUNE_PM_ASCII_TIMEOUT_MS
+#define M576_FINETUNE_PM_ASCII_TIMEOUT_MS 3000U
+#endif
+/// FineTune PM only: RX drain before RECAL1/OPM (stale OK/power desync). Does not affect Run Path.
+#ifndef M576_FINETUNE_PM_RX_DRAIN_MAX_MS
+#define M576_FINETUNE_PM_RX_DRAIN_MAX_MS 200U
+#endif
+#ifndef M576_FINETUNE_PM_RX_DRAIN_IDLE_MS
+#define M576_FINETUNE_PM_RX_DRAIN_IDLE_MS 50U
+#endif
 /// Drain stale RX before each SWL attempt (avoid reading leftover FAIL/OK).
 #ifndef M576_SWL_RX_DRAIN_MAX_MS
 #define M576_SWL_RX_DRAIN_MAX_MS 200U
@@ -63,6 +77,10 @@
 #endif
 #ifndef M576_IL_TEST_DEFAULT_SPAN_MAX_DB
 #define M576_IL_TEST_DEFAULT_SPAN_MAX_DB 0.15
+#endif
+/// After `OPM 4 1 0` AUTO arm: settle before SW 1 (1x64); too short → firmware FAIL on first path SW.
+#ifndef M576_IL_OPM4_SETTLE_MS
+#define M576_IL_OPM4_SETTLE_MS 500U
 #endif
 
 /// RECAL 0: wavelength (nm, int), PRD 850~1650.
@@ -208,6 +226,20 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 #ifndef M576_COMM_RETRY_DELAY_MS
 #define M576_COMM_RETRY_DELAY_MS 100U
 #endif
+/// IL Test path SW / SW3: require reply OK; aliases of general comm retry (override independently if needed).
+#ifndef M576_IL_SW_RETRY_MAX_ATTEMPTS
+#define M576_IL_SW_RETRY_MAX_ATTEMPTS M576_COMM_RETRY_MAX_ATTEMPTS
+#endif
+#ifndef M576_IL_SW_RETRY_DELAY_MS
+#define M576_IL_SW_RETRY_DELAY_MS M576_COMM_RETRY_DELAY_MS
+#endif
+/// FineTune PM only: RECAL1/OPM attempt cap (aliases; independent of Run Path Polly loop).
+#ifndef M576_FINETUNE_PM_RETRY_MAX_ATTEMPTS
+#define M576_FINETUNE_PM_RETRY_MAX_ATTEMPTS M576_COMM_RETRY_MAX_ATTEMPTS
+#endif
+#ifndef M576_FINETUNE_PM_RETRY_DELAY_MS
+#define M576_FINETUNE_PM_RETRY_DELAY_MS M576_COMM_RETRY_DELAY_MS
+#endif
 /// Low-level `WriteBuffer` / `WriteBufferNoPurge` short retries (same cap as full exchange by default).
 // 底层写缓冲的短重试次数上限，默认与整次交换最大尝试数一致。
 #ifndef M576_COMM_WRITE_RETRY_MAX
@@ -219,6 +251,14 @@ inline int M576McsBlock1To32ToLutSwIdx0(int block1to32)
 #endif
 #ifndef M576_TEMP_SUB_RETRY_DELAY_MS
 #define M576_TEMP_SUB_RETRY_DELAY_MS 200U
+#endif
+/// IL/FIM temp monitor: main MT path calls EndTrans ($$) before MT — disabled by default (interferes with ASCII IL).
+#ifndef M576_TEMP_READ_MAIN_BOARD
+#define M576_TEMP_READ_MAIN_BOARD 0
+#endif
+/// IL/FIM temp monitor: 0 = skip trans 1..4 sub-board temps (tunnel interferes with ASCII IL).
+#ifndef M576_TEMP_READ_SUB_BOARDS
+#define M576_TEMP_READ_SUB_BOARDS 0
 #endif
 
 /// 439F passthrough: ASCII command / drain timing (tune with firmware).

@@ -738,6 +738,61 @@ void CM576IlTestDlg::WorkerEntry(
 		DelayMs(kInterCmdMs);
 	};
 
+	auto ExchangeSwOk = [this, &PostLog, &DelayMs](
+		CDiagnosisSession* session,
+		LPCTSTR label,
+		const CStringA& wire,
+		CString& err) -> BOOL
+	{
+		if (session == NULL)
+		{
+			err = _T("IL Test: serial session closed.");
+			return FALSE;
+		}
+		const int maxAttempts = (int)M576_IL_SW_RETRY_MAX_ATTEMPTS;
+		for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+		{
+			if (m_stop)
+			{
+				err = _T("stopped");
+				return FALSE;
+			}
+			CStringA reply;
+			DWORD ms = 0;
+			const BOOL exchOk = session->ExchangeAsciiLine(label, wire, reply, 3000, ms, err);
+			if (exchOk && reply.CompareNoCase("OK") == 0)
+			{
+				err.Empty();
+				return TRUE;
+			}
+			CString log;
+			if (err.IsEmpty())
+			{
+				log.Format(
+					_T("[ILTEST] SW retry %d/%d %s reply=%hs"),
+					attempt,
+					maxAttempts,
+					label,
+					reply.GetString());
+			}
+			else
+			{
+				log.Format(
+					_T("[ILTEST] SW retry %d/%d %s reply=%hs err=%s"),
+					attempt,
+					maxAttempts,
+					label,
+					reply.GetString(),
+					err.GetString());
+			}
+			PostLog(log);
+			if (attempt < maxAttempts)
+				DelayMs(M576_IL_SW_RETRY_DELAY_MS);
+		}
+		err.Format(_T("SW not OK after %d attempt(s)"), maxAttempts);
+		return FALSE;
+	};
+
 	// FIM-align source/WL once per run: SW 3 1 <port>, SWL <port> <nm>, OPM 4 1 0.
 	// Half: odd=IN / even=OUT via SW1 1x64 port swap (not SW4).
 	int armedSw3 = -1;
@@ -777,13 +832,13 @@ void CM576IlTestDlg::WorkerEntry(
 			break;
 		}
 
-		// Temperature monitor: main MT + four sub-board box temps (does not abort on failure).
+		// Temperature monitor disabled (MT uses $$ / sub-boards use trans; interferes with IL ASCII).
 		if (!m_stop)
 			RefreshTemps();
 		if (m_stop)
 			break;
 
-		// Once per run: OPM AUTO.
+		// Once per run: OPM AUTO, then settle so first SW 1 (1x64) is not rejected with FAIL.
 		if (!armedOpmAuto)
 		{
 			MaybeDelay();
@@ -794,6 +849,9 @@ void CM576IlTestDlg::WorkerEntry(
 			CString errOpm4;
 			(void)session->ExchangeAsciiLine(_T("OPM4"), CStringA("OPM 4 1 0"), opm4Reply, 3000, ms, errOpm4);
 			armedOpmAuto = true;
+			DelayMs(M576_IL_OPM4_SETTLE_MS);
+			if (m_stop)
+				break;
 		}
 
 		for (int i = 0; i < N; ++i)
@@ -835,6 +893,7 @@ void CM576IlTestDlg::WorkerEntry(
 			{
 				swCmds = src.swCommands;
 			}
+			bool pathSwOk = true;
 			for (size_t k = 0; k < swCmds.size(); ++k)
 			{
 				if (m_stop)
@@ -844,18 +903,22 @@ void CM576IlTestDlg::WorkerEntry(
 					break;
 				CString labelSw;
 				labelSw.Format(_T("SW %d.%d/%d"), i + 1, (int)k + 1, (int)swCmds.size());
-				CStringA reply;
-				DWORD ms = 0;
-				const BOOL ok = session->ExchangeAsciiLine(labelSw, swCmds[k], reply, 3000, ms, err);
-				if (!ok || reply.CompareNoCase("OK") != 0)
+				if (!ExchangeSwOk(session, labelSw, swCmds[k], err))
 				{
 					CString log;
-					log.Format(_T("%s: SW fail reply=%hs"), chName.GetString(), reply.GetString());
+					log.Format(
+						_T("%s: path SW failed (%s); skip channel measure."),
+						chName.GetString(),
+						err.IsEmpty() ? _T("not OK") : err.GetString());
 					PostLog(log);
+					pathSwOk = false;
+					break;
 				}
 			}
 			if (m_stop)
 				break;
+			if (!pathSwOk)
+				continue;
 
 			// FIM SetTestWL: SW 3 1 <port> (host; FIM driver currently stubs this) + SWL <port> <nm>.
 			if (armedSw3 != sw3Third)
@@ -865,12 +928,17 @@ void CM576IlTestDlg::WorkerEntry(
 				MaybeDelay();
 				if (m_stop)
 					break;
+				CString label;
+				label.Format(_T("SW31 %d"), sw3Third);
+				if (!ExchangeSwOk(session, label, sw3, err))
 				{
-					CStringA sw3Reply;
-					DWORD ms = 0;
-					CString label;
-					label.Format(_T("SW31 %d"), sw3Third);
-					(void)session->ExchangeAsciiLine(label, sw3, sw3Reply, 3000, ms, err);
+					CString log;
+					log.Format(
+						_T("%s: SW 3 failed (%s); skip channel measure."),
+						chName.GetString(),
+						err.IsEmpty() ? _T("not OK") : err.GetString());
+					PostLog(log);
+					continue;
 				}
 				armedSw3 = sw3Third;
 			}

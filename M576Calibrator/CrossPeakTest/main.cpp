@@ -4712,6 +4712,59 @@ static int RunSmallRangeCalibSelectionSelfTests()
 		}
 	}
 
+	// FineTune single-address resolve (RECAL 1 + OPM path).
+	{
+		FineTuneAddress a1{};
+		a1.device = FineTuneDeviceKind::Mcs1;
+		a1.mcsBlock1to32 = 1;
+		a1.mcsCh1to18 = 1;
+		SmallRangePmStep step{};
+		std::string err;
+		std::vector<SmallRangeMapRow> emptyMaps;
+		if (!SmallRangeResolvePmStepFromAddress(a1, emptyMaps, step, err)
+			|| step.targetSwitchIndex != 3
+			|| step.c1 != 1 || step.c2 != 1 || step.c3 != 1 || step.c4 != 33)
+		{
+			std::printf("FAIL FineTune resolve MCS1 B1CH1: %s\n", err.c_str());
+			++fail;
+		}
+
+		FineTuneAddress x64{};
+		x64.device = FineTuneDeviceKind::OneX64_1;
+		x64.sw1to4 = 2;
+		x64.chY1to17 = 3;
+		std::vector<SmallRangeMapRow> maps;
+		SmallRangeMapRow m{};
+		m.targetSwitchIndex = 1;
+		m.c1 = 7;
+		m.c2 = 2;
+		m.c3 = 2;
+		m.c4 = 39;
+		m.sw1to4 = 2;
+		m.chY1based = 3;
+		maps.push_back(m);
+		if (!SmallRangeResolvePmStepFromAddress(x64, maps, step, err)
+			|| step.targetSwitchIndex != 1
+			|| step.c1 != 7 || step.c2 != 2 || step.c3 != 2 || step.c4 != 39)
+		{
+			std::printf("FAIL FineTune resolve 1x64 hit: %s\n", err.c_str());
+			++fail;
+		}
+
+		if (SmallRangeResolvePmStepFromAddress(x64, emptyMaps, step, err))
+		{
+			std::printf("FAIL FineTune resolve expected empty Mapping reject\n");
+			++fail;
+		}
+
+		maps.push_back(m); // duplicate SW/CH_y
+		if (SmallRangeResolvePmStepFromAddress(x64, maps, step, err))
+		{
+			std::printf("FAIL FineTune resolve expected ambiguous Mapping reject\n");
+			++fail;
+		}
+	}
+
 	return fail;
 }
 
