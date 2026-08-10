@@ -434,7 +434,7 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 	SetPmBusy(TRUE);
 
 	CString status;
-	status.Format(_T("Reading %s: %s …"), isBefore ? _T("Before") : _T("After"), recalCmd.GetString());
+	status.Format(_T("Reading %s: %s ..."), isBefore ? _T("Before") : _T("After"), recalCmd.GetString());
 	SetDlgItemText(IDC_FT_STATIC_STATUS, status);
 	{
 		CString startLog;
@@ -534,7 +534,7 @@ void CM576FineTuneDlg::OnBnClickedRdac()
 	}
 
 	SetPmBusy(TRUE);
-	SetDlgItemText(IDC_FT_STATIC_STATUS, _T("RDAC: reading…"));
+	SetDlgItemText(IDC_FT_STATIC_STATUS, _T("RDAC: reading..."));
 	AppendLocalLog(_T("--- RDAC ---"));
 	AppendLocalLog(_T("TX: rdac 4"));
 
@@ -642,7 +642,7 @@ void CM576FineTuneDlg::OnAddressFieldChanged()
 
 void CM576FineTuneDlg::OnBnClickedRefresh()
 {
-	AppendLocalLog(_T("Refresh: read current DAC from bin…"));
+	AppendLocalLog(_T("Refresh: read current DAC from bin..."));
 	CString err;
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())
@@ -683,7 +683,7 @@ void CM576FineTuneDlg::OnBnClickedRefresh()
 
 void CM576FineTuneDlg::OnBnClickedWrite()
 {
-	AppendLocalLog(_T("Write Bin…"));
+	AppendLocalLog(_T("Write Bin..."));
 	CString err;
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())
@@ -787,7 +787,7 @@ void CM576FineTuneDlg::OnBnClickedSmallRange()
 		return;
 	}
 
-	AppendLocalLog(_T("Small Range: starting on main window…"));
+	AppendLocalLog(_T("Small Range: starting on main window..."));
 	CString err;
 	if (!m_pOwner->StartSmallRangePmRunPath(err))
 	{

@@ -11,7 +11,7 @@ class CM576CalibratorDlg;
 /// Manual low-temp DAC patch for one Backup/Standard burn file (A/B experiment).
 /// Modeless: stay open while main window Burn Flash / Recover Flash runs.
 /// Right multiline edit is FineTune-local log (incl. RDAC); does not write main-window Log.
-/// Write Bin does not close — change Address and write additional slots in one session.
+/// Write Bin does not close - change Address and write additional slots in one session.
 /// Small Range starts PM Run Path on the owner without closing this dialog.
 /// Read Before/After: RECAL 1 path switch + OPM 3 1 for burn-before/after PM compare.
 class CM576FineTuneDlg : public CDialogEx
