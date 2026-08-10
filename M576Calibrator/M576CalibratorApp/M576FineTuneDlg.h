@@ -9,8 +9,10 @@
 class CM576CalibratorDlg;
 
 /// Manual low-temp DAC patch for one Backup/Standard burn file (A/B experiment).
-/// Write Bin does not close the dialog — change Address and write additional slots in one session.
-/// Small-range calibrate requests close the dialog so the main window can run PM Run Path.
+/// Modeless: stay open while main window Burn Flash / Recover Flash runs.
+/// Right multiline edit is FineTune-local log (incl. RDAC); does not write main-window Log.
+/// Write Bin does not close — change Address and write additional slots in one session.
+/// Small Range starts PM Run Path on the owner without closing this dialog.
 /// Read Before/After: RECAL 1 path switch + OPM 3 1 for burn-before/after PM compare.
 class CM576FineTuneDlg : public CDialogEx
 {
@@ -23,12 +25,17 @@ public:
 		const M576TransSnPnInfo& sn,
 		CWnd* pParent = NULL);
 
-	/// True when operator confirmed small-range calibrate (dialog closed with request).
-	BOOL WantsSmallRangeCalib() const { return m_requestSmallRange; }
+	BOOL Create();
+
+	/// Append one line to the FineTune-local edit log (never main window).
+	void AppendLocalLog(LPCTSTR line);
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
 	virtual BOOL OnInitDialog();
+	virtual void OnOK();
+	virtual void OnCancel();
+	virtual void PostNcDestroy();
 	DECLARE_MESSAGE_MAP()
 
 private:
@@ -37,9 +44,9 @@ private:
 	M576TransSnPnInfo m_snInfo;
 	CComboBox m_comboRole;
 	CComboBox m_comboRecal;
+	CEdit m_editLog;
 	CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> m_map1x64Rows;
 	BOOL m_rebuildingRecal = FALSE;
-	BOOL m_requestSmallRange = FALSE;
 	BOOL m_havePmBefore = FALSE;
 	BOOL m_havePmAfter = FALSE;
 	double m_pmBeforeDbm = 0.0;
@@ -58,12 +65,13 @@ private:
 	void UpdatePmCompareUi();
 	void BuildMapRowsForResolve(std::vector<SmallRangeMapRow>& out) const;
 	void ReadPmSlot(BOOL isBefore);
-	void LogFineTunePm(LPCTSTR line);
+	void SetPmBusy(BOOL busy);
 	afx_msg void OnBnClickedRefresh();
 	afx_msg void OnBnClickedWrite();
 	afx_msg void OnBnClickedSmallRange();
 	afx_msg void OnBnClickedReadBefore();
 	afx_msg void OnBnClickedReadAfter();
+	afx_msg void OnBnClickedRdac();
 	afx_msg void OnDeviceRadioChanged();
 	afx_msg void OnRoleChanged();
 	afx_msg void OnRecalSelChanged();

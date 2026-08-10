@@ -19,11 +19,35 @@ CM576FineTuneDlg::CM576FineTuneDlg(
 {
 }
 
+BOOL CM576FineTuneDlg::Create()
+{
+	return CDialogEx::Create(IDD, m_pOwner);
+}
+
+void CM576FineTuneDlg::OnOK()
+{
+	// Modeless: Enter must not dismiss (Write Bin is DEFPUSHBUTTON).
+}
+
+void CM576FineTuneDlg::OnCancel()
+{
+	DestroyWindow();
+}
+
+void CM576FineTuneDlg::PostNcDestroy()
+{
+	if (m_pOwner != NULL)
+		m_pOwner->OnFineTuneDlgClosed(this);
+	CDialogEx::PostNcDestroy();
+	delete this;
+}
+
 void CM576FineTuneDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_FT_COMBO_ROLE, m_comboRole);
 	DDX_Control(pDX, IDC_FT_COMBO_RECAL, m_comboRecal);
+	DDX_Control(pDX, IDC_FT_EDIT_LOG, m_editLog);
 }
 
 BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
@@ -32,6 +56,7 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_FT_BTN_SMALL_RANGE, &CM576FineTuneDlg::OnBnClickedSmallRange)
 	ON_BN_CLICKED(IDC_FT_BTN_READ_BEFORE, &CM576FineTuneDlg::OnBnClickedReadBefore)
 	ON_BN_CLICKED(IDC_FT_BTN_READ_AFTER, &CM576FineTuneDlg::OnBnClickedReadAfter)
+	ON_BN_CLICKED(IDC_FT_BTN_RDAC, &CM576FineTuneDlg::OnBnClickedRdac)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS1, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS2, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_1, &CM576FineTuneDlg::OnDeviceRadioChanged)
@@ -43,6 +68,20 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_EN_CHANGE(IDC_FT_EDIT_SW, &CM576FineTuneDlg::OnAddressFieldChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_CHY, &CM576FineTuneDlg::OnAddressFieldChanged)
 END_MESSAGE_MAP()
+
+void CM576FineTuneDlg::AppendLocalLog(LPCTSTR line)
+{
+	if (line == NULL || !::IsWindow(m_editLog.GetSafeHwnd()))
+		return;
+	CString existing;
+	m_editLog.GetWindowText(existing);
+	if (!existing.IsEmpty() && existing.Right(1) != _T("\n"))
+		existing += _T("\r\n");
+	existing += line;
+	existing += _T("\r\n");
+	m_editLog.SetWindowText(existing);
+	m_editLog.LineScroll(m_editLog.GetLineCount());
+}
 
 BOOL CM576FineTuneDlg::OnInitDialog()
 {
@@ -67,6 +106,7 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	(void)ResolveAndShowPath(err);
 	ClearPmCompare();
 	RefreshStatusHint();
+	AppendLocalLog(_T("FineTune ready (local log; not main window)."));
 	return TRUE;
 }
 
@@ -296,10 +336,15 @@ void CM576FineTuneDlg::BuildMapRowsForResolve(std::vector<SmallRangeMapRow>& out
 	}
 }
 
-void CM576FineTuneDlg::LogFineTunePm(LPCTSTR line)
+void CM576FineTuneDlg::SetPmBusy(BOOL busy)
 {
-	if (m_pOwner != NULL && line != NULL)
-		m_pOwner->AppendLogFromFineTune(line);
+	const BOOL en = !busy;
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_BEFORE))
+		p->EnableWindow(en);
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_AFTER))
+		p->EnableWindow(en);
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_RDAC))
+		p->EnableWindow(en);
 }
 
 void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
@@ -314,6 +359,7 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())
 	{
+		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune PM"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -328,10 +374,10 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 	{
 		CString msg(resolveErr.empty() ? "resolve failed" : resolveErr.c_str());
 		CString log;
-		log.Format(_T("[FineTune][PM] %s resolve failed: %s"),
+		log.Format(_T("[PM] %s resolve failed: %s"),
 			isBefore ? _T("Before") : _T("After"),
 			msg.GetString());
-		LogFineTunePm(log);
+		AppendLocalLog(log);
 		SetDlgItemText(IDC_FT_STATIC_STATUS, msg);
 		MessageBox(msg, _T("FineTune PM"), MB_OK | MB_ICONWARNING);
 		return;
@@ -385,34 +431,36 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 		step.c3,
 		step.c4);
 
-	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_BEFORE))
-		p->EnableWindow(FALSE);
-	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_AFTER))
-		p->EnableWindow(FALSE);
+	SetPmBusy(TRUE);
 
 	CString status;
 	status.Format(_T("Reading %s: %s …"), isBefore ? _T("Before") : _T("After"), recalCmd.GetString());
 	SetDlgItemText(IDC_FT_STATIC_STATUS, status);
+	{
+		CString startLog;
+		startLog.Format(_T("[PM] %s start %s %s"),
+			isBefore ? _T("Before") : _T("After"),
+			recalCmd.GetString(),
+			addrLabel.GetString());
+		AppendLocalLog(startLog);
+	}
 
 	double dbm = 0.0;
 	int raw = 0;
 	const BOOL ok = m_pOwner->FineTuneSwitchPathAndReadOpm(step, dbm, raw, err);
 
-	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_BEFORE))
-		p->EnableWindow(TRUE);
-	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_AFTER))
-		p->EnableWindow(TRUE);
+	SetPmBusy(FALSE);
 
 	if (!ok)
 	{
 		CString log;
 		log.Format(
-			_T("[FineTune][PM] %s FAIL %s %s %s"),
+			_T("[PM] %s FAIL %s %s %s"),
 			isBefore ? _T("Before") : _T("After"),
 			recalCmd.GetString(),
 			addrLabel.GetString(),
 			err.IsEmpty() ? _T("unknown error") : err.GetString());
-		LogFineTunePm(log);
+		AppendLocalLog(log);
 		SetDlgItemText(IDC_FT_STATIC_STATUS, err.IsEmpty() ? _T("PM read failed.") : err);
 		MessageBox(
 			err.IsEmpty() ? _T("PM read failed.") : err,
@@ -436,7 +484,7 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 
 	CString logOk;
 	logOk.Format(
-		_T("[FineTune][PM] %s %s %s OPM_raw=%d OPM=%.4f dBm curDAC=%s,%s newDAC=%s,%s"),
+		_T("[PM] %s %s %s OPM_raw=%d OPM=%.4f dBm curDAC=%s,%s newDAC=%s,%s"),
 		isBefore ? _T("Before") : _T("After"),
 		recalCmd.GetString(),
 		addrLabel.GetString(),
@@ -446,17 +494,17 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 		curY.GetString(),
 		newX.GetString(),
 		newY.GetString());
-	LogFineTunePm(logOk);
+	AppendLocalLog(logOk);
 
 	if (m_havePmBefore && m_havePmAfter)
 	{
 		CString logDelta;
 		logDelta.Format(
-			_T("[FineTune][PM] delta=%+.4f dB (After-Before) %s %s"),
+			_T("[PM] delta=%+.4f dB (After-Before) %s %s"),
 			m_pmAfterDbm - m_pmBeforeDbm,
 			recalCmd.GetString(),
 			addrLabel.GetString());
-		LogFineTunePm(logDelta);
+		AppendLocalLog(logDelta);
 	}
 
 	status.Format(
@@ -477,6 +525,87 @@ void CM576FineTuneDlg::OnBnClickedReadAfter()
 	ReadPmSlot(FALSE);
 }
 
+void CM576FineTuneDlg::OnBnClickedRdac()
+{
+	if (m_pOwner == NULL)
+	{
+		MessageBox(_T("Internal error: no owner dialog."), _T("FineTune"), MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	SetPmBusy(TRUE);
+	SetDlgItemText(IDC_FT_STATIC_STATUS, _T("RDAC: reading…"));
+	AppendLocalLog(_T("--- RDAC ---"));
+	AppendLocalLog(_T("TX: rdac 4"));
+
+	CStringA raw;
+	CString err;
+	const BOOL ok = m_pOwner->FineTuneReadRdac4(raw, err);
+
+	SetPmBusy(FALSE);
+
+	if (!ok)
+	{
+		CString fail;
+		fail.Format(_T("RDAC FAIL: %s"), err.IsEmpty() ? _T("unknown error") : err.GetString());
+		AppendLocalLog(fail);
+		SetDlgItemText(IDC_FT_STATIC_STATUS, fail);
+		MessageBox(fail, _T("FineTune RDAC"), MB_OK | MB_ICONWARNING);
+		RefreshStatusHint();
+		return;
+	}
+
+	int nRows = 0;
+	int nBad = 0;
+	int pos = 0;
+	const CStringA text(raw);
+	while (pos < text.GetLength())
+	{
+		int end = text.Find('\n', pos);
+		if (end < 0)
+			end = text.GetLength();
+		CStringA line = text.Mid(pos, end - pos);
+		pos = end + 1;
+		line.Trim(" \t\r\n");
+		if (line.IsEmpty())
+			continue;
+
+		const int colon = line.Find(':');
+		if (colon <= 0)
+		{
+			CString warn;
+			warn.Format(_T("RDAC skip: %hs"), line.GetString());
+			AppendLocalLog(warn);
+			++nBad;
+			continue;
+		}
+		CStringA name = line.Left(colon);
+		CStringA rest = line.Mid(colon + 1);
+		name.Trim();
+		rest.Trim();
+		const int comma = rest.Find(',');
+		if (comma < 0)
+		{
+			CString warn;
+			warn.Format(_T("RDAC skip: %hs"), line.GetString());
+			AppendLocalLog(warn);
+			++nBad;
+			continue;
+		}
+		const int dacX = atoi(rest.Left(comma));
+		const int dacY = atoi(rest.Mid(comma + 1));
+		CString row;
+		row.Format(_T("%hs: %d, %d"), name.GetString(), dacX, dacY);
+		AppendLocalLog(row);
+		++nRows;
+	}
+
+	CString status;
+	status.Format(_T("RDAC: %d rows%s"), nRows, nBad > 0 ? _T(" (some lines skipped)") : _T(""));
+	SetDlgItemText(IDC_FT_STATIC_STATUS, status);
+	AppendLocalLog(status);
+}
+
 void CM576FineTuneDlg::OnDeviceRadioChanged()
 {
 	ClearPmCompare();
@@ -484,12 +613,14 @@ void CM576FineTuneDlg::OnDeviceRadioChanged()
 	RebuildRecalCombo();
 	CString err;
 	(void)ResolveAndShowPath(err);
+	AppendLocalLog(_T("Device selection changed."));
 }
 
 void CM576FineTuneDlg::OnRoleChanged()
 {
 	CString err;
 	(void)ResolveAndShowPath(err);
+	AppendLocalLog(_T("Bin role changed."));
 }
 
 void CM576FineTuneDlg::OnRecalSelChanged()
@@ -511,10 +642,12 @@ void CM576FineTuneDlg::OnAddressFieldChanged()
 
 void CM576FineTuneDlg::OnBnClickedRefresh()
 {
+	AppendLocalLog(_T("Refresh: read current DAC from bin…"));
 	CString err;
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())
 	{
+		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -523,6 +656,7 @@ void CM576FineTuneDlg::OnBnClickedRefresh()
 	if (!FineTuneResolvePath(m_outDirAbs, m_snInfo, SelectedRole(), addr, path, burnIdx, err))
 	{
 		SetDlgItemText(IDC_FT_STATIC_PATH, err);
+		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -531,6 +665,7 @@ void CM576FineTuneDlg::OnBnClickedRefresh()
 	short dacX = 0, dacY = 0;
 	if (!FineTuneReadCurrentDac(path, addr, dacX, dacY, err))
 	{
+		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -541,15 +676,19 @@ void CM576FineTuneDlg::OnBnClickedRefresh()
 	SetDlgItemText(IDC_FT_EDIT_CUR_DACY, sy);
 	SetDlgItemText(IDC_FT_EDIT_NEW_DACX, sx);
 	SetDlgItemText(IDC_FT_EDIT_NEW_DACY, sy);
+	CString ok;
+	ok.Format(_T("Refresh OK %s DAC=%d,%d"), FineTuneAddressFormatLabel(addr).GetString(), (int)dacX, (int)dacY);
+	AppendLocalLog(ok);
 }
 
 void CM576FineTuneDlg::OnBnClickedWrite()
 {
-	// Stay open after success so the operator can patch another Address slot.
+	AppendLocalLog(_T("Write Bin…"));
 	CString err;
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())
 	{
+		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -558,6 +697,7 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 	if (!FineTuneResolvePath(m_outDirAbs, m_snInfo, SelectedRole(), addr, path, burnIdx, err))
 	{
 		SetDlgItemText(IDC_FT_STATIC_PATH, err);
+		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -570,6 +710,7 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 	sy.Trim();
 	if (sx.IsEmpty() || sy.IsEmpty())
 	{
+		AppendLocalLog(_T("Write Bin: enter New DAC_X and DAC_Y."));
 		MessageBox(_T("Enter New DAC_X and DAC_Y."), _T("FineTune"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -577,6 +718,7 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 	const int dacY = _ttoi(sy);
 	if (dacX < -32768 || dacX > 32767 || dacY < -32768 || dacY > 32767)
 	{
+		AppendLocalLog(_T("Write Bin: DAC out of int16 range."));
 		MessageBox(_T("DAC_X / DAC_Y must be in int16 range (-32768..32767)."), _T("FineTune"), MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -584,6 +726,7 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 	FineTuneSyncPayload sync{};
 	if (!FineTuneWriteDac(path, addr, (short)dacX, (short)dacY, &sync, err))
 	{
+		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONERROR);
 		return;
 	}
@@ -598,6 +741,7 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 		m_pOwner->OnFineTuneBinPatched(sync, path, addr, SelectedRole());
 
 	RefreshStatusHint();
+	AppendLocalLog(_T("Write Bin OK."));
 	MessageBox(_T("Bin updated successfully."), _T("FineTune"), MB_OK | MB_ICONINFORMATION);
 }
 
@@ -606,7 +750,7 @@ void CM576FineTuneDlg::RefreshStatusHint()
 	const int n = (m_pOwner != NULL) ? m_pOwner->GetFineTuneChannelCount() : 0;
 	CString line;
 	line.Format(
-		_T("Recorded %d FineTune channel(s). Read Before/After: RECAL 1 + OPM. After Write Bin, Burn Flash; then Small Range if needed."),
+		_T("Recorded %d FineTune channel(s). Read Before/After: RECAL 1 + OPM. After Write Bin, Burn Flash on main window; then Small Range if needed."),
 		n);
 	SetDlgItemText(IDC_FT_STATIC_STATUS, line);
 }
@@ -621,6 +765,7 @@ void CM576FineTuneDlg::OnBnClickedSmallRange()
 	const int n = m_pOwner->GetFineTuneChannelCount();
 	if (n <= 0)
 	{
+		AppendLocalLog(_T("Small Range: no recorded channels."));
 		MessageBox(
 			_T("No FineTune channels recorded. Write Bin for at least one channel first, then run Small Range."),
 			_T("Small Range"),
@@ -637,8 +782,22 @@ void CM576FineTuneDlg::OnBnClickedSmallRange()
 		n,
 		m_pOwner->FormatFineTuneChannelsListForPrompt().GetString());
 	if (MessageBox(prompt, _T("Small Range"), MB_YESNO | MB_ICONQUESTION) != IDYES)
+	{
+		AppendLocalLog(_T("Small Range: cancelled."));
 		return;
+	}
 
-	m_requestSmallRange = TRUE;
-	EndDialog(IDOK);
+	AppendLocalLog(_T("Small Range: starting on main window…"));
+	CString err;
+	if (!m_pOwner->StartSmallRangePmRunPath(err))
+	{
+		CString fail = err.IsEmpty() ? _T("Small Range failed to start.") : err;
+		AppendLocalLog(fail);
+		MessageBox(fail, _T("Small Range"), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	AppendLocalLog(_T("Small Range started (FineTune stays open)."));
+	SetDlgItemText(
+		IDC_FT_STATIC_STATUS,
+		_T("Small Range started on main window (this FineTune dialog stays open)."));
 }

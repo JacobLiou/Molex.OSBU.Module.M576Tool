@@ -13,7 +13,8 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// Chinese (Simplified, China) resources
+// 中文(简体，中国) resources
+
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
 LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
 #pragma code_page(936)
@@ -217,9 +218,9 @@ BEGIN
     PUSHBUTTON      "Cancel",IDCANCEL,241,190,65,13
 END
 
-IDD_M576_FINE_TUNE DIALOGEX 0, 0, 420, 352
+IDD_M576_FINE_TUNE DIALOGEX 0, 0, 530, 352
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "FineTune: patch low-temp DAC in bin"
+CAPTION "FineTune: patch low-temp DAC in bin (stays open for Burn Flash)"
 FONT 9, "Segoe UI", 400, 0, 0x0
 BEGIN
     LTEXT           "Bin role:",-1,10,12,40,8
@@ -245,15 +246,16 @@ BEGIN
     GROUPBOX        "DAC (signed)",-1,10,168,400,58
     LTEXT           "Current DAC_X:",-1,18,184,60,8
     EDITTEXT        IDC_FT_EDIT_CUR_DACX,80,182,50,12,ES_AUTOHSCROLL | ES_READONLY
-    LTEXT           "DAC_Y:",-1,140,184,30,8
-    EDITTEXT        IDC_FT_EDIT_CUR_DACY,172,182,50,12,ES_AUTOHSCROLL | ES_READONLY
+    LTEXT           "DAC_Y:",-1,175,184,30,8
+    EDITTEXT        IDC_FT_EDIT_CUR_DACY,207,182,50,12,ES_AUTOHSCROLL | ES_READONLY
     LTEXT           "New DAC_X:",-1,18,204,52,8
     EDITTEXT        IDC_FT_EDIT_NEW_DACX,80,202,50,12,ES_AUTOHSCROLL
-    LTEXT           "DAC_Y:",-1,140,204,30,8
-    EDITTEXT        IDC_FT_EDIT_NEW_DACY,172,202,50,12,ES_AUTOHSCROLL
+    LTEXT           "DAC_Y:",-1,175,204,30,8
+    EDITTEXT        IDC_FT_EDIT_NEW_DACY,207,202,50,12,ES_AUTOHSCROLL
     GROUPBOX        "PM compare (RECAL 1 + OPM)",IDC_FT_GROUP_PM,10,230,400,52
     PUSHBUTTON      "Read Before",IDC_FT_BTN_READ_BEFORE,18,246,70,14
-    PUSHBUTTON      "Read After",IDC_FT_BTN_READ_AFTER,94,246,70,14
+    PUSHBUTTON      "Read After",IDC_FT_BTN_READ_AFTER,162,246,70,14
+    PUSHBUTTON      "RDAC",IDC_FT_BTN_RDAC,306,246,50,14
     LTEXT           "Before",-1,18,268,32,8
     LTEXT           "-",IDC_FT_STATIC_PM_BEFORE,50,268,90,8
     LTEXT           "After",-1,150,268,28,8
@@ -262,9 +264,10 @@ BEGIN
     LTEXT           "-",IDC_FT_STATIC_PM_DELTA,310,268,90,8
     LTEXT           "",IDC_FT_STATIC_STATUS,10,288,400,28
     PUSHBUTTON      "Refresh",IDC_FT_BTN_REFRESH,10,328,60,16
-    DEFPUSHBUTTON   "Write Bin",IDC_FT_BTN_WRITE,80,328,70,16
-    PUSHBUTTON      "Small Range",IDC_FT_BTN_SMALL_RANGE,180,328,90,16
-    PUSHBUTTON      "Close",IDCANCEL,340,328,60,16
+    DEFPUSHBUTTON   "Write Bin",IDC_FT_BTN_WRITE,106,328,70,16
+    PUSHBUTTON      "Small Range",IDC_FT_BTN_SMALL_RANGE,212,328,90,16
+    PUSHBUTTON      "Close",IDCANCEL,338,328,60,16
+    EDITTEXT        IDC_FT_EDIT_LOG,414,12,110,300,ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL
 END
 
 IDD_M576_IL_TEST DIALOGEX 0, 0, 665, 400
@@ -435,7 +438,7 @@ BEGIN
     0
 END
 
-#endif    // Chinese (Simplified, China) resources
+#endif    // 中文(简体，中国) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

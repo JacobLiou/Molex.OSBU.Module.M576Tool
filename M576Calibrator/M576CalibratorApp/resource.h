@@ -197,6 +197,8 @@
 #define IDC_FT_STATIC_PM_AFTER         2271
 #define IDC_FT_STATIC_PM_DELTA         2272
 #define IDC_FT_GROUP_PM                2273
+#define IDC_FT_BTN_RDAC                2274
+#define IDC_FT_EDIT_LOG                2275
 #define IDC_IL_RADIO_SFP1550           2210
 #define IDC_IL_RADIO_SFP1310           2211
 #define IDC_IL_RADIO_LASER1310         2212

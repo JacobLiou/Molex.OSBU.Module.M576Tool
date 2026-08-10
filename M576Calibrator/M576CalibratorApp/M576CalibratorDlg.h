@@ -32,6 +32,7 @@
 
 namespace M576 { struct Peak1DFitTrace; struct PeakPipelineFailureReport; }
 class CM576IlTestDlg;
+class CM576FineTuneDlg;
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
@@ -58,14 +59,18 @@ public:
 
 	/// FineTune Read Before/After: RECAL session (null if not ready).
 	CRecalSession* GetRecalSessionForFineTune();
-	/// FineTune only: RECAL 0 + SWL + RECAL 1 + OPM 3 1 (local drain/retry; not Run Path).
+	/// FineTune only: OPM AUTO + RECAL 0(auto) + SWL + RECAL 1 + OPM 3 1 (local drain/retry; not Run Path).
 	BOOL FineTuneSwitchPathAndReadOpm(
 		const SPathStep& step,
 		double& outDbm,
 		int& outRaw,
 		CString& err);
-	/// Main-window log from FineTune dialog (UI thread).
+	/// FineTune only: send `rdac 4` and collect multi-line reply until idle (not Run Path).
+	BOOL FineTuneReadRdac4(CStringA& outRawText, CString& err);
+	/// Forward FineTune logs to FineTune ListCtrl only (never main AppendLog).
 	void AppendLogFromFineTune(LPCTSTR sz);
+	/// Modeless FineTune closed (`PostNcDestroy`); clears owner pointer.
+	void OnFineTuneDlgClosed(CM576FineTuneDlg* pDlg);
 
 	/// IL Test dialog: open port if needed, lock mutual exclusion, return output\ dir.
 	/// Also redirects Diagnosis Session comm log to `output\ILTestCommLog_YYYY-MM-DD.log`.
@@ -86,6 +91,7 @@ protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
 	virtual BOOL OnInitDialog();
 	virtual void OnDestroy();
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
 
 	DECLARE_MESSAGE_MAP()
 
@@ -169,6 +175,8 @@ private:
 	CString m_ilTestCommLogPathAbs;
 	/// Non-owning; set while `CM576IlTestDlg` modal is open.
 	CM576IlTestDlg* m_pActiveIlTestDlg = nullptr;
+	/// Owned modeless FineTune (`new` + `PostNcDestroy` `delete this`); null when closed.
+	CM576FineTuneDlg* m_pFineTuneDlg = nullptr;
 	volatile BOOL m_diagStop{ FALSE };
 	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
 	int m_diagFinishFullLaps{ 0 };

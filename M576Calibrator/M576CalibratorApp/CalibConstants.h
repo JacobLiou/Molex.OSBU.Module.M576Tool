@@ -40,6 +40,10 @@
 #ifndef M576_FINETUNE_PM_SETTLE_MS
 #define M576_FINETUNE_PM_SETTLE_MS 500U
 #endif
+/// FineTune PM: settle after `OPM 4 1 0` AUTO arm (same need as IL Test).
+#ifndef M576_FINETUNE_OPM4_SETTLE_MS
+#define M576_FINETUNE_OPM4_SETTLE_MS 500U
+#endif
 #ifndef M576_FINETUNE_PM_ASCII_TIMEOUT_MS
 #define M576_FINETUNE_PM_ASCII_TIMEOUT_MS 3000U
 #endif
@@ -49,6 +53,16 @@
 #endif
 #ifndef M576_FINETUNE_PM_RX_DRAIN_IDLE_MS
 #define M576_FINETUNE_PM_RX_DRAIN_IDLE_MS 50U
+#endif
+/// FineTune RDAC: total budget / idle gap after last RX byte / wait before first byte.
+#ifndef M576_FINETUNE_RDAC_TOTAL_MS
+#define M576_FINETUNE_RDAC_TOTAL_MS 5000U
+#endif
+#ifndef M576_FINETUNE_RDAC_IDLE_MS
+#define M576_FINETUNE_RDAC_IDLE_MS 250U
+#endif
+#ifndef M576_FINETUNE_RDAC_FIRST_WAIT_MS
+#define M576_FINETUNE_RDAC_FIRST_WAIT_MS 3000U
 #endif
 /// Drain stale RX before each SWL attempt (avoid reading leftover FAIL/OK).
 #ifndef M576_SWL_RX_DRAIN_MAX_MS

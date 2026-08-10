@@ -4122,8 +4122,31 @@ void CM576CalibratorDlg::OnBnClickedClearLog()
 	m_editLog.SetWindowText(_T(""));
 }
 
+BOOL CM576CalibratorDlg::PreTranslateMessage(MSG* pMsg)
+{
+	if (m_pFineTuneDlg != NULL && ::IsWindow(m_pFineTuneDlg->GetSafeHwnd())
+		&& pMsg->hwnd != NULL
+		&& (pMsg->hwnd == m_pFineTuneDlg->m_hWnd || ::IsChild(m_pFineTuneDlg->m_hWnd, pMsg->hwnd))
+		&& m_pFineTuneDlg->IsDialogMessage(pMsg))
+	{
+		return TRUE;
+	}
+	return CDialogEx::PreTranslateMessage(pMsg);
+}
+
 void CM576CalibratorDlg::OnDestroy()
 {
+	if (m_pFineTuneDlg != NULL && ::IsWindow(m_pFineTuneDlg->GetSafeHwnd()))
+	{
+		CM576FineTuneDlg* pFt = m_pFineTuneDlg;
+		m_pFineTuneDlg = nullptr;
+		pFt->DestroyWindow(); // PostNcDestroy: delete this
+	}
+	else
+	{
+		m_pFineTuneDlg = nullptr;
+	}
+
 	m_bStop = TRUE;
 	m_diagStop = TRUE;
 	if (m_diagThread.joinable())
@@ -7023,11 +7046,25 @@ void CM576CalibratorDlg::OnFineTuneBinPatched(
 		roleTag,
 		added ? _T("") : _T(" (duplicate)"),
 		(int)m_fineTuneChannels.size());
-	AppendLog(m);
+	AppendLogFromFineTune(m);
+}
+
+void CM576CalibratorDlg::OnFineTuneDlgClosed(CM576FineTuneDlg* pDlg)
+{
+	if (m_pFineTuneDlg == pDlg)
+		m_pFineTuneDlg = nullptr;
 }
 
 void CM576CalibratorDlg::OnBnClickedFineTune()
 {
+	if (m_pFineTuneDlg != NULL && ::IsWindow(m_pFineTuneDlg->GetSafeHwnd()))
+	{
+		m_pFineTuneDlg->ShowWindow(SW_SHOW);
+		m_pFineTuneDlg->SetForegroundWindow();
+		return;
+	}
+	m_pFineTuneDlg = nullptr;
+
 	if (m_pathRunning.load() || m_burnFlashRunning.load() || m_burnBoardRunning.load()
 		|| m_readBackupRunning.load() || m_readSnRunning.load())
 	{
@@ -7052,20 +7089,18 @@ void CM576CalibratorDlg::OnBnClickedFineTune()
 		return;
 	}
 
-	AppendLog(_T("FineTune: Write Bin -> Burn Flash / Recover Flash -> Small Range (PM) to verify channels."));
-	CM576FineTuneDlg dlg(this, absOutDir, m_snInfo, this);
-	dlg.DoModal();
-	if (!dlg.WantsSmallRangeCalib())
-		return;
-
-	CString err;
-	if (!StartSmallRangePmRunPath(err))
+	AppendLog(
+		_T("FineTune (modeless): Write Bin here, Burn Flash / Recover Flash on main window, then Small Range to verify."));
+	auto* pDlg = new CM576FineTuneDlg(this, absOutDir, m_snInfo, this);
+	if (!pDlg->Create())
 	{
-		AppendLog(err.IsEmpty() ? _T("Small Range failed to start.") : err);
-		MessageBoxM576(
-			err.IsEmpty() ? _T("Small Range failed to start.") : err,
-			MB_OK | MB_ICONWARNING);
+		delete pDlg;
+		MessageBoxM576(_T("Failed to create FineTune window."), MB_OK | MB_ICONERROR);
+		return;
 	}
+	m_pFineTuneDlg = pDlg;
+	m_pFineTuneDlg->ShowWindow(SW_SHOW);
+	m_pFineTuneDlg->SetForegroundWindow();
 }
 
 BOOL CM576CalibratorDlg::IsBackgroundBusyForIlTest() const
@@ -7181,10 +7216,111 @@ CRecalSession* CM576CalibratorDlg::GetRecalSessionForFineTune()
 
 void CM576CalibratorDlg::AppendLogFromFineTune(LPCTSTR sz)
 {
-	AppendLog(sz);
-	// AppendIlTestCommLogLine(m_ilTestCommLogPathAbs, sz, errLog);
-	// if (m_pActiveIlTestDlg)
-	// 	m_pActiveIlTestDlg->PostCommLogLine(sz);
+	// FineTune-local log only — never main-window AppendLog.
+	if (m_pFineTuneDlg != NULL && ::IsWindow(m_pFineTuneDlg->GetSafeHwnd()) && sz != NULL)
+		m_pFineTuneDlg->AppendLocalLog(sz);
+}
+
+BOOL CM576CalibratorDlg::FineTuneReadRdac4(CStringA& outRawText, CString& err)
+{
+	outRawText.Empty();
+	err.Empty();
+
+	if (IsBackgroundBusyForIlTest())
+	{
+		err = _T("Another background task is running; wait for it to finish.");
+		return FALSE;
+	}
+	if (!IsSerialPortOpen())
+	{
+		err = _T("Open the serial port (Open Port) first.");
+		return FALSE;
+	}
+	CDiagnosisSession* diag = m_pDiag.get();
+	if (!diag)
+	{
+		err = _T("Serial session not ready.");
+		return FALSE;
+	}
+
+	COpComm& comm = diag->Comm();
+	auto drainFineTuneRx = [&]()
+	{
+		HANDLE h = comm.GetPortHandle();
+		if (h && h != INVALID_HANDLE_VALUE)
+			(void)PurgeComm(h, PURGE_RXCLEAR);
+		const DWORD t0 = GetTickCount();
+		DWORD lastDataTick = t0;
+		while (GetTickCount() - t0 < M576_FINETUNE_PM_RX_DRAIN_MAX_MS)
+		{
+			const DWORD avail = comm.RxBytesWaiting();
+			if (avail > 0)
+			{
+				char buf[256];
+				const DWORD chunk = (avail < (DWORD)sizeof(buf)) ? avail : (DWORD)sizeof(buf);
+				DWORD nread = 0;
+				(void)comm.ReadBuffer(buf, chunk, &nread);
+				lastDataTick = GetTickCount();
+				continue;
+			}
+			if (GetTickCount() - lastDataTick >= M576_FINETUNE_PM_RX_DRAIN_IDLE_MS)
+				break;
+			Sleep(1);
+		}
+	};
+
+	drainFineTuneRx();
+
+	char cmd[] = "rdac 4\r";
+	if (!comm.WriteBufferNoPurge(cmd, (DWORD)(sizeof(cmd) - 1)))
+	{
+		err = _T("rdac 4: write failed.");
+		return FALSE;
+	}
+	AppendLogFromFineTune(_T("[RDAC] sent rdac 4"));
+
+	CStringA rx;
+	const DWORD tStart = GetTickCount();
+	DWORD lastDataTick = tStart;
+	BOOL sawData = FALSE;
+	char buf[1024];
+	while (GetTickCount() - tStart < M576_FINETUNE_RDAC_TOTAL_MS)
+	{
+		const DWORD avail = comm.RxBytesWaiting();
+		if (avail > 0)
+		{
+			const DWORD chunk = (avail < (DWORD)(sizeof(buf) - 1)) ? avail : (DWORD)(sizeof(buf) - 1);
+			DWORD nread = 0;
+			if (comm.ReadBuffer(buf, chunk, &nread) && nread > 0)
+			{
+				buf[nread] = 0;
+				rx += buf;
+				sawData = TRUE;
+				lastDataTick = GetTickCount();
+			}
+			continue;
+		}
+		if (sawData && (GetTickCount() - lastDataTick >= M576_FINETUNE_RDAC_IDLE_MS))
+			break;
+		if (!sawData && (GetTickCount() - tStart >= M576_FINETUNE_RDAC_FIRST_WAIT_MS))
+		{
+			err = _T("rdac 4: no reply (timeout).");
+			return FALSE;
+		}
+		Sleep(1);
+	}
+
+	if (!sawData || rx.IsEmpty())
+	{
+		err = _T("rdac 4: empty reply.");
+		return FALSE;
+	}
+
+	// Normalize CRLF → LF for FineTune line splitter.
+	rx.Replace("\r\n", "\n");
+	rx.Replace("\r", "\n");
+	outRawText = rx;
+	return TRUE;
 }
 
 BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
@@ -7246,7 +7382,7 @@ BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 	const int maxAttempts = (int)M576_FINETUNE_PM_RETRY_MAX_ATTEMPTS;
 	CString lastErr;
 
-	// Sync TLS / wavelength / PM range from main window combos (FineTune is modal over owner).
+	// Sync TLS / wavelength from main window (FineTune forces PM AUTO; ignore UI fixed range).
 	UpdateData(TRUE);
 	int wavelengthNm = 0;
 	if (!ParseWavelengthNm(m_strWavelength, wavelengthNm, err))
@@ -7261,9 +7397,50 @@ BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 		return FALSE;
 	}
 	const int tlsSource = m_tlsIndex + 1;
-	const int pmRange = m_pmRangeIndex;
+	const int pmRange = M576_MAX_PM_RANGE; // 4 = AUTO (avoid UI default fixed range locking OPM)
 
-	// 1) Light source + wavelength + PM range (same wire as Run Path env setup).
+	// 0) Arm OPM AUTO first (same wire as IL Test / FIM) so OPM 3 1 is not stuck on a fixed range.
+	{
+		BOOL opm4Ok = FALSE;
+		for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+		{
+			drainFineTuneRx();
+			CStringA opm4Reply;
+			DWORD ms = 0;
+			CString opm4Err;
+			if (!diag->ExchangeAsciiLine(
+					_T("OPM4"),
+					CStringA("OPM 4 1 0"),
+					opm4Reply,
+					M576_FINETUNE_PM_ASCII_TIMEOUT_MS,
+					ms,
+					opm4Err))
+			{
+				lastErr = opm4Err.IsEmpty() ? _T("OPM 4 1 0: read/write failed.") : opm4Err;
+				if (attempt < maxAttempts)
+					Sleep(M576_FINETUNE_PM_RETRY_DELAY_MS);
+				continue;
+			}
+			opm4Reply.Trim();
+			// Firmware may reply OK or echo; treat exchange success as armed (IL Test also ignores body).
+			opm4Ok = TRUE;
+			CString opm4Log;
+			opm4Log.Format(
+				_T("[FineTune][PM] OPM 4 1 0 AUTO arm -> %hs"),
+				opm4Reply.IsEmpty() ? "(empty)" : opm4Reply.GetString());
+			AppendLogFromFineTune(opm4Log);
+			break;
+		}
+		if (!opm4Ok)
+		{
+			err = lastErr.IsEmpty() ? _T("OPM AUTO: failed.") : (_T("OPM AUTO: ") + lastErr);
+			return FALSE;
+		}
+		if (M576_FINETUNE_OPM4_SETTLE_MS > 0)
+			Sleep(M576_FINETUNE_OPM4_SETTLE_MS);
+	}
+
+	// 1) Light source + wavelength + PM AUTO via RECAL 0 (keeps range aligned with step 0).
 	{
 		drainFineTuneRx();
 		CStringA line0;
@@ -7278,7 +7455,7 @@ BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 		}
 		CString envLog;
 		envLog.Format(
-			_T("[FineTune][PM] RECAL 0 TLS=%d nm=%d PM=%d -> %hs"),
+			_T("[FineTune][PM] RECAL 0 TLS=%d nm=%d PM=%d (AUTO) -> %hs"),
 			tlsSource,
 			wavelengthNm,
 			pmRange,
