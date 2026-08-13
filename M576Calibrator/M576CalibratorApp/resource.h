@@ -82,7 +82,6 @@
 #define IDC_BTN_EXPORT_CALIB_STATS      1040
 #define IDC_BTN_TEST_CONNECTION         1041
 #define IDC_BTN_BURN_BOARD              2184
-#define IDC_BTN_CHASSIS_DEBUG           2242
 #define IDC_CHASSIS_COMBO_1X8           2243
 #define IDC_CHASSIS_BTN_1X8             2244
 #define IDC_CHASSIS_COMBO_1X2           2245
@@ -167,6 +166,7 @@
 #define IDC_RUNPATH_CATEGORY_TEXT      2181
 #define IDC_RUNPATH_FAILURE_LIST       2182
 #define IDC_RUNPATH_BTN_EXPORT         2183
+#define IDC_FT_TAB                     2260
 #define IDC_FT_COMBO_ROLE              2190
 #define IDC_FT_RADIO_MCS1              2191
 #define IDC_FT_RADIO_MCS2              2192
@@ -197,7 +197,8 @@
 #define IDC_FT_STATIC_PM_AFTER         2271
 #define IDC_FT_STATIC_PM_DELTA         2272
 #define IDC_FT_GROUP_PM                2273
-#define IDC_FT_BTN_RDAC                2274
+#define IDC_FT_BTN_RDAC1               2274
+#define IDC_FT_BTN_RDAC4               2276
 #define IDC_FT_EDIT_LOG                2275
 #define IDC_IL_RADIO_SFP1550           2210
 #define IDC_IL_RADIO_SFP1310           2211

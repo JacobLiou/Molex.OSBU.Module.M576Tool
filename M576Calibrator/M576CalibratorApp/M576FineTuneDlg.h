@@ -5,11 +5,13 @@
 #include "McsFwTransport.h"
 #include "Pm1x64Mapping.h"
 #include "SmallRangeCalibSelection.h"
+#include "M576ChassisDebugDlg.h"
 
 class CM576CalibratorDlg;
 
 /// Manual low-temp DAC patch for one Backup/Standard burn file (A/B experiment).
 /// Modeless: stay open while main window Burn Flash / Recover Flash runs.
+/// Tab 0 FineTune / Tab 1 Chassis Debug (child page; same 439F port).
 /// Right multiline edit is FineTune-local log (incl. RDAC); does not write main-window Log.
 /// Write Bin does not close - change Address and write additional slots in one session.
 /// Small Range starts PM Run Path on the owner without closing this dialog.
@@ -42,6 +44,8 @@ private:
 	CM576CalibratorDlg* m_pOwner;
 	CString m_outDirAbs;
 	M576TransSnPnInfo m_snInfo;
+	CTabCtrl m_tab;
+	CM576ChassisDebugDlg m_chassisPage;
 	CComboBox m_comboRole;
 	CComboBox m_comboRecal;
 	CEdit m_editLog;
@@ -65,15 +69,21 @@ private:
 	void UpdatePmCompareUi();
 	void BuildMapRowsForResolve(std::vector<SmallRangeMapRow>& out) const;
 	void ReadPmSlot(BOOL isBefore);
+	void ReadRdacSlot(int rdacIndex);
 	void SetPmBusy(BOOL busy);
+	void LayoutChassisPage();
+	void ShowActiveTab();
+	void BringCloseToTop();
 	afx_msg void OnBnClickedRefresh();
 	afx_msg void OnBnClickedWrite();
 	afx_msg void OnBnClickedSmallRange();
 	afx_msg void OnBnClickedReadBefore();
 	afx_msg void OnBnClickedReadAfter();
-	afx_msg void OnBnClickedRdac();
+	afx_msg void OnBnClickedRdac1();
+	afx_msg void OnBnClickedRdac4();
 	afx_msg void OnDeviceRadioChanged();
 	afx_msg void OnRoleChanged();
 	afx_msg void OnRecalSelChanged();
 	afx_msg void OnAddressFieldChanged();
+	afx_msg void OnTcnSelchangeTab(NMHDR* pNMHDR, LRESULT* pResult);
 };

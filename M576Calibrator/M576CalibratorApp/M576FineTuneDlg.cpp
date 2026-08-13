@@ -16,6 +16,7 @@ CM576FineTuneDlg::CM576FineTuneDlg(
 	, m_pOwner(pOwner)
 	, m_outDirAbs(outDirAbs ? outDirAbs : _T(""))
 	, m_snInfo(sn)
+	, m_chassisPage(pOwner)
 {
 }
 
@@ -45,6 +46,7 @@ void CM576FineTuneDlg::PostNcDestroy()
 void CM576FineTuneDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_FT_TAB, m_tab);
 	DDX_Control(pDX, IDC_FT_COMBO_ROLE, m_comboRole);
 	DDX_Control(pDX, IDC_FT_COMBO_RECAL, m_comboRecal);
 	DDX_Control(pDX, IDC_FT_EDIT_LOG, m_editLog);
@@ -56,7 +58,8 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_FT_BTN_SMALL_RANGE, &CM576FineTuneDlg::OnBnClickedSmallRange)
 	ON_BN_CLICKED(IDC_FT_BTN_READ_BEFORE, &CM576FineTuneDlg::OnBnClickedReadBefore)
 	ON_BN_CLICKED(IDC_FT_BTN_READ_AFTER, &CM576FineTuneDlg::OnBnClickedReadAfter)
-	ON_BN_CLICKED(IDC_FT_BTN_RDAC, &CM576FineTuneDlg::OnBnClickedRdac)
+	ON_BN_CLICKED(IDC_FT_BTN_RDAC1, &CM576FineTuneDlg::OnBnClickedRdac1)
+	ON_BN_CLICKED(IDC_FT_BTN_RDAC4, &CM576FineTuneDlg::OnBnClickedRdac4)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS1, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_MCS2, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_1, &CM576FineTuneDlg::OnDeviceRadioChanged)
@@ -67,6 +70,7 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_EN_CHANGE(IDC_FT_EDIT_MCS_CH, &CM576FineTuneDlg::OnAddressFieldChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_SW, &CM576FineTuneDlg::OnAddressFieldChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_CHY, &CM576FineTuneDlg::OnAddressFieldChanged)
+	ON_NOTIFY(TCN_SELCHANGE, IDC_FT_TAB, &CM576FineTuneDlg::OnTcnSelchangeTab)
 END_MESSAGE_MAP()
 
 void CM576FineTuneDlg::AppendLocalLog(LPCTSTR line)
@@ -86,6 +90,18 @@ void CM576FineTuneDlg::AppendLocalLog(LPCTSTR line)
 BOOL CM576FineTuneDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
+	m_tab.InsertItem(0, _T("FineTune"));
+	m_tab.InsertItem(1, _T("Chassis Debug"));
+	if (m_chassisPage.Create(IDD_M576_CHASSIS_DEBUG, this))
+	{
+		LayoutChassisPage();
+		m_chassisPage.ShowWindow(SW_HIDE);
+	}
+	else
+	{
+		AppendLocalLog(_T("Failed to create Chassis Debug page."));
+	}
+	BringCloseToTop();
 	m_comboRole.AddString(_T("Backup"));
 	m_comboRole.AddString(_T("Standard"));
 	m_comboRole.SetCurSel(0);
@@ -107,6 +123,7 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	ClearPmCompare();
 	RefreshStatusHint();
 	AppendLocalLog(_T("FineTune ready (local log; not main window)."));
+	ShowActiveTab();
 	return TRUE;
 }
 
@@ -343,8 +360,58 @@ void CM576FineTuneDlg::SetPmBusy(BOOL busy)
 		p->EnableWindow(en);
 	if (CWnd* p = GetDlgItem(IDC_FT_BTN_READ_AFTER))
 		p->EnableWindow(en);
-	if (CWnd* p = GetDlgItem(IDC_FT_BTN_RDAC))
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_RDAC1))
 		p->EnableWindow(en);
+	if (CWnd* p = GetDlgItem(IDC_FT_BTN_RDAC4))
+		p->EnableWindow(en);
+	if (m_chassisPage.GetSafeHwnd())
+		m_chassisPage.EnableCommands(en);
+}
+
+void CM576FineTuneDlg::LayoutChassisPage()
+{
+	if (!m_chassisPage.GetSafeHwnd() || !m_tab.GetSafeHwnd())
+		return;
+	CRect rc;
+	m_tab.GetWindowRect(&rc);
+	ScreenToClient(&rc);
+	m_tab.AdjustRect(FALSE, &rc);
+	m_chassisPage.SetWindowPos(NULL, rc.left, rc.top, rc.Width(), rc.Height(), SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void CM576FineTuneDlg::BringCloseToTop()
+{
+	if (CWnd* pClose = GetDlgItem(IDCANCEL))
+		pClose->SetWindowPos(&wndTop, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void CM576FineTuneDlg::ShowActiveTab()
+{
+	const BOOL showFt = (m_tab.GetCurSel() <= 0);
+	CWnd* const pClose = GetDlgItem(IDCANCEL);
+	CWnd* pChild = GetWindow(GW_CHILD);
+	while (pChild != NULL)
+	{
+		CWnd* const pNext = pChild->GetWindow(GW_HWNDNEXT);
+		const HWND h = pChild->GetSafeHwnd();
+		if (h != m_tab.GetSafeHwnd()
+			&& h != m_chassisPage.GetSafeHwnd()
+			&& pChild != pClose)
+		{
+			pChild->ShowWindow(showFt ? SW_SHOW : SW_HIDE);
+		}
+		pChild = pNext;
+	}
+	if (m_chassisPage.GetSafeHwnd())
+		m_chassisPage.ShowWindow(showFt ? SW_HIDE : SW_SHOW);
+	BringCloseToTop();
+}
+
+void CM576FineTuneDlg::OnTcnSelchangeTab(NMHDR* /*pNMHDR*/, LRESULT* pResult)
+{
+	ShowActiveTab();
+	if (pResult != NULL)
+		*pResult = 0;
 }
 
 void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
@@ -525,29 +592,47 @@ void CM576FineTuneDlg::OnBnClickedReadAfter()
 	ReadPmSlot(FALSE);
 }
 
-void CM576FineTuneDlg::OnBnClickedRdac()
+void CM576FineTuneDlg::ReadRdacSlot(int rdacIndex)
 {
 	if (m_pOwner == NULL)
 	{
 		MessageBox(_T("Internal error: no owner dialog."), _T("FineTune"), MB_OK | MB_ICONERROR);
 		return;
 	}
+	if (rdacIndex != 1 && rdacIndex != 4)
+	{
+		MessageBox(_T("Internal error: RDAC index must be 1 or 4."), _T("FineTune RDAC"), MB_OK | MB_ICONERROR);
+		return;
+	}
 
+	const LPCTSTR wlTag = (rdacIndex == 1) ? _T("1550") : _T("1310");
 	SetPmBusy(TRUE);
-	SetDlgItemText(IDC_FT_STATIC_STATUS, _T("RDAC: reading..."));
-	AppendLocalLog(_T("--- RDAC ---"));
-	AppendLocalLog(_T("TX: rdac 4"));
+	{
+		CString st;
+		st.Format(_T("RDAC %d (%s): reading..."), rdacIndex, wlTag);
+		SetDlgItemText(IDC_FT_STATIC_STATUS, st);
+	}
+	{
+		CString sep;
+		sep.Format(_T("--- RDAC %d (%s) ---"), rdacIndex, wlTag);
+		AppendLocalLog(sep);
+	}
+	{
+		CString tx;
+		tx.Format(_T("TX: rdac %d"), rdacIndex);
+		AppendLocalLog(tx);
+	}
 
 	CStringA raw;
 	CString err;
-	const BOOL ok = m_pOwner->FineTuneReadRdac4(raw, err);
+	const BOOL ok = m_pOwner->FineTuneReadRdac(rdacIndex, raw, err);
 
 	SetPmBusy(FALSE);
 
 	if (!ok)
 	{
 		CString fail;
-		fail.Format(_T("RDAC FAIL: %s"), err.IsEmpty() ? _T("unknown error") : err.GetString());
+		fail.Format(_T("RDAC %d FAIL: %s"), rdacIndex, err.IsEmpty() ? _T("unknown error") : err.GetString());
 		AppendLocalLog(fail);
 		SetDlgItemText(IDC_FT_STATIC_STATUS, fail);
 		MessageBox(fail, _T("FineTune RDAC"), MB_OK | MB_ICONWARNING);
@@ -601,9 +686,24 @@ void CM576FineTuneDlg::OnBnClickedRdac()
 	}
 
 	CString status;
-	status.Format(_T("RDAC: %d rows%s"), nRows, nBad > 0 ? _T(" (some lines skipped)") : _T(""));
+	status.Format(
+		_T("RDAC %d (%s): %d rows%s"),
+		rdacIndex,
+		wlTag,
+		nRows,
+		nBad > 0 ? _T(" (some lines skipped)") : _T(""));
 	SetDlgItemText(IDC_FT_STATIC_STATUS, status);
 	AppendLocalLog(status);
+}
+
+void CM576FineTuneDlg::OnBnClickedRdac1()
+{
+	ReadRdacSlot(1);
+}
+
+void CM576FineTuneDlg::OnBnClickedRdac4()
+{
+	ReadRdacSlot(4);
 }
 
 void CM576FineTuneDlg::OnDeviceRadioChanged()

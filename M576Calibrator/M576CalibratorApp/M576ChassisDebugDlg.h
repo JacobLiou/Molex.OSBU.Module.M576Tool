@@ -5,7 +5,8 @@
 class CM576CalibratorDlg;
 class CDiagnosisSession;
 
-/// Modal chassis switch / power debug UI (FIM-compatible ASCII on the main 439F port).
+/// Chassis switch / power debug UI (FIM-compatible ASCII on the main 439F port).
+/// Hosted as a WS_CHILD page inside FineTune (not a standalone modal).
 class CM576ChassisDebugDlg : public CDialogEx
 {
 public:
@@ -16,9 +17,13 @@ public:
 		IDD = IDD_M576_CHASSIS_DEBUG
 	};
 
+	void EnableCommands(BOOL enable);
+
 protected:
 	void DoDataExchange(CDataExchange* pDX) override;
 	BOOL OnInitDialog() override;
+	void OnOK() override;
+	void OnCancel() override;
 	DECLARE_MESSAGE_MAP()
 
 	afx_msg void OnBnClicked1x8();
@@ -46,6 +51,7 @@ private:
 	void FillComboRange(CComboBox& combo, int lo, int hiInclusive);
 	int SelectedChannel1Based(CComboBox& combo) const;
 	CDiagnosisSession* Session() const;
+	BOOL CanExchange(CString& err) const;
 	BOOL ExchangeSwitch(LPCTSTR label, const CStringA& wire, CString& err, CStringA& reply);
 	BOOL ReplyLooksOk(const CStringA& reply) const;
 };

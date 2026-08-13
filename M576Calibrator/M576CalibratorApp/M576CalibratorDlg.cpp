@@ -8,7 +8,6 @@
 #include "M576FineTuneDlg.h"
 #include "M576IlTestDlg.h"
 #include "M576FimIlTestDlg.h"
-#include "M576ChassisDebugDlg.h"
 #include "IlTestCsv.h"
 #include "LutMerge1310.h"
 #include "LutMerge1550.h"
@@ -1482,7 +1481,6 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_OPEN_PORTS, &CM576CalibratorDlg::OnBnClickedOpenPorts)
 	ON_BN_CLICKED(IDC_BTN_TEST_CONNECTION, &CM576CalibratorDlg::OnBnClickedTestConnection)
 	ON_BN_CLICKED(IDC_BTN_BURN_BOARD, &CM576CalibratorDlg::OnBnClickedBurnBoard)
-	ON_BN_CLICKED(IDC_BTN_CHASSIS_DEBUG, &CM576CalibratorDlg::OnBnClickedChassisDebug)
 	ON_BN_CLICKED(IDC_BTN_CLOSE_PORT, &CM576CalibratorDlg::OnBnClickedClosePort)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_BACKUP, &CM576CalibratorDlg::OnBnClickedBrowseBackup)
 	ON_BN_CLICKED(IDC_BTN_BROWSE_OUT, &CM576CalibratorDlg::OnBnClickedBrowseOut)
@@ -2047,8 +2045,6 @@ void CM576CalibratorDlg::SyncSerialPortUi()
 	if (CWnd* p = GetDlgItem(IDC_BTN_TEST_CONNECTION))
 		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_BURN_BOARD))
-		p->EnableWindow(!busy);
-	if (CWnd* p = GetDlgItem(IDC_BTN_CHASSIS_DEBUG))
 		p->EnableWindow(!busy);
 	if (CWnd* p = GetDlgItem(IDC_BTN_RUN_DIAG))
 		p->EnableWindow(!busy);
@@ -2788,31 +2784,6 @@ void CM576CalibratorDlg::OnBnClickedTestConnection()
 		box.Format(_T("439F connection test OK.\n\ninfo<CR> reply:\n\n%s"), (LPCTSTR)resp);
 		MessageBoxM576(box, MB_OK | MB_ICONINFORMATION);
 	}
-}
-
-void CM576CalibratorDlg::OnBnClickedChassisDebug()
-{
-	UpdateData(TRUE);
-	const BOOL busy = m_pathRunning.load() || m_readBackupRunning.load() || m_readSnRunning.load()
-		|| m_burnFlashRunning.load() || m_burnBoardRunning.load() || m_diagRunning.load();
-	if (busy)
-	{
-		AppendLog(_T("Chassis Debug: a background task is running; wait for it to finish."));
-		return;
-	}
-	if (!IsSerialPortOpen())
-	{
-		AppendLog(_T("Chassis Debug: opening port first..."));
-		if (!OpenPort())
-		{
-			AppendLog(_T("Open the serial port first."));
-			MessageBoxM576(_T("Open the serial port first."), MB_OK | MB_ICONINFORMATION);
-			return;
-		}
-		SyncSerialPortUi();
-	}
-	CM576ChassisDebugDlg dlg(this, this);
-	dlg.DoModal();
 }
 
 void CM576CalibratorDlg::OnBnClickedBurnBoard()
@@ -7221,10 +7192,17 @@ void CM576CalibratorDlg::AppendLogFromFineTune(LPCTSTR sz)
 		m_pFineTuneDlg->AppendLocalLog(sz);
 }
 
-BOOL CM576CalibratorDlg::FineTuneReadRdac4(CStringA& outRawText, CString& err)
+BOOL CM576CalibratorDlg::FineTuneReadRdac(int rdacIndex, CStringA& outRawText, CString& err)
 {
 	outRawText.Empty();
 	err.Empty();
+
+	// 1 = 1550 nm table, 4 = 1310 nm table (firmware rdac N).
+	if (rdacIndex != 1 && rdacIndex != 4)
+	{
+		err.Format(_T("rdac: unsupported index %d (use 1=1550 or 4=1310)."), rdacIndex);
+		return FALSE;
+	}
 
 	if (IsBackgroundBusyForIlTest())
 	{
@@ -7271,13 +7249,18 @@ BOOL CM576CalibratorDlg::FineTuneReadRdac4(CStringA& outRawText, CString& err)
 
 	drainFineTuneRx();
 
-	char cmd[] = "rdac 4\r";
-	if (!comm.WriteBufferNoPurge(cmd, (DWORD)(sizeof(cmd) - 1)))
+	char cmd[16];
+	sprintf_s(cmd, "rdac %d\r", rdacIndex);
+	if (!comm.WriteBufferNoPurge(cmd, (DWORD)strlen(cmd)))
 	{
-		err = _T("rdac 4: write failed.");
+		err.Format(_T("rdac %d: write failed."), rdacIndex);
 		return FALSE;
 	}
-	AppendLogFromFineTune(_T("[RDAC] sent rdac 4"));
+	{
+		CString sent;
+		sent.Format(_T("[RDAC] sent rdac %d (%s)"), rdacIndex, rdacIndex == 1 ? _T("1550") : _T("1310"));
+		AppendLogFromFineTune(sent);
+	}
 
 	CStringA rx;
 	const DWORD tStart = GetTickCount();
@@ -7304,7 +7287,7 @@ BOOL CM576CalibratorDlg::FineTuneReadRdac4(CStringA& outRawText, CString& err)
 			break;
 		if (!sawData && (GetTickCount() - tStart >= M576_FINETUNE_RDAC_FIRST_WAIT_MS))
 		{
-			err = _T("rdac 4: no reply (timeout).");
+			err.Format(_T("rdac %d: no reply (timeout)."), rdacIndex);
 			return FALSE;
 		}
 		Sleep(1);
@@ -7312,11 +7295,11 @@ BOOL CM576CalibratorDlg::FineTuneReadRdac4(CStringA& outRawText, CString& err)
 
 	if (!sawData || rx.IsEmpty())
 	{
-		err = _T("rdac 4: empty reply.");
+		err.Format(_T("rdac %d: empty reply."), rdacIndex);
 		return FALSE;
 	}
 
-	// Normalize CRLF → LF for FineTune line splitter.
+	// Normalize CRLF to LF for FineTune line splitter.
 	rx.Replace("\r\n", "\n");
 	rx.Replace("\r", "\n");
 	outRawText = rx;

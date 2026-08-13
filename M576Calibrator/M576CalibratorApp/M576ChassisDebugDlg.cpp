@@ -80,6 +80,44 @@ BOOL CM576ChassisDebugDlg::OnInitDialog()
 	return TRUE;
 }
 
+void CM576ChassisDebugDlg::OnOK()
+{
+}
+
+void CM576ChassisDebugDlg::OnCancel()
+{
+	CWnd* pHost = GetParent();
+	if (pHost != NULL)
+		pHost->PostMessage(WM_CLOSE);
+}
+
+void CM576ChassisDebugDlg::EnableCommands(BOOL enable)
+{
+	const UINT ids[] = {
+		IDC_CHASSIS_COMBO_1X8,
+		IDC_CHASSIS_BTN_1X8,
+		IDC_CHASSIS_COMBO_1X2,
+		IDC_CHASSIS_BTN_1X2,
+		IDC_CHASSIS_COMBO_1X64_1,
+		IDC_CHASSIS_BTN_1X64_1,
+		IDC_CHASSIS_COMBO_1X64_2,
+		IDC_CHASSIS_BTN_1X64_2,
+		IDC_CHASSIS_COMBO_MCS1_IDX,
+		IDC_CHASSIS_COMBO_MCS1_PORT,
+		IDC_CHASSIS_BTN_MCS1,
+		IDC_CHASSIS_COMBO_MCS2_IDX,
+		IDC_CHASSIS_COMBO_MCS2_PORT,
+		IDC_CHASSIS_BTN_MCS2,
+		IDC_CHASSIS_BTN_READ_TLS,
+		IDC_CHASSIS_BTN_READ_OPM,
+	};
+	for (UINT id : ids)
+	{
+		if (CWnd* p = GetDlgItem(id))
+			p->EnableWindow(enable);
+	}
+}
+
 void CM576ChassisDebugDlg::AppendLogLine(LPCTSTR line)
 {
 	if (!line)
@@ -108,16 +146,29 @@ BOOL CM576ChassisDebugDlg::ReplyLooksOk(const CStringA& reply) const
 	return upper.Find("OK") >= 0;
 }
 
-BOOL CM576ChassisDebugDlg::ExchangeSwitch(LPCTSTR label, const CStringA& wire, CString& err, CStringA& reply)
+BOOL CM576ChassisDebugDlg::CanExchange(CString& err) const
 {
 	err.Empty();
-	reply.Empty();
-	CDiagnosisSession* session = Session();
-	if (!session)
+	if (m_pOwner != nullptr && m_pOwner->IsBackgroundBusyForIlTest())
+	{
+		err = _T("A background task is running; wait for it to finish.");
+		return FALSE;
+	}
+	if (Session() == nullptr)
 	{
 		err = _T("Serial session not ready. Open Port on the main window first.");
 		return FALSE;
 	}
+	return TRUE;
+}
+
+BOOL CM576ChassisDebugDlg::ExchangeSwitch(LPCTSTR label, const CStringA& wire, CString& err, CStringA& reply)
+{
+	err.Empty();
+	reply.Empty();
+	if (!CanExchange(err))
+		return FALSE;
+	CDiagnosisSession* session = Session();
 	DWORD ms = 0;
 	if (!session->ExchangeAsciiLine(label, wire, reply, kChassisAsciiTimeoutMs, ms, err))
 		return FALSE;
@@ -265,14 +316,14 @@ void CM576ChassisDebugDlg::OnBnClickedMcs2()
 
 void CM576ChassisDebugDlg::OnBnClickedReadTls()
 {
-	CDiagnosisSession* session = Session();
-	if (!session)
+	CString err;
+	if (!CanExchange(err))
 	{
-		AppendLogLine(_T("Serial session not ready. Open Port on the main window first."));
+		AppendLogLine(err);
 		return;
 	}
+	CDiagnosisSession* session = Session();
 	CStringA reply;
-	CString err;
 	DWORD ms = 0;
 	if (!session->ExchangeAsciiLine(_T("PD TLS"), CStringA("pd 1"), reply, kChassisAsciiTimeoutMs, ms, err))
 	{
@@ -289,14 +340,14 @@ void CM576ChassisDebugDlg::OnBnClickedReadTls()
 
 void CM576ChassisDebugDlg::OnBnClickedReadOpm()
 {
-	CDiagnosisSession* session = Session();
-	if (!session)
+	CString err;
+	if (!CanExchange(err))
 	{
-		AppendLogLine(_T("Serial session not ready. Open Port on the main window first."));
+		AppendLogLine(err);
 		return;
 	}
+	CDiagnosisSession* session = Session();
 	CStringA reply;
-	CString err;
 	DWORD ms = 0;
 	if (!session->ExchangeAsciiLine(_T("OPM"), CStringA("OPM 3 1"), reply, kChassisAsciiTimeoutMs, ms, err))
 	{

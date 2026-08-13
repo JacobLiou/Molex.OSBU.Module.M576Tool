@@ -65,8 +65,8 @@ public:
 		double& outDbm,
 		int& outRaw,
 		CString& err);
-	/// FineTune only: send `rdac 4` and collect multi-line reply until idle (not Run Path).
-	BOOL FineTuneReadRdac4(CStringA& outRawText, CString& err);
+	/// FineTune only: send `rdac 1` (1550) or `rdac 4` (1310); multi-line until idle (not Run Path).
+	BOOL FineTuneReadRdac(int rdacIndex, CStringA& outRawText, CString& err);
 	/// Forward FineTune logs to FineTune ListCtrl only (never main AppendLog).
 	void AppendLogFromFineTune(LPCTSTR sz);
 	/// Modeless FineTune closed (`PostNcDestroy`); clears owner pointer.
@@ -370,7 +370,6 @@ private:
 	afx_msg void OnBnClickedOpenPorts();
 	afx_msg void OnBnClickedTestConnection();
 	afx_msg void OnBnClickedBurnBoard();
-	afx_msg void OnBnClickedChassisDebug();
 	afx_msg void OnBnClickedClosePort();
 	afx_msg void OnBnClickedBrowseBackup();
 	afx_msg void OnBnClickedBrowseOut();
