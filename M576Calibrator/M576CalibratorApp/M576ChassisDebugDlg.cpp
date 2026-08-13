@@ -2,6 +2,7 @@
 #include "M576ChassisDebugDlg.h"
 #include "M576CalibratorDlg.h"
 #include "DiagnosisSession.h"
+#include "CalibConstants.h"
 
 #include <cstdlib>
 
@@ -27,6 +28,8 @@ void CM576ChassisDebugDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_CHASSIS_COMBO_MCS1_PORT, m_cmbMcs1Port);
 	DDX_Control(pDX, IDC_CHASSIS_COMBO_MCS2_IDX, m_cmbMcs2Idx);
 	DDX_Control(pDX, IDC_CHASSIS_COMBO_MCS2_PORT, m_cmbMcs2Port);
+	DDX_Control(pDX, IDC_CHASSIS_COMBO_TLS, m_cmbTls);
+	DDX_Control(pDX, IDC_CHASSIS_COMBO_WL, m_cmbWl);
 	DDX_Control(pDX, IDC_CHASSIS_EDIT_LOG, m_editLog);
 }
 
@@ -39,6 +42,7 @@ BEGIN_MESSAGE_MAP(CM576ChassisDebugDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_CHASSIS_BTN_MCS2, &CM576ChassisDebugDlg::OnBnClickedMcs2)
 	ON_BN_CLICKED(IDC_CHASSIS_BTN_READ_TLS, &CM576ChassisDebugDlg::OnBnClickedReadTls)
 	ON_BN_CLICKED(IDC_CHASSIS_BTN_READ_OPM, &CM576ChassisDebugDlg::OnBnClickedReadOpm)
+	ON_BN_CLICKED(IDC_CHASSIS_BTN_WAVELENGTH, &CM576ChassisDebugDlg::OnBnClickedWavelength)
 END_MESSAGE_MAP()
 
 void CM576ChassisDebugDlg::FillComboRange(CComboBox& combo, int lo, int hiInclusive)
@@ -76,6 +80,17 @@ BOOL CM576ChassisDebugDlg::OnInitDialog()
 	FillComboRange(m_cmbMcs1Port, 1, 18);
 	FillComboRange(m_cmbMcs2Idx, 1, 32);
 	FillComboRange(m_cmbMcs2Port, 1, 18);
+	FillComboRange(m_cmbTls, M576_MIN_TLS_SOURCE, M576_MAX_TLS_SOURCE);
+	{
+		const int defTls = M576_DEFAULT_TLS_SOURCE;
+		const int idx = defTls - M576_MIN_TLS_SOURCE;
+		if (idx >= 0 && idx < m_cmbTls.GetCount())
+			m_cmbTls.SetCurSel(idx);
+	}
+	m_cmbWl.ResetContent();
+	m_cmbWl.AddString(_T("1310"));
+	m_cmbWl.AddString(_T("1550"));
+	m_cmbWl.SetCurSel(0);
 	AppendLogLine(_T("Chassis Debug ready. Commands use the main Connection serial port."));
 	return TRUE;
 }
@@ -110,6 +125,9 @@ void CM576ChassisDebugDlg::EnableCommands(BOOL enable)
 		IDC_CHASSIS_BTN_MCS2,
 		IDC_CHASSIS_BTN_READ_TLS,
 		IDC_CHASSIS_BTN_READ_OPM,
+		IDC_CHASSIS_COMBO_TLS,
+		IDC_CHASSIS_COMBO_WL,
+		IDC_CHASSIS_BTN_WAVELENGTH,
 	};
 	for (UINT id : ids)
 	{
@@ -359,5 +377,41 @@ void CM576ChassisDebugDlg::OnBnClickedReadOpm()
 	const double dbm = atof(reply.GetString()) / 10000.0;
 	CString msg;
 	msg.Format(_T("OPM power: %.4f dBm"), dbm);
+	AppendLogLine(msg);
+}
+
+void CM576ChassisDebugDlg::OnBnClickedWavelength()
+{
+	const int tls = SelectedChannel1Based(m_cmbTls);
+	if (tls < M576_MIN_TLS_SOURCE || tls > M576_MAX_TLS_SOURCE)
+	{
+		AppendLogLine(_T("Select TLS source 1-8 before SWL."));
+		return;
+	}
+	const int sel = m_cmbWl.GetCurSel();
+	CString s;
+	if (sel >= 0)
+		m_cmbWl.GetLBText(sel, s);
+	const int nm = _ttoi(s);
+	if (nm != 1310 && nm != 1550)
+	{
+		AppendLogLine(_T("Select 1310 or 1550 before SWL."));
+		return;
+	}
+	CStringA wire;
+	wire.Format("SWL %d %d", tls, nm);
+	CString err;
+	CStringA reply;
+	CString label;
+	label.Format(_T("SWL %d %d"), tls, nm);
+	if (!ExchangeSwitch(label, wire, err, reply))
+	{
+		CString msg;
+		msg.Format(_T("Failed SWL %d %d: %s"), tls, nm, err.GetString());
+		AppendLogLine(msg);
+		return;
+	}
+	CString msg;
+	msg.Format(_T("SWL %d %d OK"), tls, nm);
 	AppendLogLine(msg);
 }

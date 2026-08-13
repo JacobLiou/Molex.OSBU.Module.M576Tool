@@ -99,6 +99,9 @@
 #define IDC_CHASSIS_BTN_READ_TLS        2257
 #define IDC_CHASSIS_BTN_READ_OPM        2258
 #define IDC_CHASSIS_EDIT_LOG            2259
+#define IDC_CHASSIS_COMBO_WL            2277
+#define IDC_CHASSIS_BTN_WAVELENGTH      2278
+#define IDC_CHASSIS_COMBO_TLS           2279
 #define IDC_RADIO_CAL_PM                1023
 #define IDC_RADIO_CAL_PD                1024
 #define IDC_EDIT_RECAL_DELAY            1025

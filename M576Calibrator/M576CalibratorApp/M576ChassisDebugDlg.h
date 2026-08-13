@@ -34,6 +34,7 @@ protected:
 	afx_msg void OnBnClickedMcs2();
 	afx_msg void OnBnClickedReadTls();
 	afx_msg void OnBnClickedReadOpm();
+	afx_msg void OnBnClickedWavelength();
 
 private:
 	CM576CalibratorDlg* m_pOwner = nullptr;
@@ -45,6 +46,8 @@ private:
 	CComboBox m_cmbMcs1Port;
 	CComboBox m_cmbMcs2Idx;
 	CComboBox m_cmbMcs2Port;
+	CComboBox m_cmbTls;
+	CComboBox m_cmbWl;
 	CEdit m_editLog;
 
 	void AppendLogLine(LPCTSTR line);
