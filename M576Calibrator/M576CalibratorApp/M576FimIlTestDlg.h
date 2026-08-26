@@ -14,7 +14,7 @@ class CM576CalibratorDlg;
 struct M576FimIlUiRow
 {
 	CString channel;
-	CString half; // IN / OUT
+	CString half; // FIM original: always IN (no OUT swap)
 	CString wl;
 	int lap = 0;
 	double pdDbm = 0;

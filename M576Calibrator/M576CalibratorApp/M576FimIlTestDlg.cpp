@@ -149,11 +149,11 @@ struct FimTableRow
 	CString channel;
 };
 
-void BuildFimTestTableRows(BYTE port1x8, BYTE sw4Port, std::vector<FimTableRow>& out)
+/// FIM original hang-up: 1x2 DUT always IN (b[1]=1). Do not alternate OUT.
+void BuildFimTestTableRows(BYTE port1x8, std::vector<FimTableRow>& out)
 {
 	out.clear();
 	out.reserve((size_t)kFimChannelCount);
-	const BYTE dut = (sw4Port == 2) ? (BYTE)2 : (BYTE)1;
 	for (int sw = 1; sw <= 32; ++sw)
 	{
 		for (int ch = 1; ch <= 18; ++ch)
@@ -161,7 +161,7 @@ void BuildFimTestTableRows(BYTE port1x8, BYTE sw4Port, std::vector<FimTableRow>&
 			FimTableRow r;
 			const int pb = sw + 32;
 			r.b[0] = port1x8;
-			r.b[1] = dut; // 1x2 DUT: 1=IN, 2=OUT
+			r.b[1] = 1; // 1x2 DUT IN only (FIM original half-side)
 			r.b[2] = (BYTE)sw;
 			r.b[3] = (BYTE)pb;
 			r.b[4] = (BYTE)sw;
@@ -725,7 +725,7 @@ BOOL AppendFimIlCsvRow(LPCTSTR path, int lap, LPCTSTR half, LPCTSTR channel, LPC
 	return TRUE;
 }
 
-/// stats sized 2*N: [0..N) = IN, [N..2N) = OUT.
+/// stats sized N (IN half only, same as FIM original).
 BOOL WriteFimSpanCsv(LPCTSTR path, const std::vector<FimTableRow>& table,
 	const std::vector<IlTestRollingStats>& stats, LPCTSTR wl, CString& err)
 {
@@ -742,29 +742,24 @@ BOOL WriteFimSpanCsv(LPCTSTR path, const std::vector<FimTableRow>& table,
 		"Channel,Half,InPort,OutPort,WlLabel,SampleCount,IL_Max,IL_Min,IL_Span\r\n";
 	fwrite(kHdr, 1, sizeof(kHdr) - 1, fp);
 	const size_t N = table.size();
-	for (int half = 1; half <= 2; ++half)
+	const LPCTSTR halfLabel = IlTestHalfLabel(1); // IN
+	for (size_t i = 0; i < N; ++i)
 	{
-		const LPCTSTR halfLabel = IlTestHalfLabel(half);
-		const size_t base = (size_t)(half - 1) * N;
-		for (size_t i = 0; i < N; ++i)
+		if (i >= stats.size() || stats[i].sampleCount <= 0)
+			continue;
+		CString inPort, outPort;
+		const int chIdx = IlTestParseChannelIndex(table[i].channel);
+		if (!IlTestChannelToMpoPorts(chIdx, inPort, outPort))
 		{
-			const size_t si = base + i;
-			if (si >= stats.size() || stats[si].sampleCount <= 0)
-				continue;
-			CString inPort, outPort;
-			const int chIdx = IlTestParseChannelIndex(table[i].channel);
-			if (!IlTestChannelToMpoPorts(chIdx, inPort, outPort))
-			{
-				inPort = _T("-");
-				outPort = _T("-");
-			}
-			CString lineW;
-			lineW.Format(_T("%s,%s,%s,%s,%s,%d,%.6f,%.6f,%.6f\r\n"),
-				table[i].channel.GetString(), halfLabel, inPort.GetString(), outPort.GetString(), wl,
-				stats[si].sampleCount, stats[si].ilMax, stats[si].ilMin, stats[si].Span());
-			const CStringA line(lineW);
-			fwrite(line.GetString(), 1, (size_t)line.GetLength(), fp);
+			inPort = _T("-");
+			outPort = _T("-");
 		}
+		CString lineW;
+		lineW.Format(_T("%s,%s,%s,%s,%s,%d,%.6f,%.6f,%.6f\r\n"),
+			table[i].channel.GetString(), halfLabel, inPort.GetString(), outPort.GetString(), wl,
+			stats[i].sampleCount, stats[i].ilMax, stats[i].ilMin, stats[i].Span());
+		const CStringA line(lineW);
+		fwrite(line.GetString(), 1, (size_t)line.GetLength(), fp);
 	}
 	fflush(fp);
 	fclose(fp);
@@ -816,7 +811,7 @@ BOOL CM576FimIlTestDlg::OnInitDialog()
 	thr.Format(_T("%.2f"), (double)M576_IL_TEST_DEFAULT_SPAN_MAX_DB);
 	SetDlgItemText(IDC_FIM_IL_EDIT_SPAN_MAX, thr);
 	SetDlgItemText(IDC_FIM_IL_STATIC_STATUS,
-		_T("Idle - FIM BIN scan; gate same as IL Test: IL abs + Span<= (editable)."));
+		_T("Idle - FIM BIN scan, IN half only; gate: IL abs + Span<= (editable)."));
 
 	m_list.ModifyStyle(0, LVS_OWNERDATA | LVS_REPORT | LVS_SINGLESEL);
 	m_list.SetExtendedStyle(m_list.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
@@ -1119,12 +1114,12 @@ void CM576FimIlTestDlg::OnBnClickedStart()
 	AppendLogLine(_T("[FIMIL] start BIN+RESULT hang-up (no diagnosis_sw.csv, no ref zero)"));
 	{
 		CString s;
-		s.Format(_T("[FIMIL] %s SWL %d %d SW4 alternate IN/OUT (odd/even lap) OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
+		s.Format(_T("[FIMIL] %s SWL %d %d SW4=1 IN only (FIM original half) OPM4 AUTO IL=OPM-PD abs=[%.3f,%.3f] Span<=%.3f"),
 			IlTestWlLabel(wl), IlTestSwlChannel(wl), IlTestWavelengthNm(wl),
 			gate.absIlMinDb, gate.absIlMaxDb, gate.spanMaxDb);
 		AppendLogLine(s);
 	}
-	AppendLogLine(_T("[FIMIL] Half: odd lap=IN (SW4 1 / OPLK b1=1), even lap=OUT (SW4 2 / OPLK b1=2); Span per half."));
+	AppendLogLine(_T("[FIMIL] Half: IN only (SW4 1 / OPLK b1=1). No OUT swap."));
 
 	m_stop = FALSE;
 	m_running = true;
@@ -1219,9 +1214,11 @@ void CM576FimIlTestDlg::WorkerEntry(
 	spanPath.Format(_T("%s\\%s_fim_ILMax-Min_Span.csv"), outDir.GetString(), sn.GetString());
 
 	std::vector<FimTableRow> table;
-	BuildFimTestTableRows((BYTE)port1x8, 1, table); // geometry fixed; b[1] rebuilt each lap
+	BuildFimTestTableRows((BYTE)port1x8, table); // FIM original: IN half only, b[1]=1
 	const int N = (int)table.size();
-	std::vector<IlTestRollingStats> stats((size_t)N * 2); // [0..N)=IN, [N..2N)=OUT
+	std::vector<IlTestRollingStats> stats((size_t)N);
+	const int half = 1;
+	const CString halfLabel(IlTestHalfLabel(half));
 
 	bool armedWl = false;
 	int fullLaps = 0;
@@ -1242,14 +1239,11 @@ void CM576FimIlTestDlg::WorkerEntry(
 			break;
 
 		++fullLaps;
-		const int half = IlTestHalfFromLap(fullLaps);
-		const CString halfLabel(IlTestHalfLabel(half));
-		BuildFimTestTableRows((BYTE)port1x8, (BYTE)half, table);
 		BeginLapUi(N, fullLaps);
 		{
 			CString note;
-			note.Format(_T("[FIMIL] --- lap %d begin half=%s SW4 %d (%d ch) ---"),
-				fullLaps, halfLabel.GetString(), half, N);
+			note.Format(_T("[FIMIL] --- lap %d begin half=%s SW4 1 (%d ch) ---"),
+				fullLaps, halfLabel.GetString(), N);
 			PostLog(note);
 		}
 
@@ -1295,19 +1289,15 @@ void CM576FimIlTestDlg::WorkerEntry(
 			break;
 		}
 
-		// Per lap: SW 4 {half} -> PD (log only) -> BIN (b[1]=half) -> scan -> RESULT.
+		// Per lap: keep 1x2 on IN (SW 4 1), same OPLK table. No OUT swap.
 		{
 			CStringA reply;
 			DWORD ms = 0;
-			CStringA sw4;
-			sw4.Format("SW 4 %d", half);
-			CString labelSw4;
-			labelSw4.Format(_T("SW4 %s"), halfLabel.GetString());
-			(void)session->ExchangeAsciiLine(labelSw4, sw4, reply, 3000, ms, err);
+			(void)session->ExchangeAsciiLine(_T("SW4 IN"), CStringA("SW 4 1"), reply, 3000, ms, err);
 			(void)session->ExchangeAsciiLine(_T("PD"), CStringA("pd 1"), reply, 3000, ms, err);
 			CString pdNote;
-			pdNote.Format(_T("[FIMIL] SW 4 %d (%s) + pd 1 reply=%hs (log only, not used in IL)"),
-				half, halfLabel.GetString(), reply.GetString());
+			pdNote.Format(_T("[FIMIL] SW 4 1 (IN) + pd 1 reply=%hs (log only, not used in IL)"),
+				reply.GetString());
 			PostLog(pdNote);
 		}
 		::Sleep(150); // settle after ASCII before binary fwdl 0
@@ -1324,8 +1314,8 @@ void CM576FimIlTestDlg::WorkerEntry(
 		}
 		{
 			CString s;
-			s.Format(_T("[FIMIL] wrote OPLK %s half=%s (%d rows)"),
-				binPath.GetString(), halfLabel.GetString(), (int)table.size());
+			s.Format(_T("[FIMIL] wrote OPLK %s half=IN (%d rows)"),
+				binPath.GetString(), (int)table.size());
 			PostLog(s);
 		}
 
@@ -1382,11 +1372,10 @@ void CM576FimIlTestDlg::WorkerEntry(
 
 		std::vector<M576FimIlUiRow> uiRows(table.size());
 		int failCount = 0;
-		const size_t statsBase = (size_t)(half - 1) * (size_t)N;
 		for (size_t i = 0; i < table.size(); ++i)
 		{
 			const double il = opm[i] - pd[i];
-			IlTestRollingStats& st = stats[statsBase + i];
+			IlTestRollingStats& st = stats[i];
 			st.Add(il);
 			const double span = st.Span();
 			const BOOL pass = IlTestJudgePass(il, span, gate);

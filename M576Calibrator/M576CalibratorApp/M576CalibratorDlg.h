@@ -60,8 +60,11 @@ public:
 	/// FineTune Read Before/After: RECAL session (null if not ready).
 	CRecalSession* GetRecalSessionForFineTune();
 	/// FineTune only: OPM AUTO + RECAL 0(auto) + SWL + RECAL 1 + OPM 3 1 (local drain/retry; not Run Path).
+	/// tlsSource / wavelengthNm come from FineTune page (not main RECAL0 TLS / nm).
 	BOOL FineTuneSwitchPathAndReadOpm(
 		const SPathStep& step,
+		int tlsSource,
+		int wavelengthNm,
 		double& outDbm,
 		int& outRaw,
 		CString& err);
@@ -277,10 +280,10 @@ private:
 		std::array<CString, M576_BURN_FILE_COUNT> filePaths,
 		std::array<bool, M576_BURN_FILE_COUNT> burnMask);
 	void WriteLogFileLine(const CString& line);
-	/// External-source wavelength for Run Path: ASCII `SWL 8 <1310|1550>` (fixed TLS ch 8).
+	/// Run Path wavelength: ASCII `SWL <tls 1-8> <1310|1550>` (TLS from main `RECAL0 TLS` combo).
 	/// Settle + RX drain + require OK with retries (flaky 439F after RECAL 0).
 	/// PM: call after successful RECAL 0; PD: call at path start (no RECAL 0).
-	BOOL ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err);
+	BOOL ExchangeSwlBeforeRunPath(int tlsSource, int wavelengthNm, CString& err);
 	void RunPathPowerMeter();
 	void RunPathPd();
 	void RunPathPowerMeterFile(

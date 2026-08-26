@@ -3,9 +3,27 @@
 #include "M576FineTuneDlg.h"
 #include "M576CalibratorDlg.h"
 #include "PathCsvDriver.h"
+#include "CalibConstants.h"
 #include "resource.h"
 
+#include <uxtheme.h>
 #include <vector>
+
+BEGIN_MESSAGE_MAP(CFtTabCtrl, CTabCtrl)
+	ON_WM_ERASEBKGND()
+END_MESSAGE_MAP()
+
+BOOL CFtTabCtrl::OnEraseBkgnd(CDC* pDC)
+{
+	if (pDC == NULL)
+		return FALSE;
+	// Chassis Debug page covers this with a DS_CONTROL dialog (Control gray).
+	// FineTune hosts loose controls over the tab body; default tab erase is white.
+	CRect rc;
+	GetClientRect(&rc);
+	pDC->FillSolidRect(&rc, ::GetSysColor(COLOR_BTNFACE));
+	return TRUE;
+}
 
 CM576FineTuneDlg::CM576FineTuneDlg(
 	CM576CalibratorDlg* pOwner,
@@ -49,6 +67,8 @@ void CM576FineTuneDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_FT_TAB, m_tab);
 	DDX_Control(pDX, IDC_FT_COMBO_ROLE, m_comboRole);
 	DDX_Control(pDX, IDC_FT_COMBO_RECAL, m_comboRecal);
+	DDX_Control(pDX, IDC_FT_COMBO_TLS, m_comboTls);
+	DDX_Control(pDX, IDC_FT_COMBO_WL, m_comboWl);
 	DDX_Control(pDX, IDC_FT_EDIT_LOG, m_editLog);
 }
 
@@ -71,6 +91,8 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_EN_CHANGE(IDC_FT_EDIT_SW, &CM576FineTuneDlg::OnAddressFieldChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_CHY, &CM576FineTuneDlg::OnAddressFieldChanged)
 	ON_NOTIFY(TCN_SELCHANGE, IDC_FT_TAB, &CM576FineTuneDlg::OnTcnSelchangeTab)
+	ON_WM_ERASEBKGND()
+	ON_WM_CTLCOLOR()
 END_MESSAGE_MAP()
 
 void CM576FineTuneDlg::AppendLocalLog(LPCTSTR line)
@@ -90,6 +112,10 @@ void CM576FineTuneDlg::AppendLocalLog(LPCTSTR line)
 BOOL CM576FineTuneDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
+	// Themed SysTabControl32 paints a white page body; Chassis covers it with a gray child dlg.
+	// Disable theme so OnEraseBkgnd COLOR_BTNFACE matches Chassis (Control) for FineTune page.
+	if (m_tab.GetSafeHwnd())
+		::SetWindowTheme(m_tab.GetSafeHwnd(), L"", L"");
 	m_tab.InsertItem(0, _T("FineTune"));
 	m_tab.InsertItem(1, _T("Chassis Debug"));
 	if (m_chassisPage.Create(IDD_M576_CHASSIS_DEBUG, this))
@@ -101,10 +127,25 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	{
 		AppendLocalLog(_T("Failed to create Chassis Debug page."));
 	}
-	BringCloseToTop();
 	m_comboRole.AddString(_T("Backup"));
 	m_comboRole.AddString(_T("Standard"));
 	m_comboRole.SetCurSel(0);
+	m_comboTls.ResetContent();
+	for (int i = M576_MIN_TLS_SOURCE; i <= M576_MAX_TLS_SOURCE; ++i)
+	{
+		CString s;
+		s.Format(_T("%d"), i);
+		m_comboTls.AddString(s);
+	}
+	{
+		const int idx = M576_DEFAULT_TLS_SOURCE - M576_MIN_TLS_SOURCE;
+		if (idx >= 0 && idx < m_comboTls.GetCount())
+			m_comboTls.SetCurSel(idx);
+	}
+	m_comboWl.ResetContent();
+	m_comboWl.AddString(_T("1310"));
+	m_comboWl.AddString(_T("1550"));
+	m_comboWl.SetCurSel(0);
 	CheckRadioButton(IDC_FT_RADIO_MCS1, IDC_FT_RADIO_1X64_2, IDC_FT_RADIO_MCS1);
 	m_clearPmOnAddressChange = FALSE;
 	SetDlgItemInt(IDC_FT_EDIT_MCS_BLOCK, 1, FALSE);
@@ -364,8 +405,45 @@ void CM576FineTuneDlg::SetPmBusy(BOOL busy)
 		p->EnableWindow(en);
 	if (CWnd* p = GetDlgItem(IDC_FT_BTN_RDAC4))
 		p->EnableWindow(en);
+	if (CWnd* p = GetDlgItem(IDC_FT_COMBO_TLS))
+		p->EnableWindow(en);
+	if (CWnd* p = GetDlgItem(IDC_FT_COMBO_WL))
+		p->EnableWindow(en);
 	if (m_chassisPage.GetSafeHwnd())
 		m_chassisPage.EnableCommands(en);
+}
+
+BOOL CM576FineTuneDlg::CollectTlsAndWavelength(int& tlsSource, int& wavelengthNm, CString& errMsg) const
+{
+	tlsSource = 0;
+	wavelengthNm = 0;
+	errMsg.Empty();
+
+	const int tlsSel = m_comboTls.GetCurSel();
+	CString tlsText;
+	if (tlsSel >= 0)
+		m_comboTls.GetLBText(tlsSel, tlsText);
+	tlsSource = _ttoi(tlsText);
+	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
+	{
+		errMsg.Format(
+			_T("FineTune: select TLS %d..%d."),
+			M576_MIN_TLS_SOURCE,
+			M576_MAX_TLS_SOURCE);
+		return FALSE;
+	}
+
+	const int wlSel = m_comboWl.GetCurSel();
+	CString wlText;
+	if (wlSel >= 0)
+		m_comboWl.GetLBText(wlSel, wlText);
+	wavelengthNm = _ttoi(wlText);
+	if (wavelengthNm != 1310 && wavelengthNm != 1550)
+	{
+		errMsg = _T("FineTune: select wavelength 1310 or 1550.");
+		return FALSE;
+	}
+	return TRUE;
 }
 
 void CM576FineTuneDlg::LayoutChassisPage()
@@ -379,32 +457,45 @@ void CM576FineTuneDlg::LayoutChassisPage()
 	m_chassisPage.SetWindowPos(NULL, rc.left, rc.top, rc.Width(), rc.Height(), SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-void CM576FineTuneDlg::BringCloseToTop()
-{
-	if (CWnd* pClose = GetDlgItem(IDCANCEL))
-		pClose->SetWindowPos(&wndTop, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-}
-
 void CM576FineTuneDlg::ShowActiveTab()
 {
 	const BOOL showFt = (m_tab.GetCurSel() <= 0);
-	CWnd* const pClose = GetDlgItem(IDCANCEL);
 	CWnd* pChild = GetWindow(GW_CHILD);
 	while (pChild != NULL)
 	{
 		CWnd* const pNext = pChild->GetWindow(GW_HWNDNEXT);
 		const HWND h = pChild->GetSafeHwnd();
-		if (h != m_tab.GetSafeHwnd()
-			&& h != m_chassisPage.GetSafeHwnd()
-			&& pChild != pClose)
-		{
+		if (h != m_tab.GetSafeHwnd() && h != m_chassisPage.GetSafeHwnd())
 			pChild->ShowWindow(showFt ? SW_SHOW : SW_HIDE);
-		}
 		pChild = pNext;
 	}
 	if (m_chassisPage.GetSafeHwnd())
 		m_chassisPage.ShowWindow(showFt ? SW_HIDE : SW_SHOW);
-	BringCloseToTop();
+	if (showFt && m_tab.GetSafeHwnd())
+		m_tab.Invalidate(TRUE);
+}
+
+BOOL CM576FineTuneDlg::OnEraseBkgnd(CDC* pDC)
+{
+	if (pDC == NULL)
+		return FALSE;
+	CRect rc;
+	GetClientRect(&rc);
+	pDC->FillSolidRect(&rc, ::GetSysColor(COLOR_BTNFACE));
+	return TRUE;
+}
+
+HBRUSH CM576FineTuneDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	if (nCtlColor == CTLCOLOR_DLG
+		|| nCtlColor == CTLCOLOR_STATIC
+		|| nCtlColor == CTLCOLOR_BTN)
+	{
+		pDC->SetBkColor(::GetSysColor(COLOR_BTNFACE));
+		pDC->SetTextColor(::GetSysColor(COLOR_BTNTEXT));
+		return ::GetSysColorBrush(COLOR_BTNFACE);
+	}
+	return CDialogEx::OnCtlColor(pDC, pWnd, nCtlColor);
 }
 
 void CM576FineTuneDlg::OnTcnSelchangeTab(NMHDR* /*pNMHDR*/, LRESULT* pResult)
@@ -498,6 +589,16 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 		step.c3,
 		step.c4);
 
+	int tlsSource = 0;
+	int wavelengthNm = 0;
+	if (!CollectTlsAndWavelength(tlsSource, wavelengthNm, err))
+	{
+		AppendLocalLog(err);
+		SetDlgItemText(IDC_FT_STATIC_STATUS, err);
+		MessageBox(err, _T("FineTune PM"), MB_OK | MB_ICONWARNING);
+		return;
+	}
+
 	SetPmBusy(TRUE);
 
 	CString status;
@@ -505,8 +606,10 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 	SetDlgItemText(IDC_FT_STATIC_STATUS, status);
 	{
 		CString startLog;
-		startLog.Format(_T("[PM] %s start %s %s"),
+		startLog.Format(_T("[PM] %s start TLS=%d nm=%d %s %s"),
 			isBefore ? _T("Before") : _T("After"),
+			tlsSource,
+			wavelengthNm,
 			recalCmd.GetString(),
 			addrLabel.GetString());
 		AppendLocalLog(startLog);
@@ -514,7 +617,7 @@ void CM576FineTuneDlg::ReadPmSlot(BOOL isBefore)
 
 	double dbm = 0.0;
 	int raw = 0;
-	const BOOL ok = m_pOwner->FineTuneSwitchPathAndReadOpm(step, dbm, raw, err);
+	const BOOL ok = m_pOwner->FineTuneSwitchPathAndReadOpm(step, tlsSource, wavelengthNm, dbm, raw, err);
 
 	SetPmBusy(FALSE);
 

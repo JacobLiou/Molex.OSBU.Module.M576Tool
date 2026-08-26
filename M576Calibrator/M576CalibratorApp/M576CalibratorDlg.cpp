@@ -4536,7 +4536,7 @@ void CM576CalibratorDlg::ExportRunPathBackupDacSnapshotCsvIfBackupBaseSet()
 	ExportSessionDacCsv(m_sessionCalibPolicy, leaf, _T("Run path"));
 }
 
-BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err)
+BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int tlsSource, int wavelengthNm, CString& err)
 {
 	err.Empty();
 	if (!m_pDiag)
@@ -4544,8 +4544,12 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 		err = _T("Run Path: port session not ready (open port first).");
 		return FALSE;
 	}
-	// External source on fixed TLS channel 8 (same as Diagnosis / IL SWL).
-	const int tlsSource = M576_DIAG_SWL_TLS_SOURCE;
+	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
+	{
+		err.Format(_T("Run Path: SWL TLS source %d out of range %d..%d."),
+			tlsSource, M576_MIN_TLS_SOURCE, M576_MAX_TLS_SOURCE);
+		return FALSE;
+	}
 	if (wavelengthNm != 1310 && wavelengthNm != 1550)
 	{
 		err.Format(_T("Run Path: SWL requires wavelength 1310 or 1550 nm (UI has %d)."),
@@ -4565,7 +4569,7 @@ BOOL CM576CalibratorDlg::ExchangeSwlBeforeRunPath(int wavelengthNm, CString& err
 	CStringA wire;
 	FormatSwlWire(wire, tlsSource, wavelengthNm);
 	CString label;
-	FormatSwlLabel(label, _T("(Run Path, external)"), tlsSource, wavelengthNm);
+	FormatSwlLabel(label, _T("(Run Path)"), tlsSource, wavelengthNm);
 
 	COpComm& comm = m_pDiag->Comm();
 	auto drainRxBeforeSwl = [&]()
@@ -4727,10 +4731,10 @@ void CM576CalibratorDlg::RunPathPowerMeter()
 			SafeAppendLog(msg);
 		}
 	}
-	// External source: SWL 8 <UI wavelength> after RECAL 0 (e.g. RECAL 0 … 1310 … then SWL 8 1310).
-	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
+	// SWL <TLS combo> <UI wavelength> after RECAL 0 (same tlsSource as RECAL 0).
+	if (!ExchangeSwlBeforeRunPath(tlsSource, wavelengthNm, err))
 	{
-		SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL 8 (external source wavelength) failed.") : err);
+		SafeAppendLog(err.IsEmpty() ? _T("Run Path: SWL (TLS/wavelength) failed.") : err);
 		return;
 	}
 
@@ -5949,10 +5953,10 @@ void CM576CalibratorDlg::RunPathPd()
 	}
 
 	/// PD: Command C only (RECAL 2 + RECAL 5). No Command A (RECAL 0).
-	/// Still set external-source wavelength via SWL 8 <nm> (same wire as PM after RECAL 0).
-	if (!ExchangeSwlBeforeRunPath(wavelengthNm, err))
+	/// Still set wavelength via SWL <TLS combo> <nm> (same wire as PM after RECAL 0).
+	if (!ExchangeSwlBeforeRunPath(m_tlsIndex + 1, wavelengthNm, err))
 	{
-		SafeAppendLog(err.IsEmpty() ? _T("Run Path PD: SWL 8 (external source wavelength) failed.") : err);
+		SafeAppendLog(err.IsEmpty() ? _T("Run Path PD: SWL (TLS/wavelength) failed.") : err);
 		return;
 	}
 
@@ -7308,6 +7312,8 @@ BOOL CM576CalibratorDlg::FineTuneReadRdac(int rdacIndex, CStringA& outRawText, C
 
 BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 	const SPathStep& step,
+	int tlsSource,
+	int wavelengthNm,
 	double& outDbm,
 	int& outRaw,
 	CString& err)
@@ -7365,21 +7371,20 @@ BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 	const int maxAttempts = (int)M576_FINETUNE_PM_RETRY_MAX_ATTEMPTS;
 	CString lastErr;
 
-	// Sync TLS / wavelength from main window (FineTune forces PM AUTO; ignore UI fixed range).
-	UpdateData(TRUE);
-	int wavelengthNm = 0;
-	if (!ParseWavelengthNm(m_strWavelength, wavelengthNm, err))
+	if (tlsSource < M576_MIN_TLS_SOURCE || tlsSource > M576_MAX_TLS_SOURCE)
 	{
-		if (err.IsEmpty())
-			err = _T("FineTune PM: invalid wavelength.");
+		err.Format(
+			_T("FineTune PM: TLS source %d out of range %d..%d."),
+			tlsSource,
+			M576_MIN_TLS_SOURCE,
+			M576_MAX_TLS_SOURCE);
 		return FALSE;
 	}
 	if (wavelengthNm != 1310 && wavelengthNm != 1550)
 	{
-		err.Format(_T("FineTune PM: wavelength must be 1310 or 1550 nm (UI has %d)."), wavelengthNm);
+		err.Format(_T("FineTune PM: wavelength must be 1310 or 1550 nm (got %d)."), wavelengthNm);
 		return FALSE;
 	}
-	const int tlsSource = m_tlsIndex + 1;
 	const int pmRange = M576_MAX_PM_RANGE; // 4 = AUTO (avoid UI default fixed range locking OPM)
 
 	// 0) Arm OPM AUTO first (same wire as IL Test / FIM) so OPM 3 1 is not stuck on a fixed range.
@@ -7446,12 +7451,12 @@ BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 		AppendLogFromFineTune(envLog);
 	}
 
-	// 2) External source wavelength: SWL 8 <nm> (after RECAL 0 settle; FineTune-local, not Run Path helper).
+	// 2) Wavelength: SWL <FineTune TLS> <nm> (after RECAL 0 settle; FineTune-local, not Run Path helper).
 	if (M576_SWL_POST_RECAL_SETTLE_MS > 0)
 		Sleep(M576_SWL_POST_RECAL_SETTLE_MS);
 	{
 		CStringA swlWire;
-		FormatSwlWire(swlWire, M576_DIAG_SWL_TLS_SOURCE, wavelengthNm);
+		FormatSwlWire(swlWire, tlsSource, wavelengthNm);
 		BOOL swlOk = FALSE;
 		for (int attempt = 1; attempt <= maxAttempts; ++attempt)
 		{
@@ -7460,7 +7465,7 @@ BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 			DWORD ms = 0;
 			CString swlErr;
 			CString label;
-			label.Format(_T("SWL %d %d (FineTune)"), M576_DIAG_SWL_TLS_SOURCE, wavelengthNm);
+			label.Format(_T("SWL %d %d (FineTune)"), tlsSource, wavelengthNm);
 			if (!diag->ExchangeAsciiLine(
 					label, swlWire, swlReply, M576_FINETUNE_PM_ASCII_TIMEOUT_MS, ms, swlErr))
 			{
@@ -7488,7 +7493,7 @@ BOOL CM576CalibratorDlg::FineTuneSwitchPathAndReadOpm(
 		CString swlLog;
 		swlLog.Format(
 			_T("[FineTune][PM] SWL %d %d OK"),
-			M576_DIAG_SWL_TLS_SOURCE,
+			tlsSource,
 			wavelengthNm);
 		AppendLogFromFineTune(swlLog);
 	}

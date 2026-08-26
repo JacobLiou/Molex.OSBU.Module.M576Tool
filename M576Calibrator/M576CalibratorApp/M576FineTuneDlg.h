@@ -9,6 +9,14 @@
 
 class CM576CalibratorDlg;
 
+/// Tab body matches dialog Control (COLOR_BTNFACE); default SysTabControl32 paints white.
+class CFtTabCtrl : public CTabCtrl
+{
+public:
+	DECLARE_MESSAGE_MAP()
+	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
+};
+
 /// Manual low-temp DAC patch for one Backup/Standard burn file (A/B experiment).
 /// Modeless: stay open while main window Burn Flash / Recover Flash runs.
 /// Tab 0 FineTune / Tab 1 Chassis Debug (child page; same 439F port).
@@ -44,10 +52,12 @@ private:
 	CM576CalibratorDlg* m_pOwner;
 	CString m_outDirAbs;
 	M576TransSnPnInfo m_snInfo;
-	CTabCtrl m_tab;
+	CFtTabCtrl m_tab;
 	CM576ChassisDebugDlg m_chassisPage;
 	CComboBox m_comboRole;
 	CComboBox m_comboRecal;
+	CComboBox m_comboTls;
+	CComboBox m_comboWl;
 	CEdit m_editLog;
 	CArray<SMems1x64PmMapRow, SMems1x64PmMapRow const&> m_map1x64Rows;
 	BOOL m_rebuildingRecal = FALSE;
@@ -70,10 +80,10 @@ private:
 	void BuildMapRowsForResolve(std::vector<SmallRangeMapRow>& out) const;
 	void ReadPmSlot(BOOL isBefore);
 	void ReadRdacSlot(int rdacIndex);
+	BOOL CollectTlsAndWavelength(int& tlsSource, int& wavelengthNm, CString& errMsg) const;
 	void SetPmBusy(BOOL busy);
 	void LayoutChassisPage();
 	void ShowActiveTab();
-	void BringCloseToTop();
 	afx_msg void OnBnClickedRefresh();
 	afx_msg void OnBnClickedWrite();
 	afx_msg void OnBnClickedSmallRange();
@@ -86,4 +96,6 @@ private:
 	afx_msg void OnRecalSelChanged();
 	afx_msg void OnAddressFieldChanged();
 	afx_msg void OnTcnSelchangeTab(NMHDR* pNMHDR, LRESULT* pResult);
+	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 };

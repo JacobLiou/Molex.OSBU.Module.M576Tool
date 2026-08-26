@@ -203,6 +203,8 @@
 #define IDC_FT_BTN_RDAC1               2274
 #define IDC_FT_BTN_RDAC4               2276
 #define IDC_FT_EDIT_LOG                2275
+#define IDC_FT_COMBO_TLS               2280
+#define IDC_FT_COMBO_WL                2281
 #define IDC_IL_RADIO_SFP1550           2210
 #define IDC_IL_RADIO_SFP1310           2211
 #define IDC_IL_RADIO_LASER1310         2212
