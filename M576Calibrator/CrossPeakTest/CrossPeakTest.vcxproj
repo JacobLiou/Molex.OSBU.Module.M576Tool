@@ -100,6 +100,8 @@
     <ClCompile Include="..\M576CalibratorApp\PmRangeValidation.cpp" />
     <ClCompile Include="..\M576CalibratorApp\CalibPathOutcome.cpp" />
     <ClCompile Include="..\M576CalibratorApp\SmallRangeCalibSelection.cpp" />
+    <ClCompile Include="..\M576CalibratorApp\PathDacImpact.cpp" />
+    <ClCompile Include="..\M576CalibratorApp\FullEditDacCsv.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="test_sweeps.csv" />

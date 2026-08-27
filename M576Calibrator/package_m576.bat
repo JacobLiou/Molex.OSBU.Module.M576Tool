@@ -196,29 +196,29 @@ if exist "!VCREDIST!" (
 )
 
 :readme
-> "%DIST%\README-deploy.txt" (
-  echo M576Calibrator - offline folder
-  echo.
-  echo Built with Visual Studio toolset v143 ^(VS 2022^).
-  echo Run: M576CalibratorApp.exe
-  echo Requires: Windows x64/x86 capable of running 32-bit apps; USB serial driver for 429F if needed.
-  echo.
-  echo CRT/MFC DLLs are VC143 redistributables copied next to the exe when packaging on a machine with VS.
-  echo If a PC still reports missing DLLs, install: redist\vc_redist.x86.exe
-  echo.
-  echo Config: M576Calibrator.ini next to the exe ^([PeakFinder] MinProminenceDb etc.; restart after edit^).
-  echo.
-  echo Default path CSVs - per trans, under .\output\ :
-  echo   PM: pm_mcs1.csv, pm_mcs2.csv, pm_1x64_1.csv, pm_1x64_2.csv
-  echo       plus firmware MEMS slot map: pm_1x64_1Mapping.csv, pm_1x64_2Mapping.csv ^(required for PM 1x64 calibration^).
-  echo   PD: pd_mcs1.csv, pd_mcs2.csv, pd_1x64_1.csv, pd_1x64_2.csv
-  echo Optional: generate the eight PM/PD path CSVs from standard_pm or standard_pd via tools\split_path_csv_eight.ps1 under repo output\.
-  echo.
-  echo Diagnosis flow (Run/Stop Diagnosis buttons):
-  echo   Input:  output\diagnosis_sw.csv  ^(SW groups with ^|'^|; optional first token = channel^)
-  echo   Output: output\diagnosis_log.csv  ^(append: 7 cols — Channel, s1/s2/s3 pd+opm; fflush per row^)
-  echo   After each SW group: per s1,s2,s3: SW3+WL+pd+opm ^(no precheck; see diagnosis_sw.csv.example^).
-)
+rem Write README without a parenthesized block (pipes/colons inside "echo ... | ..." break cmd parsing).
+set "README=%DIST%\README-deploy.txt"
+> "%README%" echo M576Calibrator - offline folder
+>> "%README%" echo.
+>> "%README%" echo Built with Visual Studio toolset v143 (VS 2022).
+>> "%README%" echo Run: M576CalibratorApp.exe
+>> "%README%" echo Requires: Windows x64/x86 capable of running 32-bit apps; USB serial driver for 429F if needed.
+>> "%README%" echo.
+>> "%README%" echo CRT/MFC DLLs are VC143 redistributables copied next to the exe when packaging on a machine with VS.
+>> "%README%" echo If a PC still reports missing DLLs, install: redist\vc_redist.x86.exe
+>> "%README%" echo.
+>> "%README%" echo Config: M576Calibrator.ini next to the exe ([PeakFinder] MinProminenceDb etc.; restart after edit).
+>> "%README%" echo.
+>> "%README%" echo Default path CSVs - per trans, under .\output\ :
+>> "%README%" echo   PM: pm_mcs1.csv, pm_mcs2.csv, pm_1x64_1.csv, pm_1x64_2.csv
+>> "%README%" echo       plus firmware MEMS slot map: pm_1x64_1Mapping.csv, pm_1x64_2Mapping.csv (required for PM 1x64 calibration).
+>> "%README%" echo   PD: pd_mcs1.csv, pd_mcs2.csv, pd_1x64_1.csv, pd_1x64_2.csv
+>> "%README%" echo Optional: generate the eight PM/PD path CSVs from standard_pm or standard_pd via tools\split_path_csv_eight.ps1 under repo output\.
+>> "%README%" echo.
+>> "%README%" echo Diagnosis flow (Run/Stop Diagnosis buttons):
+>> "%README%" echo   Input:  output\diagnosis_sw.csv  (SW groups with pipe separators; optional first token = channel)
+>> "%README%" echo   Output: output\diagnosis_log.csv  (append: 7 cols - Channel, s1/s2/s3 pd+opm; fflush per row)
+>> "%README%" echo   After each SW group: per s1,s2,s3: SW3+WL+pd+opm (no precheck; see diagnosis_sw.csv.example).
 
 echo.
 echo Done. Output: "%DIST%"

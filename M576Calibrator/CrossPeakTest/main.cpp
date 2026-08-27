@@ -14,6 +14,8 @@
 #include "PmRangeValidation.h"
 #include "CalibPathOutcome.h"
 #include "SmallRangeCalibSelection.h"
+#include "PathDacImpact.h"
+#include "FullEditDacCsv.h"
 #include "M576Peak1DConstants.h"
 #include <windows.h>
 #include <cstdio>
@@ -4816,6 +4818,149 @@ static int RunPathSummarySelfTests()
 	return fail;
 }
 
+static int RunFullEditPathAndCsvSelfTests()
+{
+	int fail = 0;
+	{
+		int pSw = 0, pCh = 0;
+		bool direct = false;
+		if (!PathDacImpactParentFromLeaf(2, 5, pSw, pCh, direct) || pSw != 1 || pCh != 8 || direct)
+		{
+			std::printf("FAIL ParentFromLeaf SW2\n");
+			++fail;
+		}
+		if (!PathDacImpactParentFromLeaf(3, 1, pSw, pCh, direct) || pSw != 1 || pCh != 9 || direct)
+		{
+			std::printf("FAIL ParentFromLeaf SW3\n");
+			++fail;
+		}
+		if (!PathDacImpactParentFromLeaf(4, 2, pSw, pCh, direct) || pSw != 1 || pCh != 10 || direct)
+		{
+			std::printf("FAIL ParentFromLeaf SW4\n");
+			++fail;
+		}
+		if (!PathDacImpactParentFromLeaf(1, 7, pSw, pCh, direct) || pSw != 1 || pCh != 7 || !direct)
+		{
+			std::printf("FAIL ParentFromLeaf SW1 direct\n");
+			++fail;
+		}
+	}
+	{
+		std::vector<SmallRangeMapRow> map1, map2;
+		SmallRangeMapRow r1{};
+		r1.c1 = 1;
+		r1.c4 = 33;
+		r1.sw1to4 = 1;
+		r1.chY1based = 1;
+		map1.push_back(r1);
+		SmallRangeMapRow r2{};
+		r2.c1 = 1;
+		r2.c4 = 33;
+		r2.sw1to4 = 3;
+		r2.chY1based = 2;
+		map2.push_back(r2);
+		PathDacImpactResult out;
+		std::string err;
+		if (PathDacImpactResolve(1, map1, map2, out, err) != FullEditErrorCode::Ok
+			|| out.slots.size() != 6
+			|| !out.slots[0].isDirectPass
+			|| out.slots[0].memsSw1to4 != 1 || out.slots[0].memsChY1to17 != 1
+			|| out.slots[1].memsSw1to4 != 1 || out.slots[1].memsChY1to17 != 1
+			|| out.slots[2].addr.mcsBlock1to32 != 1 || out.slots[2].addr.mcsCh1to18 != 1
+			|| out.slots[4].memsSw1to4 != 1 || out.slots[4].memsChY1to17 != 9
+			|| out.slots[5].memsSw1to4 != 3 || out.slots[5].memsChY1to17 != 2
+			|| !out.cascade1x64)
+		{
+			std::printf("FAIL PathDacImpact CH1 six-stage: %s\n", err.c_str());
+			++fail;
+		}
+	}
+	{
+		std::vector<SmallRangeMapRow> map1, map2;
+		SmallRangeMapRow r1{};
+		r1.c1 = 4;
+		r1.c4 = 36;
+		r1.sw1to4 = 1;
+		r1.chY1based = 4;
+		map1.push_back(r1);
+		SmallRangeMapRow r2 = r1;
+		r2.sw1to4 = 3;
+		r2.chY1based = 5;
+		map2.push_back(r2);
+		PathDacImpactResult out;
+		std::string err;
+		if (PathDacImpactResolve(70, map1, map2, out, err) != FullEditErrorCode::Ok
+			|| out.slots.size() != 6
+			|| out.opticalBlock1to32 != 4
+			|| out.mcsCh1to18 != 16
+			|| out.slots[2].addr.mcsBlock1to32 != 4
+			|| out.slots[5].memsChY1to17 != 5
+			|| out.slots[4].memsSw1to4 != 1 || out.slots[4].memsChY1to17 != 9)
+		{
+			std::printf("FAIL PathDacImpact CH70 six-stage: %s\n", err.c_str());
+			++fail;
+		}
+	}
+	{
+		std::vector<SmallRangeMapRow> map1, map2;
+		PathDacImpactResult out;
+		std::string err;
+		if (PathDacImpactResolve(1, map1, map2, out, err) == FullEditErrorCode::Ok)
+		{
+			std::printf("FAIL PathDacImpact empty map should fail\n");
+			++fail;
+		}
+	}
+	{
+		const char* csv =
+			"schema,burn_index,sn_label,sw_lut_idx,optical_block,ch_idx,ch_kind,"
+			"temp_point_LOW_0p1C,temp_point_ROOM_0p1C,temp_point_HIGH_0p1C,"
+			"LOW_dac_y,LOW_dac_x,ROOM_dac_y,ROOM_dac_x,HIGH_dac_y,HIGH_dac_x\n"
+			"mcs,0,SN,16,1,0,PORT,300,250,700,10,20,11,21,12,22\n";
+		std::vector<FullEditMcsCsvRow> baseRows, workRows;
+		std::string err;
+		if (FullEditParseMcsCsv(csv, baseRows, err) != FullEditErrorCode::Ok || baseRows.size() != 1)
+		{
+			std::printf("FAIL FullEditParseMcsCsv: %s\n", err.c_str());
+			++fail;
+		}
+		else
+		{
+			workRows = baseRows;
+			workRows[0].dacs.lowY = 99;
+			FullEditUnlockFlags unlock{};
+			std::vector<FullEditMcsPatch> patches;
+			if (FullEditDiffMcsCsv(workRows, baseRows, unlock, patches, err) != FullEditErrorCode::Ok
+				|| patches.size() != 1 || patches[0].dacs.lowY != 99)
+			{
+				std::printf("FAIL FullEditDiffMcsCsv safe row: %s\n", err.c_str());
+				++fail;
+			}
+			workRows[0].swLutIdx = 32;
+			workRows[0].chIdx = 0;
+			baseRows[0].swLutIdx = 32;
+			baseRows[0].chIdx = 0;
+			workRows[0].dacs.lowY = 100;
+			patches.clear();
+			if (FullEditDiffMcsCsv(workRows, baseRows, unlock, patches, err) != FullEditErrorCode::DangerousLocked)
+			{
+				std::printf("FAIL expected DangerousLocked for SN33\n");
+				++fail;
+			}
+			unlock.unlockSn33_34 = true;
+			if (FullEditDiffMcsCsv(workRows, baseRows, unlock, patches, err) != FullEditErrorCode::Ok
+				|| patches.size() != 1)
+			{
+				std::printf("FAIL unlock SN33: %s\n", err.c_str());
+				++fail;
+			}
+		}
+	}
+	if (fail == 0)
+		std::printf("OK FullEdit PathDacImpact + CSV diff self-tests\n");
+	return fail;
+}
+
 int main(int argc, char* argv[])
 {
 	if (argc >= 3 && std::strcmp(argv[1], "--export-peak-csv") == 0)
@@ -4831,6 +4976,8 @@ int main(int argc, char* argv[])
 		return 9;
 	if (RunSmallRangeCalibSelectionSelfTests() != 0)
 		return 20;
+	if (RunFullEditPathAndCsvSelfTests() != 0)
+		return 21;
 	if (RunRecalCmdFormatSelfTests() != 0)
 		return 12;
 	if (RunSweepCsvSplitSelfTests() != 0)

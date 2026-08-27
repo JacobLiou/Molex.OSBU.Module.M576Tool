@@ -33,6 +33,7 @@
 namespace M576 { struct Peak1DFitTrace; struct PeakPipelineFailureReport; }
 class CM576IlTestDlg;
 class CM576FineTuneDlg;
+class CM576FullEditDlg;
 
 /// Single serial link to 439F: ASCII RECAL + Z4671 binary (explicit `trans`/`$$` for Flash read/burn).
 // 主界面对话框：单 COM 连 439F；定标为 ASCII RECAL，读/写 Flash 与上载 bin 为经 trans/$$ 的 Z4671 二进制。
@@ -74,6 +75,8 @@ public:
 	void AppendLogFromFineTune(LPCTSTR sz);
 	/// Modeless FineTune closed (`PostNcDestroy`); clears owner pointer.
 	void OnFineTuneDlgClosed(CM576FineTuneDlg* pDlg);
+	/// Modeless FullEdit closed.
+	void OnFullEditDlgClosed(CM576FullEditDlg* pDlg);
 
 	/// IL Test dialog: open port if needed, lock mutual exclusion, return output\ dir.
 	/// Also redirects Diagnosis Session comm log to `output\ILTestCommLog_YYYY-MM-DD.log`.
@@ -180,6 +183,7 @@ private:
 	CM576IlTestDlg* m_pActiveIlTestDlg = nullptr;
 	/// Owned modeless FineTune (`new` + `PostNcDestroy` `delete this`); null when closed.
 	CM576FineTuneDlg* m_pFineTuneDlg = nullptr;
+	CM576FullEditDlg* m_pFullEditDlg = nullptr;
 	volatile BOOL m_diagStop{ FALSE };
 	/// Set by `DiagnosisWorkerEntry` immediately before `WM_M576_DIAG_FINISHED` (for summary in `OnDiagFinished`).
 	int m_diagFinishFullLaps{ 0 };
@@ -384,6 +388,7 @@ private:
 	afx_msg void OnBnClickedGenBin();
 	afx_msg void OnBnClickedMakeBin();
 	afx_msg void OnBnClickedFineTune();
+	afx_msg void OnBnClickedFullEdit();
 	afx_msg void OnBnClickedIlTest();
 	afx_msg void OnBnClickedFimIl();
 	afx_msg void OnBnClickedReadAllSn();

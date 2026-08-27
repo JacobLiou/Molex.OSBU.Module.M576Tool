@@ -6,6 +6,7 @@
 #include "M576BurnSelectDlg.h"
 #include "M576RecoverSelectDlg.h"
 #include "M576FineTuneDlg.h"
+#include "M576FullEditDlg.h"
 #include "M576IlTestDlg.h"
 #include "M576FimIlTestDlg.h"
 #include "IlTestCsv.h"
@@ -1492,6 +1493,7 @@ BEGIN_MESSAGE_MAP(CM576CalibratorDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_GEN_BIN, &CM576CalibratorDlg::OnBnClickedGenBin)
 	ON_BN_CLICKED(IDC_BTN_MAKE_BIN, &CM576CalibratorDlg::OnBnClickedMakeBin)
 	ON_BN_CLICKED(IDC_BTN_FINE_TUNE, &CM576CalibratorDlg::OnBnClickedFineTune)
+	ON_BN_CLICKED(IDC_BTN_FULL_EDIT, &CM576CalibratorDlg::OnBnClickedFullEdit)
 	ON_BN_CLICKED(IDC_BTN_IL_TEST, &CM576CalibratorDlg::OnBnClickedIlTest)
 	ON_BN_CLICKED(IDC_BTN_FIM_IL, &CM576CalibratorDlg::OnBnClickedFimIl)
 	ON_BN_CLICKED(IDC_BTN_READ_ALL_SN, &CM576CalibratorDlg::OnBnClickedReadAllSn)
@@ -4102,6 +4104,13 @@ BOOL CM576CalibratorDlg::PreTranslateMessage(MSG* pMsg)
 	{
 		return TRUE;
 	}
+	if (m_pFullEditDlg != NULL && ::IsWindow(m_pFullEditDlg->GetSafeHwnd())
+		&& pMsg->hwnd != NULL
+		&& (pMsg->hwnd == m_pFullEditDlg->m_hWnd || ::IsChild(m_pFullEditDlg->m_hWnd, pMsg->hwnd))
+		&& m_pFullEditDlg->IsDialogMessage(pMsg))
+	{
+		return TRUE;
+	}
 	return CDialogEx::PreTranslateMessage(pMsg);
 }
 
@@ -4116,6 +4125,16 @@ void CM576CalibratorDlg::OnDestroy()
 	else
 	{
 		m_pFineTuneDlg = nullptr;
+	}
+	if (m_pFullEditDlg != NULL && ::IsWindow(m_pFullEditDlg->GetSafeHwnd()))
+	{
+		CM576FullEditDlg* pFe = m_pFullEditDlg;
+		m_pFullEditDlg = nullptr;
+		pFe->DestroyWindow();
+	}
+	else
+	{
+		m_pFullEditDlg = nullptr;
 	}
 
 	m_bStop = TRUE;
@@ -7030,6 +7049,12 @@ void CM576CalibratorDlg::OnFineTuneDlgClosed(CM576FineTuneDlg* pDlg)
 		m_pFineTuneDlg = nullptr;
 }
 
+void CM576CalibratorDlg::OnFullEditDlgClosed(CM576FullEditDlg* pDlg)
+{
+	if (m_pFullEditDlg == pDlg)
+		m_pFullEditDlg = nullptr;
+}
+
 void CM576CalibratorDlg::OnBnClickedFineTune()
 {
 	if (m_pFineTuneDlg != NULL && ::IsWindow(m_pFineTuneDlg->GetSafeHwnd()))
@@ -7076,6 +7101,51 @@ void CM576CalibratorDlg::OnBnClickedFineTune()
 	m_pFineTuneDlg = pDlg;
 	m_pFineTuneDlg->ShowWindow(SW_SHOW);
 	m_pFineTuneDlg->SetForegroundWindow();
+}
+
+void CM576CalibratorDlg::OnBnClickedFullEdit()
+{
+	if (m_pFullEditDlg != NULL && ::IsWindow(m_pFullEditDlg->GetSafeHwnd()))
+	{
+		m_pFullEditDlg->ShowWindow(SW_SHOW);
+		m_pFullEditDlg->SetForegroundWindow();
+		return;
+	}
+	m_pFullEditDlg = nullptr;
+
+	if (m_pathRunning.load() || m_burnFlashRunning.load() || m_burnBoardRunning.load()
+		|| m_readBackupRunning.load() || m_readSnRunning.load())
+	{
+		MessageBoxM576(_T("Another operation is running; wait before FullEdit."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+	UpdateData(TRUE);
+	ApplyFixedBinBasePaths(TRUE);
+	CString snErr;
+	if (!ValidateSnBeforeBinOp(snErr))
+	{
+		MessageBoxM576(
+			snErr + _T("\n\nRun Read All SN first, then FullEdit (R&D)."),
+			MB_OK | MB_ICONWARNING);
+		return;
+	}
+	const CString absOutDir = ResolveBinOutputDirAbs();
+	if (absOutDir.IsEmpty())
+	{
+		MessageBoxM576(_T("BIN output directory is empty."), MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	auto* pDlg = new CM576FullEditDlg(this, absOutDir, m_snInfo, this);
+	if (!pDlg->Create())
+	{
+		delete pDlg;
+		MessageBoxM576(_T("Failed to create FullEdit window."), MB_OK | MB_ICONERROR);
+		return;
+	}
+	m_pFullEditDlg = pDlg;
+	m_pFullEditDlg->ShowWindow(SW_SHOW);
+	m_pFullEditDlg->SetForegroundWindow();
 }
 
 BOOL CM576CalibratorDlg::IsBackgroundBusyForIlTest() const

@@ -54,6 +54,7 @@
 | **INV-30** | Z4671Core 不依赖 MFC 对话框；bin 布局以 `Z4767StructDefine.h` 为准，不擅自改 `stLutSettingZ4671` 成员布局。 |
 | **INV-31** | 二进制 MCS 访问必须先 `trans n`，结束 `$$`；ASCII RECAL 与透传勿并发抢占同一串口无超时。 |
 | **INV-32** | 所有串口/Flash IO 须有超时与明确失败返回；禁止 UI 线程长时间阻塞。 |
+| **INV-33** | **FullEdit Bin** 为研发调试旁路（与 FineTune / Make Bin 同级）：只改磁盘 Backup/Standard bin 与 `fulledit/` CSV；**不得**改变 Run Path / Merge / Burn 语义；默认不同步 session LUT；界面开放全表 CSV 编辑（含 SN33/34 等槽）。 |
 
 ---
 

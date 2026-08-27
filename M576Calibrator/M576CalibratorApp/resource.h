@@ -16,6 +16,7 @@
 #define IDD_M576_IL_TEST                114
 #define IDD_M576_FIM_IL_TEST            115
 #define IDD_M576_CHASSIS_DEBUG          116
+#define IDD_M576_FULL_EDIT              117
 #define IDR_MAINFRAME                   128
 #define AFX_IDC_PRINT_DOCNAME           201
 #define AFX_IDC_PRINT_PRINTERNAME       202
@@ -54,6 +55,7 @@
 #define IDC_BTN_FLASH                   1014
 #define IDC_BTN_STOP                    1015
 #define IDC_BTN_MAKE_BIN                1016
+#define IDC_BTN_FULL_EDIT               1018
 #define IDC_BTN_FINE_TUNE               2185
 #define IDC_BTN_IL_TEST                 2186
 #define IDC_BTN_FIM_IL                  2187
@@ -205,6 +207,23 @@
 #define IDC_FT_EDIT_LOG                2275
 #define IDC_FT_COMBO_TLS               2280
 #define IDC_FT_COMBO_WL                2281
+#define IDC_FE_COMBO_ROLE              2282
+#define IDC_FE_BTN_EXPORT              2283
+#define IDC_FE_BTN_OPEN_FOLDER         2284
+#define IDC_FE_BTN_WRITE               2285
+#define IDC_FE_COMBO_CH                2290
+#define IDC_FE_BTN_RESOLVE_PATH        2291
+#define IDC_FE_BTN_EXPORT_IMPACT       2292
+#define IDC_FE_BTN_COPY_KEYS           2293
+#define IDC_FE_LIST_IMPACT             2294
+#define IDC_FE_EDIT_LOG                2295
+#define IDC_FE_EDIT_SUMMARY            2296
+#define IDC_FE_CARD1                   2297
+#define IDC_FE_CARD2                   2298
+#define IDC_FE_CARD3                   2299
+#define IDC_FE_CARD4                   2300
+#define IDC_FE_CARD5                   2301
+#define IDC_FE_CARD6                   2302
 #define IDC_IL_RADIO_SFP1550           2210
 #define IDC_IL_RADIO_SFP1310           2211
 #define IDC_IL_RADIO_LASER1310         2212
@@ -731,9 +750,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        117
+#define _APS_NEXT_RESOURCE_VALUE        118
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         2262
+#define _APS_NEXT_CONTROL_VALUE         2296
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

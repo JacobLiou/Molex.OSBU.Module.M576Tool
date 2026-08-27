@@ -143,6 +143,20 @@ target_index, ch1, ch2
 
 ---
 
+## 5.5 研发调试工具（FineTune / Make Bin / FullEdit）
+
+面向**研发工程师**，**不是**产线 SOP 步骤；不得替代 Read → Calibrate → Write BIN → Burn。
+
+| 按钮 | 作用 |
+|------|------|
+| **FineTune** | 单槽低温 DAC 手改写回 bin |
+| **Make Bin** | 从 `standardAll1310DAC.csv` 生成 standard bin |
+| **FullEdit** | 导出 10 路全温区 DAC CSV → Excel 改 → 差分写回；可按产品 CH 列出坏光路影响的四级 DAC |
+
+FullEdit 目录：`output\...\fulledit\{backup|standard}\working|baseline\`。可改全表 DAC（含 SN33/34 等）。默认不同步主窗定标会话。烧录仍用主界面 Burn Flash。
+
+---
+
 ## 6. 注意事项
 
 1. **仅需一路** 与 439F 相连的串口；无需在 PC 上再选 MCS COM。  

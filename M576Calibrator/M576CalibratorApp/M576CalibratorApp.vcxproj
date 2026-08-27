@@ -159,6 +159,11 @@
     <ClInclude Include="M576ChassisDebugDlg.h" />
     <ClInclude Include="M576TempMonitor.h" />
     <ClInclude Include="M576FineTuneDlg.h" />
+    <ClInclude Include="M576FullEditDlg.h" />
+    <ClInclude Include="FullEditDacTypes.h" />
+    <ClInclude Include="FullEditDacCsv.h" />
+    <ClInclude Include="FullEditDacIo.h" />
+    <ClInclude Include="PathDacImpact.h" />
     <ClInclude Include="M576IlTestDlg.h" />
     <ClInclude Include="M576FimIlTestDlg.h" />
     <ClInclude Include="FineTuneBinPatch.h" />
@@ -206,6 +211,14 @@
     <ClCompile Include="M576ChassisDebugDlg.cpp" />
     <ClCompile Include="M576TempMonitor.cpp" />
     <ClCompile Include="M576FineTuneDlg.cpp" />
+    <ClCompile Include="M576FullEditDlg.cpp" />
+    <ClCompile Include="FullEditDacCsv.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="FullEditDacIo.cpp" />
+    <ClCompile Include="PathDacImpact.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="M576IlTestDlg.cpp" />
     <ClCompile Include="M576FimIlTestDlg.cpp" />
     <ClCompile Include="FineTuneBinPatch.cpp" />
