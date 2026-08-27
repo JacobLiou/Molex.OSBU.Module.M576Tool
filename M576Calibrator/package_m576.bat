@@ -50,10 +50,19 @@ if "%NOBUILD%"=="0" (
     ping -n 2 127.0.0.1 >nul
     if exist "%APP_REL%" attrib -R "%APP_REL%" >nul 2>&1
   )
+  rem LTCG can leave a corrupt *.ipdb / *.iobj after interrupted links (C1354 / LNK1257). Always drop them before build.
+  call :clean_ltcg_intermediates
   "%MSBUILD%" "%SLN%" /p:Configuration=Release /p:Platform=Win32 /v:m /nologo
   if errorlevel 1 (
+    echo WARNING: Build failed; cleaning LTCG intermediates and retrying once ^(C1354/LNK1257 corrupt ipdb^)...
+    call :clean_ltcg_intermediates
+    "%MSBUILD%" "%SLN%" /t:M576CalibratorApp /p:Configuration=Release /p:Platform=Win32 /v:m /nologo
+  )
+  if errorlevel 1 (
     echo ERROR: Build failed.
-    echo Hint: Close M576CalibratorApp.exe and any Explorer window inside Release\, then retry. Or run: package_m576.bat nobuild
+    echo Hint: Close M576CalibratorApp.exe and any Explorer window inside Release\, then retry.
+    echo       If C1354/LNK1257 ^(corrupt ipdb^): delete M576CalibratorApp\Release\*.ipdb *.iobj and rebuild.
+    echo       Or run: package_m576.bat nobuild
     exit /b 1
   )
 ) else (
@@ -223,4 +232,16 @@ set "README=%DIST%\README-deploy.txt"
 echo.
 echo Done. Output: "%DIST%"
 echo See README-deploy.txt inside the folder.
+exit /b 0
+
+:clean_ltcg_intermediates
+rem Drop Whole-Program-Optimization cache that often corrupts across interrupted links.
+for %%D in (
+  "%SCRIPT_DIR%M576CalibratorApp\Release"
+  "%SCRIPT_DIR%Z4671Core\Release"
+  "%SCRIPT_DIR%CrossPeakTest\Release"
+) do (
+  if exist "%%~D\*.ipdb" del /f /q "%%~D\*.ipdb" >nul 2>&1
+  if exist "%%~D\*.iobj" del /f /q "%%~D\*.iobj" >nul 2>&1
+)
 exit /b 0

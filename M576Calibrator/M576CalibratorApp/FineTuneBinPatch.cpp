@@ -39,15 +39,15 @@ BOOL ValidateAddress(const FineTuneAddress& addr, CString& errMsg)
 	return TRUE;
 }
 
-void ReadMcsDacPair(const stLutSettingZ4671& lut, int swIdx, int chIdx, short& dacX, short& dacY)
+void ReadMcsDacPair(const stLutSettingZ4671& lut, int swIdx, int chIdx, int tempIdx, short& dacX, short& dacY)
 {
-	dacY = (short)lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][0];
-	dacX = (short)lut.wCalibPtrDAC[swIdx][IDX_TEMP_LOW][chIdx][1];
+	dacY = (short)lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][0];
+	dacX = (short)lut.wCalibPtrDAC[swIdx][tempIdx][chIdx][1];
 }
 
-void ReadMemsDacPair(const stM576OneX64MemsSwCoef& sw, int inBlk0, short& dacX, short& dacY)
+void ReadMemsDacPair(const stM576OneX64MemsSwCoef& sw, int inBlk0, int tempIdx, short& dacX, short& dacY)
 {
-	const stM576OneX64AxisDAC& a = sw.stCalibDAC[0].stChnDAC[inBlk0];
+	const stM576OneX64AxisDAC& a = sw.stCalibDAC[tempIdx].stChnDAC[inBlk0];
 	dacY = a.sDACx;
 	dacX = a.sDACy;
 }
@@ -119,9 +119,23 @@ BOOL FineTuneReadCurrentDac(
 	short& dacYOut,
 	CString& errMsg)
 {
+	short rx = 0, ry = 0, hx = 0, hy = 0;
+	return FineTuneReadTripleDac(binPath, addr, dacXOut, dacYOut, rx, ry, hx, hy, errMsg);
+}
+
+BOOL FineTuneReadTripleDac(
+	LPCTSTR binPath,
+	const FineTuneAddress& addr,
+	short& lowXOut,
+	short& lowYOut,
+	short& roomXOut,
+	short& roomYOut,
+	short& highXOut,
+	short& highYOut,
+	CString& errMsg)
+{
 	errMsg.Empty();
-	dacXOut = 0;
-	dacYOut = 0;
+	lowXOut = lowYOut = roomXOut = roomYOut = highXOut = highYOut = 0;
 	if (!ValidateAddress(addr, errMsg))
 		return FALSE;
 	if (binPath == NULL || binPath[0] == _T('\0'))
@@ -146,7 +160,9 @@ BOOL FineTuneReadCurrentDac(
 		}
 		const int swIdx = M576McsBlock1To32ToLutSwIdx0(addr.mcsBlock1to32);
 		const int chIdx = addr.mcsCh1to18 - 1;
-		ReadMcsDacPair(lut, swIdx, chIdx, dacXOut, dacYOut);
+		ReadMcsDacPair(lut, swIdx, chIdx, IDX_TEMP_LOW, lowXOut, lowYOut);
+		ReadMcsDacPair(lut, swIdx, chIdx, IDX_TEMP_ROOM, roomXOut, roomYOut);
+		ReadMcsDacPair(lut, swIdx, chIdx, IDX_TEMP_HIGH, highXOut, highYOut);
 		return TRUE;
 	}
 
@@ -157,7 +173,10 @@ BOOL FineTuneReadCurrentDac(
 		errMsg.Format(_T("Failed to read 1x64 Mems bin:\n%s"), binPath);
 		return FALSE;
 	}
-	ReadMemsDacPair(mems, addr.chY1to17 - 1, dacXOut, dacYOut);
+	const int inBlk0 = addr.chY1to17 - 1;
+	ReadMemsDacPair(mems, inBlk0, IDX_TEMP_LOW, lowXOut, lowYOut);
+	ReadMemsDacPair(mems, inBlk0, IDX_TEMP_ROOM, roomXOut, roomYOut);
+	ReadMemsDacPair(mems, inBlk0, IDX_TEMP_HIGH, highXOut, highYOut);
 	return TRUE;
 }
 

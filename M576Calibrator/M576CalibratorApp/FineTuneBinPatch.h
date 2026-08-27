@@ -45,6 +45,18 @@ BOOL FineTuneReadCurrentDac(
 	short& dacYOut,
 	CString& errMsg);
 
+/// Read LOW / ROOM / HIGH DAC_X / DAC_Y (signed) from an existing bin.
+BOOL FineTuneReadTripleDac(
+	LPCTSTR binPath,
+	const FineTuneAddress& addr,
+	short& lowXOut,
+	short& lowYOut,
+	short& roomXOut,
+	short& roomYOut,
+	short& highXOut,
+	short& highYOut,
+	CString& errMsg);
+
 /// Patch low-temp DAC and overwrite bin; optional sync payload for in-memory LUT/MEMS.
 BOOL FineTuneWriteDac(
 	LPCTSTR binPath,

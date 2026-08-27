@@ -197,27 +197,16 @@ FullEditErrorCode PathDacImpactResolve(
 	out.cascade1x64 = !dir1 || !dir2;
 
 	out.slots.resize(6);
-	// roleZh Chinese as UTF-8 escapes (source stays ASCII-safe)
-	static const char kParent1[] = "1#1x64 \xe4\xb8\x8a\xe7\xba\xa7";
-	static const char kParent2[] = "2#1x64 \xe4\xb8\x8a\xe7\xba\xa7";
-	static const char kLeaf1[] = "1#1x64 \xe5\x8f\xb6\xe5\xad\x90";
-	static const char kLeaf1D[] =
-		"1#1x64 \xe5\x8f\xb6\xe5\xad\x90(\xe7\x9b\xb4\xe9\x80\x9a\xe6\x97\xa0\xe7\xba\xa7\xe8\x81\x94)";
-	static const char kLeaf2[] = "2#1x64 \xe5\x8f\xb6\xe5\xad\x90";
-	static const char kLeaf2D[] =
-		"2#1x64 \xe5\x8f\xb6\xe5\xad\x90(\xe7\x9b\xb4\xe9\x80\x9a\xe6\x97\xa0\xe7\xba\xa7\xe8\x81\x94)";
-	static const char kMcs1[] = "1#MCS";
-	static const char kMcs2[] = "2#MCS";
-	const char* leafRole1 = dir1 ? kLeaf1D : kLeaf1;
-	const char* leafRole2 = dir2 ? kLeaf2D : kLeaf2;
+	const char* leafRole1 = dir1 ? "1#1x64 leaf (direct)" : "1#1x64 leaf";
+	const char* leafRole2 = dir2 ? "2#1x64 leaf (direct)" : "2#1x64 leaf";
 	FillMemsSlot(out.slots[0], FineTuneDeviceKind::OneX64_1, pSw1, pCh1,
-		PathDacImpactStageKind::Parent, kParent1, dir1);
+		PathDacImpactStageKind::Parent, "1#1x64 parent", dir1);
 	FillMemsSlot(out.slots[1], FineTuneDeviceKind::OneX64_1, leaf1.sw1to4, leaf1.chY1based,
 		PathDacImpactStageKind::Leaf, leafRole1, dir1);
-	FillMcsSlot(out.slots[2], FineTuneDeviceKind::Mcs1, sw, mcsCh, kMcs1);
-	FillMcsSlot(out.slots[3], FineTuneDeviceKind::Mcs2, sw, mcsCh, kMcs2);
+	FillMcsSlot(out.slots[2], FineTuneDeviceKind::Mcs1, sw, mcsCh, "1#MCS");
+	FillMcsSlot(out.slots[3], FineTuneDeviceKind::Mcs2, sw, mcsCh, "2#MCS");
 	FillMemsSlot(out.slots[4], FineTuneDeviceKind::OneX64_2, pSw2, pCh2,
-		PathDacImpactStageKind::Parent, kParent2, dir2);
+		PathDacImpactStageKind::Parent, "2#1x64 parent", dir2);
 	FillMemsSlot(out.slots[5], FineTuneDeviceKind::OneX64_2, leaf2.sw1to4, leaf2.chY1based,
 		PathDacImpactStageKind::Leaf, leafRole2, dir2);
 	return FullEditErrorCode::Ok;
@@ -226,13 +215,11 @@ FullEditErrorCode PathDacImpactResolve(
 std::string PathDacImpactFormatSummaryZh(const PathDacImpactResult& r)
 {
 	std::ostringstream oss;
-	oss << "\xe4\xba\xa7\xe5\x93\x81\xe9\x80\x9a\xe9\x81\x93 CH" << r.ch1to576
-		<< " | \xe5\x85\x89\xe8\xb7\xaf " << r.mpoPath
-		<< " | 1x64\xe5\x8f\xa3 " << r.opticalBlock1to32 << "<->" << r.peerPort1to64
-		<< " | MCS\xe5\x9d\x97" << r.opticalBlock1to32 << "/ch" << r.mcsCh1to18
-		<< (r.cascade1x64
-			? " | \xe7\xba\xa7\xe8\x81\x94:SW1->\xe5\x8f\xb6\xe5\xad\x90"
-			: " | \xe7\x9b\xb4\xe9\x80\x9a:\xe4\xbb\x85SW1");
+	oss << "Product CH" << r.ch1to576
+		<< " | path " << r.mpoPath
+		<< " | 1x64 ports " << r.opticalBlock1to32 << "<->" << r.peerPort1to64
+		<< " | MCS block" << r.opticalBlock1to32 << "/ch" << r.mcsCh1to18
+		<< (r.cascade1x64 ? " | cascade: SW1->leaf" : " | direct: SW1 only");
 	return oss.str();
 }
 
@@ -240,7 +227,7 @@ std::string PathDacImpactFormatText(const PathDacImpactResult& r)
 {
 	std::ostringstream oss;
 	oss << PathDacImpactFormatSummaryZh(r) << "\n";
-	oss << "\xe7\xba\xa7\t\xe8\xa7\x92\xe8\x89\xb2\t\xe8\xae\xbe\xe5\xa4\x87\tburn\t\xe6\xa7\xbd\xe4\xbd\x8d\tkey\n";
+	oss << "stage\trole\tdevice\tburn\tslot\tkey\n";
 	int i = 1;
 	for (const PathDacImpactSlot& s : r.slots)
 	{

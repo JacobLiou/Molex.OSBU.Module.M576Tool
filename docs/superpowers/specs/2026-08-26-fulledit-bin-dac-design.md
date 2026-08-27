@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-26  
 **Audience:** 研发工程师（与 FineTune / Make Bin 同级调试工具）  
-**Scope:** 旁路编辑 10 路 burn bin 全温区 DAC；按产品 CH 汇总四级 DAC。不进入产线 SOP。
+**Scope:** 旁路编辑 10 路 burn bin 全温区 DAC；按产品 CH 汇总**六级**开关 DAC。不进入产线 SOP。
 
 ## 1. 主流程隔离（硬约束）
 
@@ -17,8 +17,8 @@
 1. 选 Backup / Standard  
 2. Export → `fulledit/{role}/working|baseline/{SN}_dac.csv`（各 10）  
 3. Excel 改 working  
-4. Unlock（危险行）→ Validate & Write（仅 diff 行/文件）  
-5. Path Impact：CH 1..576 → 四级 DAC 总结（不自动改 CSV）
+4. Validate & Write（仅 diff 行/文件；全表可写，无 Unlock UI）  
+5. Path Impact：Combo 选 CH（含 MPO）→ 六级摘要/卡片/List（不自动改 CSV）
 
 ## 3. 文件命名
 
@@ -50,14 +50,37 @@ Burn index 0..9 与 FineTune / `M576SnForBurnFileIndex` 一致。
 
 `FE_OK`, `FE_NO_SN`, `FE_BIN_MISSING`, `FE_EXPORT_FAIL`, `FE_BASELINE_MISSING`, `FE_CSV_PARSE`, `FE_CSV_KEY`, `FE_DAC_RANGE`, `FE_DANGEROUS_LOCKED`, `FE_DIFF_EMPTY`, `FE_WRITE_FAIL`, `FE_VERIFY_FAIL`, `FE_PATH_CH`, `FE_BUSY`
 
-## 7. Path Impact
+## 7. Path Impact（六级）
 
-`sw=(CH-1)/18+1`, `mcsCh=(CH-1)%18+1`, `pb=sw+32`。  
-MCS1/2：block=`sw`, ch=`mcsCh`。  
-1×64：Mapping 唯一行 `(c1=sw,c4=pb)` → SW/CH_y。
+光走向固定 6 槽（直通口仍 6 行，不缩成 4）：
+
+1. 1#1×64 **上级**  
+2. 1#1×64 **叶子**  
+3. 1#MCS  
+4. 2#MCS  
+5. 2#1×64 **上级**  
+6. 2#1×64 **叶子**
+
+公式：`sw=(CH-1)/18+1`，`mcsCh=(CH-1)%18+1`，`pb=sw+32`。  
+MCS1/2：block=`sw`，ch=`mcsCh`。  
+1×64 **叶子**：Mapping 唯一行 `(c1=sw,c4=pb)` → `SW_x` / `CH_y`。
+
+**上级推导**（`PathDacImpactParentFromLeaf`）：
+
+| 叶子 SW | 上级 |
+|---------|------|
+| SW=1 | parent = leaf，`isDirectPass`；叶子角色标注「直通（无级联）」 |
+| SW=2 | parent = SW1, CH_y=8（SW2-COM） |
+| SW=3 | parent = SW1, CH_y=9（SW3-COM） |
+| SW=4 | parent = SW1, CH_y=10（SW4-COM） |
+
+`burnIndex` / `{SN}_dac.csv` 按上级/叶子各自 SW 解析（常落不同文件）。
+
+UI：CH Combo（`CH{n} {MPO}`）选中即刷新；**English** summary；六格卡片 + ListCtrl（LOW Y/X 来自当前 Role bin）；Copy / Export 写摘要+六行 TSV。
 
 ## 8. 非目标
 
 - 不替代 Run Path / Merge  
 - 不提供产线一键校准  
-- CrossPeakTest 覆盖映射与 CSV diff；不要求硬件  
+- 不嵌入设备开关位图高亮  
+- CrossPeakTest 覆盖 ParentFromLeaf / 六槽 / CSV diff；不要求硬件  

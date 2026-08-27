@@ -10,10 +10,10 @@ todos:
     status: completed
   - id: path-six-ui
     content: FullEditDlg：CH Combo、摘要、六格卡片、ListCtrl、Copy/Export
-    status: in_progress
+    status: completed
   - id: path-six-docs
     content: 更新 fulledit design spec Path Impact 节
-    status: pending
+    status: completed
 isProject: false
 ---
 
