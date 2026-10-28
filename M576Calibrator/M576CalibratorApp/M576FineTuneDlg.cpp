@@ -29,11 +29,14 @@ CM576FineTuneDlg::CM576FineTuneDlg(
 	CM576CalibratorDlg* pOwner,
 	LPCTSTR outDirAbs,
 	const M576TransSnPnInfo& sn,
+	int initialWavelengthNm,
 	CWnd* pParent)
 	: CDialogEx(IDD_M576_FINE_TUNE, pParent ? pParent : pOwner)
 	, m_pOwner(pOwner)
 	, m_outDirAbs(outDirAbs ? outDirAbs : _T(""))
 	, m_snInfo(sn)
+	, m_initialWavelengthNm(
+		(initialWavelengthNm == 1550) ? 1550 : 1310)
 	, m_chassisPage(pOwner)
 {
 }
@@ -86,6 +89,7 @@ BEGIN_MESSAGE_MAP(CM576FineTuneDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_FT_RADIO_1X64_2, &CM576FineTuneDlg::OnDeviceRadioChanged)
 	ON_CBN_SELCHANGE(IDC_FT_COMBO_ROLE, &CM576FineTuneDlg::OnRoleChanged)
 	ON_CBN_SELCHANGE(IDC_FT_COMBO_RECAL, &CM576FineTuneDlg::OnRecalSelChanged)
+	ON_CBN_SELCHANGE(IDC_FT_COMBO_WL, &CM576FineTuneDlg::OnWlSelChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_MCS_BLOCK, &CM576FineTuneDlg::OnAddressFieldChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_MCS_CH, &CM576FineTuneDlg::OnAddressFieldChanged)
 	ON_EN_CHANGE(IDC_FT_EDIT_SW, &CM576FineTuneDlg::OnAddressFieldChanged)
@@ -145,7 +149,7 @@ BOOL CM576FineTuneDlg::OnInitDialog()
 	m_comboWl.ResetContent();
 	m_comboWl.AddString(_T("1310"));
 	m_comboWl.AddString(_T("1550"));
-	m_comboWl.SetCurSel(0);
+	ApplyInitialWavelengthCombo();
 	CheckRadioButton(IDC_FT_RADIO_MCS1, IDC_FT_RADIO_1X64_2, IDC_FT_RADIO_MCS1);
 	m_clearPmOnAddressChange = FALSE;
 	SetDlgItemInt(IDC_FT_EDIT_MCS_BLOCK, 1, FALSE);
@@ -413,6 +417,38 @@ void CM576FineTuneDlg::SetPmBusy(BOOL busy)
 		m_chassisPage.EnableCommands(en);
 }
 
+BOOL CM576FineTuneDlg::CollectWavelengthNm(int& wavelengthNm, CString& errMsg) const
+{
+	wavelengthNm = 0;
+	errMsg.Empty();
+	const int wlSel = m_comboWl.GetCurSel();
+	CString wlText;
+	if (wlSel >= 0)
+		m_comboWl.GetLBText(wlSel, wlText);
+	wavelengthNm = _ttoi(wlText);
+	if (wavelengthNm != 1310 && wavelengthNm != 1550)
+	{
+		errMsg = _T("FineTune: select wavelength 1310 or 1550.");
+		return FALSE;
+	}
+	return TRUE;
+}
+
+void CM576FineTuneDlg::ApplyInitialWavelengthCombo()
+{
+	const int sel = (m_initialWavelengthNm == 1550) ? 1 : 0;
+	if (sel >= 0 && sel < m_comboWl.GetCount())
+		m_comboWl.SetCurSel(sel);
+	else
+		m_comboWl.SetCurSel(0);
+	CString line;
+	line.Format(
+		_T("Wavelength init %d nm -> DAC slot %s."),
+		m_initialWavelengthNm,
+		FineTuneSlotLabel(m_initialWavelengthNm).GetString());
+	AppendLocalLog(line);
+}
+
 BOOL CM576FineTuneDlg::CollectTlsAndWavelength(int& tlsSource, int& wavelengthNm, CString& errMsg) const
 {
 	tlsSource = 0;
@@ -433,17 +469,7 @@ BOOL CM576FineTuneDlg::CollectTlsAndWavelength(int& tlsSource, int& wavelengthNm
 		return FALSE;
 	}
 
-	const int wlSel = m_comboWl.GetCurSel();
-	CString wlText;
-	if (wlSel >= 0)
-		m_comboWl.GetLBText(wlSel, wlText);
-	wavelengthNm = _ttoi(wlText);
-	if (wavelengthNm != 1310 && wavelengthNm != 1550)
-	{
-		errMsg = _T("FineTune: select wavelength 1310 or 1550.");
-		return FALSE;
-	}
-	return TRUE;
+	return CollectWavelengthNm(wavelengthNm, errMsg);
 }
 
 void CM576FineTuneDlg::LayoutChassisPage()
@@ -843,10 +869,35 @@ void CM576FineTuneDlg::OnAddressFieldChanged()
 	(void)ResolveAndShowPath(err);
 }
 
+void CM576FineTuneDlg::OnWlSelChanged()
+{
+	int wavelengthNm = 0;
+	CString err;
+	if (!CollectWavelengthNm(wavelengthNm, err))
+	{
+		AppendLocalLog(err);
+		return;
+	}
+	CString line;
+	line.Format(
+		_T("Wavelength -> %d nm (DAC slot %s)."),
+		wavelengthNm,
+		FineTuneSlotLabel(wavelengthNm).GetString());
+	AppendLocalLog(line);
+	OnBnClickedRefresh();
+}
+
 void CM576FineTuneDlg::OnBnClickedRefresh()
 {
 	AppendLocalLog(_T("Refresh: read current DAC from bin..."));
 	CString err;
+	int wavelengthNm = 0;
+	if (!CollectWavelengthNm(wavelengthNm, err))
+	{
+		AppendLocalLog(err);
+		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
+		return;
+	}
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())
 	{
@@ -866,7 +917,7 @@ void CM576FineTuneDlg::OnBnClickedRefresh()
 	SetDlgItemText(IDC_FT_STATIC_PATH, path);
 
 	short dacX = 0, dacY = 0;
-	if (!FineTuneReadCurrentDac(path, addr, dacX, dacY, err))
+	if (!FineTuneReadCurrentDac(path, addr, wavelengthNm, dacX, dacY, err))
 	{
 		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
@@ -880,7 +931,12 @@ void CM576FineTuneDlg::OnBnClickedRefresh()
 	SetDlgItemText(IDC_FT_EDIT_NEW_DACX, sx);
 	SetDlgItemText(IDC_FT_EDIT_NEW_DACY, sy);
 	CString ok;
-	ok.Format(_T("Refresh OK %s DAC=%d,%d"), FineTuneAddressFormatLabel(addr).GetString(), (int)dacX, (int)dacY);
+	ok.Format(
+		_T("Refresh OK %s slot=%s DAC=%d,%d"),
+		FineTuneAddressFormatLabel(addr).GetString(),
+		FineTuneSlotLabel(wavelengthNm).GetString(),
+		(int)dacX,
+		(int)dacY);
 	AppendLocalLog(ok);
 }
 
@@ -888,6 +944,13 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 {
 	AppendLocalLog(_T("Write Bin..."));
 	CString err;
+	int wavelengthNm = 0;
+	if (!CollectWavelengthNm(wavelengthNm, err))
+	{
+		AppendLocalLog(err);
+		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONWARNING);
+		return;
+	}
 	FineTuneAddress addr = CollectAddress(err);
 	if (!err.IsEmpty())
 	{
@@ -927,7 +990,7 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 	}
 
 	FineTuneSyncPayload sync{};
-	if (!FineTuneWriteDac(path, addr, (short)dacX, (short)dacY, &sync, err))
+	if (!FineTuneWriteDac(path, addr, wavelengthNm, (short)dacX, (short)dacY, &sync, err))
 	{
 		AppendLocalLog(err);
 		MessageBox(err, _T("FineTune"), MB_OK | MB_ICONERROR);
@@ -944,8 +1007,18 @@ void CM576FineTuneDlg::OnBnClickedWrite()
 		m_pOwner->OnFineTuneBinPatched(sync, path, addr, SelectedRole());
 
 	RefreshStatusHint();
-	AppendLocalLog(_T("Write Bin OK."));
-	MessageBox(_T("Bin updated successfully."), _T("FineTune"), MB_OK | MB_ICONINFORMATION);
+	CString ok;
+	ok.Format(
+		_T("Write Bin OK slot=%s DAC=%d,%d."),
+		FineTuneSlotLabel(wavelengthNm).GetString(),
+		dacX,
+		dacY);
+	AppendLocalLog(ok);
+	CString msg;
+	msg.Format(
+		_T("Bin updated successfully.\nslot=%s"),
+		FineTuneSlotLabel(wavelengthNm).GetString());
+	MessageBox(msg, _T("FineTune"), MB_OK | MB_ICONINFORMATION);
 }
 
 void CM576FineTuneDlg::RefreshStatusHint()

@@ -4767,6 +4767,31 @@ static int RunSmallRangeCalibSelectionSelfTests()
 		}
 	}
 
+	// FineTune wavelength -> DAC slot contract (mirrors CalibWavelengthPolicy / FineTuneBinPatch).
+	// CrossPeakTest cannot link CalibWavelengthPolicy (CalibConstants pulls MFC MEMS headers).
+	{
+		struct Row { int nm; int mcs; int mems; int copyHigh; };
+		const Row expect[] = {
+			{ 1310, 0, 0, 0 },
+			{ 1550, 1, 1, 1 },
+			{ 1490, 0, 0, 0 },
+		};
+		for (size_t i = 0; i < sizeof(expect) / sizeof(expect[0]); ++i)
+		{
+			const Row& e = expect[i];
+			const int mcs = (e.nm == 1550) ? 1 : 0;
+			const int mems = (e.nm == 1550) ? 1 : 0;
+			const int copyHigh = (e.nm == 1550) ? 1 : 0;
+			if (mcs != e.mcs || mems != e.mems || copyHigh != e.copyHigh)
+			{
+				std::printf(
+					"FAIL FineTune WL contract nm=%d got mcs=%d mems=%d copy=%d\n",
+					e.nm, mcs, mems, copyHigh);
+				++fail;
+			}
+		}
+	}
+
 	return fail;
 }
 

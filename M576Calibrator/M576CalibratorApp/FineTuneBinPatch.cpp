@@ -1,12 +1,23 @@
 #include "stdafx.h"
 #include "FineTuneBinPatch.h"
 #include "CalibConstants.h"
+#include "CalibWavelengthPolicy.h"
 #include "LutBinWriter.h"
 #include "Mems1x64LutBinWriter.h"
 #include "LutPeakApply.h"
 #include <shlwapi.h>
 
 namespace {
+
+BOOL ValidateWavelengthNm(int wavelengthNm, CString& errMsg)
+{
+	if (wavelengthNm != 1310 && wavelengthNm != 1550)
+	{
+		errMsg.Format(_T("FineTune: wavelength must be 1310 or 1550 nm (got %d)."), wavelengthNm);
+		return FALSE;
+	}
+	return TRUE;
+}
 
 BOOL ValidateAddress(const FineTuneAddress& addr, CString& errMsg)
 {
@@ -53,6 +64,13 @@ void ReadMemsDacPair(const stM576OneX64MemsSwCoef& sw, int inBlk0, int tempIdx, 
 }
 
 } // namespace
+
+CString FineTuneSlotLabel(int wavelengthNm)
+{
+	if (wavelengthNm == 1550)
+		return _T("ROOM+HIGH(1550)");
+	return _T("LOW(1310)");
+}
 
 BOOL FineTuneBurnIndex(const FineTuneAddress& addr, int& burnIndexOut, CString& errMsg)
 {
@@ -115,12 +133,31 @@ BOOL FineTuneResolvePath(
 BOOL FineTuneReadCurrentDac(
 	LPCTSTR binPath,
 	const FineTuneAddress& addr,
+	int wavelengthNm,
 	short& dacXOut,
 	short& dacYOut,
 	CString& errMsg)
 {
-	short rx = 0, ry = 0, hx = 0, hy = 0;
-	return FineTuneReadTripleDac(binPath, addr, dacXOut, dacYOut, rx, ry, hx, hy, errMsg);
+	dacXOut = dacYOut = 0;
+	if (!ValidateWavelengthNm(wavelengthNm, errMsg))
+		return FALSE;
+
+	short lowX = 0, lowY = 0, roomX = 0, roomY = 0, highX = 0, highY = 0;
+	if (!FineTuneReadTripleDac(binPath, addr, lowX, lowY, roomX, roomY, highX, highY, errMsg))
+		return FALSE;
+
+	const M576CalibBinWritePolicy policy = PolicyFromWavelengthNm(wavelengthNm);
+	if (policy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh)
+	{
+		dacXOut = roomX;
+		dacYOut = roomY;
+	}
+	else
+	{
+		dacXOut = lowX;
+		dacYOut = lowY;
+	}
+	return TRUE;
 }
 
 BOOL FineTuneReadTripleDac(
@@ -183,6 +220,7 @@ BOOL FineTuneReadTripleDac(
 BOOL FineTuneWriteDac(
 	LPCTSTR binPath,
 	const FineTuneAddress& addr,
+	int wavelengthNm,
 	short dacX,
 	short dacY,
 	FineTuneSyncPayload* pSyncOut,
@@ -191,6 +229,8 @@ BOOL FineTuneWriteDac(
 	errMsg.Empty();
 	if (pSyncOut != NULL)
 		ZeroMemory(pSyncOut, sizeof(*pSyncOut));
+	if (!ValidateWavelengthNm(wavelengthNm, errMsg))
+		return FALSE;
 	if (!ValidateAddress(addr, errMsg))
 		return FALSE;
 	if (binPath == NULL || binPath[0] == _T('\0'))
@@ -203,6 +243,11 @@ BOOL FineTuneWriteDac(
 		errMsg.Format(_T("Bin file not found:\n%s"), binPath);
 		return FALSE;
 	}
+
+	const M576CalibBinWritePolicy policy = PolicyFromWavelengthNm(wavelengthNm);
+	const int mcsTempSlot = McsPrimaryTempSlot(policy);
+	const int memsCalibSlot = MemsPrimaryCalibSlot(policy);
+	const BOOL copyHigh = (policy == M576CalibBinWritePolicy::Slot1550RoomThenCopyHigh);
 
 	unsigned short ux = 0, uy = 0;
 	RawCrossPeakDacToU16Pair((double)dacX, (double)dacY, ux, uy);
@@ -218,7 +263,9 @@ BOOL FineTuneWriteDac(
 		}
 		const int swIdx = M576McsBlock1To32ToLutSwIdx0(addr.mcsBlock1to32);
 		const int chIdx = addr.mcsCh1to18 - 1;
-		WriteMcsLutDacPair(lut, swIdx, chIdx, IDX_TEMP_LOW, ux, uy);
+		WriteMcsLutDacPair(lut, swIdx, chIdx, mcsTempSlot, ux, uy);
+		if (copyHigh)
+			WriteMcsLutDacPair(lut, swIdx, chIdx, IDX_TEMP_HIGH, ux, uy);
 
 		CString sn;
 		(void)CLutBinWriter::ReadBundleSnFromFile(binPath, sn);
@@ -251,8 +298,11 @@ BOOL FineTuneWriteDac(
 	stM576OneX64MemsSwCoef four[4];
 	ZeroMemory(four, sizeof(four));
 	const int sw0 = addr.sw1to4 - 1;
+	const int inBlk0 = addr.chY1to17 - 1;
 	four[sw0] = mems;
-	WriteMems1x64LowTempDacPair(four, sw0, addr.chY1to17 - 1, ux, uy);
+	WriteMems1x64DacPair(four, sw0, inBlk0, ux, uy, memsCalibSlot);
+	if (copyHigh)
+		WriteMems1x64DacPair(four, sw0, inBlk0, ux, uy, 2);
 	mems = four[sw0];
 	M576OneX64ApplyStandardTempMeta(mems);
 

@@ -17,7 +17,8 @@ public:
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 };
 
-/// Manual low-temp DAC patch for one Backup/Standard burn file (A/B experiment).
+/// Manual DAC patch by wavelength for one Backup/Standard burn file (A/B experiment).
+/// 1310 -> LOW; 1550 -> ROOM (+ HIGH). Wavelength from FineTune combo (initialized from main).
 /// Modeless: stay open while main window Burn Flash / Recover Flash runs.
 /// Tab 0 FineTune / Tab 1 Chassis Debug (child page; same 439F port).
 /// Right multiline edit is FineTune-local log (incl. RDAC); does not write main-window Log.
@@ -33,6 +34,7 @@ public:
 		CM576CalibratorDlg* pOwner,
 		LPCTSTR outDirAbs,
 		const M576TransSnPnInfo& sn,
+		int initialWavelengthNm = 1310,
 		CWnd* pParent = NULL);
 
 	BOOL Create();
@@ -52,6 +54,7 @@ private:
 	CM576CalibratorDlg* m_pOwner;
 	CString m_outDirAbs;
 	M576TransSnPnInfo m_snInfo;
+	int m_initialWavelengthNm = 1310;
 	CFtTabCtrl m_tab;
 	CM576ChassisDebugDlg m_chassisPage;
 	CComboBox m_comboRole;
@@ -81,6 +84,8 @@ private:
 	void ReadPmSlot(BOOL isBefore);
 	void ReadRdacSlot(int rdacIndex);
 	BOOL CollectTlsAndWavelength(int& tlsSource, int& wavelengthNm, CString& errMsg) const;
+	BOOL CollectWavelengthNm(int& wavelengthNm, CString& errMsg) const;
+	void ApplyInitialWavelengthCombo();
 	void SetPmBusy(BOOL busy);
 	void LayoutChassisPage();
 	void ShowActiveTab();
@@ -95,6 +100,7 @@ private:
 	afx_msg void OnRoleChanged();
 	afx_msg void OnRecalSelChanged();
 	afx_msg void OnAddressFieldChanged();
+	afx_msg void OnWlSelChanged();
 	afx_msg void OnTcnSelchangeTab(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);

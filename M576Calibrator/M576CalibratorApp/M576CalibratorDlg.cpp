@@ -7091,7 +7091,13 @@ void CM576CalibratorDlg::OnBnClickedFineTune()
 
 	AppendLog(
 		_T("FineTune (modeless): Write Bin here, Burn Flash / Recover Flash on main window, then Small Range to verify."));
-	auto* pDlg = new CM576FineTuneDlg(this, absOutDir, m_snInfo, this);
+	int ftWlNm = M576_DEFAULT_WAVELENGTH_NM;
+	{
+		CString wlErr;
+		if (!ParseWavelengthNm(m_strWavelength, ftWlNm, wlErr))
+			ftWlNm = M576_DEFAULT_WAVELENGTH_NM;
+	}
+	auto* pDlg = new CM576FineTuneDlg(this, absOutDir, m_snInfo, ftWlNm, this);
 	if (!pDlg->Create())
 	{
 		delete pDlg;

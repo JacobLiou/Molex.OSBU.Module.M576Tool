@@ -1,5 +1,6 @@
 #pragma once
-// Fine-tune a single Backup/Standard burn file: patch 1310 low-temp DAC and write back.
+// Fine-tune a single Backup/Standard burn file: patch DAC by wavelength and write back.
+// 1310 -> IDX_TEMP_LOW / stCalibDAC[0]; 1550 -> ROOM (+ copy HIGH), same as CalibWavelengthPolicy.
 // Write Bin keeps the dialog open so multiple Address slots can be patched in one session.
 
 #include "FineTuneTypes.h"
@@ -13,6 +14,9 @@ inline CString FineTuneAddressFormatLabel(const FineTuneAddress& addr)
 {
 	return CString(FineTuneAddressFormatLabelA(addr).c_str());
 }
+
+/// Log label for FineTune slot selection (e.g. "LOW(1310)" / "ROOM+HIGH(1550)").
+CString FineTuneSlotLabel(int wavelengthNm);
 
 struct FineTuneSyncPayload
 {
@@ -37,10 +41,11 @@ BOOL FineTuneResolvePath(
 	int& burnIndexOut,
 	CString& errMsg);
 
-/// Read current low-temp DAC_X / DAC_Y (signed) from an existing bin.
+/// Read current DAC_X / DAC_Y (signed) for the wavelength primary slot from an existing bin.
 BOOL FineTuneReadCurrentDac(
 	LPCTSTR binPath,
 	const FineTuneAddress& addr,
+	int wavelengthNm,
 	short& dacXOut,
 	short& dacYOut,
 	CString& errMsg);
@@ -57,10 +62,12 @@ BOOL FineTuneReadTripleDac(
 	short& highYOut,
 	CString& errMsg);
 
-/// Patch low-temp DAC and overwrite bin; optional sync payload for in-memory LUT/MEMS.
+/// Patch wavelength primary-slot DAC and overwrite bin; 1550 also copies HIGH for that channel.
+/// Optional sync payload for in-memory LUT/MEMS.
 BOOL FineTuneWriteDac(
 	LPCTSTR binPath,
 	const FineTuneAddress& addr,
+	int wavelengthNm,
 	short dacX,
 	short dacY,
 	FineTuneSyncPayload* pSyncOut,
