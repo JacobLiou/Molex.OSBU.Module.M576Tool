@@ -1,0 +1,5 @@
+﻿# PD (RECAL 2) path table: target + 2 switch channels
+# ch1=[2#1x64 ch] (1..64), ch2=[MCS ch] (1..18)
+# MCS side implied by ch1: 1..32 -> 1# MCS; 33..64 -> 2# MCS
+# Budget: 64 (Stage_1) + 3 (Stage_2) + 576 (1# MCS) + 576 (2# MCS) = 1219
+target_index,ch1,ch2
