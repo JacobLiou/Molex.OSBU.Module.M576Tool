@@ -17,6 +17,7 @@
 #include "PathDacImpact.h"
 #include "FullEditDacCsv.h"
 #include "M576Peak1DConstants.h"
+#include "PdProtocol.h"
 #include <windows.h>
 #include <cstdio>
 #include <cmath>
@@ -4369,6 +4370,11 @@ static int RunRecalCmdFormatSelfTests()
 
 	const std::string pd5 = FormatRecalSweepCmd(5, 0, 9999, 9999, 64, 4, 80);
 	check("mode0 PD", pd5, 5, 0, 9999, 9999, 64, 4, 80);
+	if (pd5 != "RECAL 5 0 9999 9999 64 4 80")
+	{
+		std::fprintf(stderr, "self-test recal-cmd: PD RECAL 5 string mismatch got '%s'\n", pd5.c_str());
+		++fail;
+	}
 
 	RecalSweepCmdFields legacy;
 	if (!ParseRecalSweepCmd("RECAL 3 0 9999 64 4 80", legacy) || !legacy.legacy5Param
@@ -4384,6 +4390,80 @@ static int RunRecalCmdFormatSelfTests()
 		++fail;
 	}
 
+	return fail;
+}
+
+/// Z4744 0415 Command C protocol contracts (PD). Does not touch PM.
+static int RunPdProtocolSelfTests()
+{
+	int fail = 0;
+	char buf[96] = {};
+	char err[128] = {};
+
+	if (!M576PdProtocol::FormatRecal2Cmd(3, 1, 18, buf, sizeof(buf))
+		|| std::strcmp(buf, "RECAL 2 3 1 18") != 0)
+	{
+		std::fprintf(stderr, "self-test PD: RECAL 2 format failed got '%s'\n", buf);
+		++fail;
+	}
+	if (!M576PdProtocol::FormatRecal5Cmd(0, 9999, 9999, 64, 4, 80, buf, sizeof(buf))
+		|| std::strcmp(buf, "RECAL 5 0 9999 9999 64 4 80") != 0)
+	{
+		std::fprintf(stderr, "self-test PD: RECAL 5 format failed got '%s'\n", buf);
+		++fail;
+	}
+	if (!M576PdProtocol::ValidatePathStep(3, 1, 1, err, sizeof(err)))
+	{
+		std::fprintf(stderr, "self-test PD: valid t=3 step rejected: %s\n", err);
+		++fail;
+	}
+	if (M576PdProtocol::ValidatePathStep(3, 33, 1, err, sizeof(err)))
+	{
+		std::fprintf(stderr, "self-test PD: t=3 ch1=33 must fail half-bank\n");
+		++fail;
+	}
+	if (M576PdProtocol::ValidatePathStep(4, 16, 1, err, sizeof(err)))
+	{
+		std::fprintf(stderr, "self-test PD: t=4 ch1=16 must fail half-bank\n");
+		++fail;
+	}
+	if (M576PdProtocol::ValidatePathStep(5, 1, 1, err, sizeof(err)))
+	{
+		std::fprintf(stderr, "self-test PD: t=5 must fail (PD target 1..4 only)\n");
+		++fail;
+	}
+	if (M576PdProtocol::TransSlotFromTarget(1) != 3 || M576PdProtocol::TransSlotFromTarget(2) != 3
+		|| M576PdProtocol::TransSlotFromTarget(3) != 0 || M576PdProtocol::TransSlotFromTarget(4) != 1
+		|| M576PdProtocol::TransSlotFromTarget(6) != -1)
+	{
+		std::fprintf(stderr, "self-test PD: TransSlotFromTarget mismatch\n");
+		++fail;
+	}
+	{
+		M576PdProtocol::SMcsLutAddr a{};
+		if (!M576PdProtocol::ResolveMcsLutAddr(3, 1, 5, a) || a.chIdx0 != 4)
+		{
+			std::fprintf(stderr, "self-test PD: ResolveMcsLutAddr t=3 failed\n");
+			++fail;
+		}
+		if (!M576PdProtocol::ResolveMcsLutAddr(4, 33, 2, a) || a.chIdx0 != 1)
+		{
+			std::fprintf(stderr, "self-test PD: ResolveMcsLutAddr t=4 failed\n");
+			++fail;
+		}
+		if (M576PdProtocol::ResolveMcsLutAddr(1, 1, 1, a))
+		{
+			std::fprintf(stderr, "self-test PD: ResolveMcsLutAddr t=1 must fail (MEMS not MCS)\n");
+			++fail;
+		}
+	}
+	if (M576PdProtocol::kPathBudgetRows != 1219)
+	{
+		std::fprintf(stderr, "self-test PD: path budget expected 1219\n");
+		++fail;
+	}
+	if (fail == 0)
+		std::printf("OK PD protocol (0415 Command C) self-tests\n");
 	return fail;
 }
 
@@ -5005,6 +5085,8 @@ int main(int argc, char* argv[])
 		return 21;
 	if (RunRecalCmdFormatSelfTests() != 0)
 		return 12;
+	if (RunPdProtocolSelfTests() != 0)
+		return 22;
 	if (RunSweepCsvSplitSelfTests() != 0)
 		return 15;
 	if (RunCommSweepCsvRegressionSuite() != 0)

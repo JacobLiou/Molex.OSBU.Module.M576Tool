@@ -89,6 +89,7 @@
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"
+  copy /Y "$(SolutionDir)output\pd_1x64_2Mapping.csv" "$(OutDir)output\pd_1x64_2Mapping.csv"
   if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"
   copy /Y "$(ProjectDir)M576Calibrator.ini" "$(OutDir)M576Calibrator.ini"</Command>
     </PostBuildEvent>
@@ -132,6 +133,7 @@
   copy /Y "$(SolutionDir)output\pd_mcs2.csv" "$(OutDir)output\pd_mcs2.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_1.csv" "$(OutDir)output\pd_1x64_1.csv"
   copy /Y "$(SolutionDir)output\pd_1x64_2.csv" "$(OutDir)output\pd_1x64_2.csv"
+  copy /Y "$(SolutionDir)output\pd_1x64_2Mapping.csv" "$(OutDir)output\pd_1x64_2Mapping.csv"
   if exist "$(SolutionDir)output\diagnosis_sw.csv" copy /Y "$(SolutionDir)output\diagnosis_sw.csv" "$(OutDir)output\diagnosis_sw.csv"
   copy /Y "$(ProjectDir)M576Calibrator.ini" "$(OutDir)M576Calibrator.ini"</Command>
     </PostBuildEvent>
@@ -179,6 +181,9 @@
     <ClInclude Include="Switch1x64FwTransport.h" />
     <ClInclude Include="PathCsvDriver.h" />
     <ClInclude Include="Pm1x64Mapping.h" />
+    <ClInclude Include="Pd1x64Mapping.h" />
+    <ClInclude Include="PdProtocol.h" />
+    <ClInclude Include="PdRunPath.h" />
     <ClInclude Include="PeakFinder2D.h" />
     <ClInclude Include="Peak1DSweepRecenter.h" />
     <ClInclude Include="Peak1DSweepPipeline.h" />
@@ -235,6 +240,8 @@
     <ClCompile Include="Switch1x64FwTransport.cpp" />
     <ClCompile Include="PathCsvDriver.cpp" />
     <ClCompile Include="Pm1x64Mapping.cpp" />
+    <ClCompile Include="Pd1x64Mapping.cpp" />
+    <ClCompile Include="PdRunPath.cpp" />
     <ClCompile Include="PeakFinder2D.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

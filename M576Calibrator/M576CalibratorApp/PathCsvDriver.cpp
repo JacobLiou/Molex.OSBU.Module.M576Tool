@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "PathCsvDriver.h"
+#include "PdProtocol.h"
 // PathCsvDriver.cpp：定标路径 CSV 加载与单步校验（PM 五列 / PD 三列，Z4744 通道范围）。
 // 从文本 CSV 读 PM/PD 路径行（跳过表头、# 注释），再按 Z4744 校通道范围。
 
@@ -157,34 +158,15 @@ BOOL LoadPathCsvPd(LPCTSTR szPath, CArray<SPathStepPd, SPathStepPd const&>& step
 	return TRUE;
 }
 
-// PD：target 与 ch1 半区、MCS 通道上界等组合规则。
+// PD：target 与 ch1 半区、MCS 通道上界等组合规则（0415 Command C via PdProtocol）。
 BOOL ValidatePathStepPd(const SPathStepPd& s, CString& errMsg)
 {
-	if (s.targetSwitchIndex < 1 || s.targetSwitchIndex > 4)
+	char errA[128] = {};
+	if (!M576PdProtocol::ValidatePathStep(s.targetSwitchIndex, s.ch1, s.ch2, errA, sizeof(errA)))
 	{
-		errMsg.Format(_T("PD target_index %d out of 1..4"), s.targetSwitchIndex);
-		return FALSE;
-	}
-	if (s.ch1 < 1 || s.ch1 > 64)
-	{
-		errMsg.Format(_T("PD ch1 (2#1x64 ch) %d out of 1..64"), s.ch1);
-		return FALSE;
-	}
-	if (s.ch2 < 1 || s.ch2 > 18)
-	{
-		errMsg.Format(_T("PD ch2 (MCS ch) %d out of 1..18"), s.ch2);
-		return FALSE;
-	}
-	/// target=3 (1# MCS) only reachable via 2#1x64 ch 1..32; target=4 (2# MCS) via ch 33..64.
-	/// target=1/2 (2#1x64 Stage_1/2) do not constrain the half — Stage is implied by target alone.
-	if (s.targetSwitchIndex == 3 && s.ch1 > 32)
-	{
-		errMsg.Format(_T("PD routing: target_index 3 (1# MCS) requires ch1 in 1..32, got %d."), s.ch1);
-		return FALSE;
-	}
-	if (s.targetSwitchIndex == 4 && s.ch1 < 33)
-	{
-		errMsg.Format(_T("PD routing: target_index 4 (2# MCS) requires ch1 in 33..64, got %d."), s.ch1);
+		errMsg = CString(errA);
+		if (errMsg.IsEmpty())
+			errMsg = _T("PD path step invalid");
 		return FALSE;
 	}
 	return TRUE;

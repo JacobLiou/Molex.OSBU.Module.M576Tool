@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "TransLutRoute.h"
+#include "PdProtocol.h"
 // TransLutRoute.cpp：PM/PD target 与 439F trans 槽 0~3 映射；分 CSV 文件槽过滤。
 
 // PM：Z4744 target 1/2/3/4/5/6 → 四个 trans 槽位（2#1x64 两阶段、MCS 两路再映射到 1#1x64/2#1x64 等，见下 switch）。
@@ -17,17 +18,10 @@ int TransSlotFromPmTarget(int targetSwitchIndex)
 	}
 }
 
-// PD：仅四个 target 语义，1/2 在 PD 中映射到 trans4（2#1x64），3/4 映射到槽 0/1（MCS）。
+// PD：0415 Command C — 1/2 → slot3 (2#1x64)，3/4 → MCS 槽 0/1；不校 1#1x64。
 int TransSlotFromPdTarget(int targetSwitchIndex)
 {
-	switch (targetSwitchIndex)
-	{
-	case 3: return 0;
-	case 4: return 1;
-	case 1:
-	case 2: return 3;
-	default: return -1;
-	}
+	return M576PdProtocol::TransSlotFromTarget(targetSwitchIndex);
 }
 
 // 判定 PM 行是否应出现在指定 fileSlot 的 pm_*.csv 中（错槽则报警告文案）。

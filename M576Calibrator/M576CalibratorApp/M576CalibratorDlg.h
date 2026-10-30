@@ -343,8 +343,7 @@ private:
 	// 随 PM/PD 单选切换默认 CSV 显示与提示。
 	void SyncCsvPathWithMode();
 	void ApplyFixedBinBasePaths(BOOL syncUi = TRUE);
-	/// PM: show Command A (RECAL 0) controls; PD: hide (PD flow uses Command C only, no RECAL 0).
-	// PM 显示命令 A 控件；PD 流程仅命令 C，不显示 RECAL 0。
+	/// PM: show TLS/WL/pm_range (RECAL 0). PD: show TLS/WL for SWL; hide pm_range (no RECAL 0).
 	void SyncRecal0ControlsVisibility();
 	/// Before Run path: COM, PM wavelength (if PM), built-in CSV files exist. MessageBox and return FALSE when invalid.
 	// 跑路径前：串口、（PM 时）波长、内置 CSV 等输入校验。

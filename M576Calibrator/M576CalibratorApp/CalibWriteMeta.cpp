@@ -380,6 +380,48 @@ BOOL CalibBuildStatRowPdMems(
 	return TRUE;
 }
 
+BOOL CalibBuildStatRowPdMemsMapped(
+	const SPathStepPd& step,
+	int fileSlot,
+	int pathLine1Based,
+	int peakRow,
+	int peakCol,
+	int gridN,
+	int rawDacX,
+	int rawDacY,
+	SDacU16 dac,
+	int block0to3,
+	int inBlk0based,
+	int memsCalibSlot,
+	SCalibrationStatRow& row)
+{
+	SPathStep s;
+	ZeroMemory(&s, sizeof(s));
+	s.targetSwitchIndex = step.targetSwitchIndex;
+	s.c1 = step.ch1;
+	s.c4 = step.ch1;
+	if (!CalibBuildStatRowPmMemsMapped(
+			s,
+			fileSlot,
+			pathLine1Based,
+			peakRow,
+			peakCol,
+			gridN,
+			rawDacX,
+			rawDacY,
+			dac,
+			block0to3,
+			inBlk0based,
+			memsCalibSlot,
+			row))
+		return FALSE;
+	row.calMode = _T("PD");
+	CStringA a;
+	a.Format("RECAL 2 %d %d %d", step.targetSwitchIndex, step.ch1, step.ch2);
+	row.primaryCommand = CString(a);
+	return TRUE;
+}
+
 static void AppendCsvField(CStringA& line, const CString& s)
 {
 	CStringA sa(s);

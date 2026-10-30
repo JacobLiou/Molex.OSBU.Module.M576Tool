@@ -32,7 +32,7 @@
 | **串口 (439F)** | 下拉选择 COM（COM1～COM32），对应整机 439F 调试口。 |
 | **打开串口** | 打开上述端口；失败时查看下方日志。 |
 | **Path CSV** | **固化**为 `CalibConstants.h` 中默认的 `output\pm_*.csv`（PM）或 `output\pd_*.csv`（PD），界面仅 **一行简要说明**；切换 **Mode** 时更新说明；**Run path** 前会再次套用默认路径。 |
-| **Mode** | **PM (RECAL 1)**：功率计方案，Command A + B；**PD (RECAL 2)**：板载 PD 方案，Command C（无 **RECAL 0**）。 |
+| **Mode** | **PM (RECAL 1)**：功率计方案，Command A + B；**PD (RECAL 2)**：板载 PD 方案，Command C（无 **RECAL 0**；仍显示 TLS/波长供 `SWL`，隐藏 pm_range）。 |
 | **delay ms / DAC range / DAC step** | 用于 **`RECAL 3` / `RECAL 5`** 扫点及超时估算；**不**随 `RECAL 0` 下发（固件定稿：`RECAL 0` 仅波长，默认 1310 nm）。 |
 | **Backup BIN** | （可选）**基路径**（如 `output\mcs_lut_backup.bin`）。读 Flash 后在同目录生成 **`基名_t1.bin` … `基名_t4.bin`**。「写 BIN」时按 **trans 1～4** 分别读取对应的 `*_tN.bin`（若存在）与内存中 **该路** 定标结果合并；仅 trans1 可回退读 **单一旧文件**（无 `_t1` 时）。 |
 | **Output BIN base** | **基路径**（如 `output\standard.bin`）。**写 BIN** 写出 **`基名_t1.bin` … `基名_t4.bin`** 共四个文件；**烧录** 按 `CalibConstants.h` 中的通道列表，对每个 trans 烧录磁盘上对应的 **`_tN.bin`**（缺省或空文件则跳过该路并打日志）。 |
@@ -139,7 +139,17 @@ target_index, ch1, ch2
 | 576 | 576 | target=3，1# MCS 32×18 |
 | 576 | 576 | target=4，2# MCS 32×18（ch1 = 33…64） |
 
-示例与默认表见 **`output\standard_pd.csv`**（可用 `tools\generate_sample_path_pd_1219.py` 重新生成）。
+默认分文件（PostBuild 拷贝到程序目录 `output\`）：
+
+| 文件 | 内容 |
+|------|------|
+| `pd_mcs1.csv` | target=3，576 行 |
+| `pd_mcs2.csv` | target=4，576 行 |
+| `pd_1x64_2.csv` | target=1/2，67 行 |
+| `pd_1x64_2Mapping.csv` | 与上表同行序；`SW_x`/`CH_y`（2#1×64 写 MEMS 必填） |
+| `pd_1x64_1.csv` | **无数据行**（PD 不校 1#1×64） |
+
+可用 `tools\generate_sample_path_pd_1219.py` 重新生成上述文件（Mapping 依赖已有的 `pm_1x64_2Mapping.csv` 端口几何）。
 
 ---
 

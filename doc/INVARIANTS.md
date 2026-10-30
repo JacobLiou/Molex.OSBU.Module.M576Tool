@@ -58,6 +58,18 @@
 
 ---
 
+## 4b. PD 定标（Z4744 0415 Command C）
+
+| ID | 不变量 |
+|----|--------|
+| **INV-PD01** | PD Run Path **禁止**发送 `RECAL 0`；波长仅经 `SWL`。pm_range / INV-16 / INV-17 **仅 PM**。 |
+| **INV-PD02** | 线格式：`RECAL 2 <t 1..4> <ch1 1..64> <ch2 1..18>`；扫频 `RECAL 5` 与 `RECAL 3` 同构 6 参（INV-18）。 |
+| **INV-PD03** | target 半区：t=3 ⇒ ch1∈1..32；t=4 ⇒ ch1∈33..64。**不校 1#1×64**（trans slot2 / `pd_1x64_1` 无数据行）。 |
+| **INV-PD04** | 2#1×64 写 MEMS 必须经 **`pd_1x64_2Mapping.csv`**（`SW_x`/`CH_y`）；禁止 port÷16 公式。映射缺失则整槽跳过并记 `FileMappingSkip`。 |
+| **INV-PD05** | PD 与 PM 编排隔离：不得向 `RunPathPowerMeter*` / `Pm1x64Mapping*` 塞 PD 分支；协议契约见 `PdProtocol.h` + CrossPeakTest。 |
+
+---
+
 ## 5. 验证清单（改码后）
 
 - [ ] 动 Merge / Write BIN：对照 Z4671 导出 CSV，检查 **SN33/34、CH19–32** 是否与 backup 一致（未校准则应不变）。

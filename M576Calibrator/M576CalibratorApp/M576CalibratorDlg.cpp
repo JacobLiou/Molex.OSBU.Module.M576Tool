@@ -23,6 +23,8 @@
 #include "PmRangeValidation.h"
 #include "LutPeakApply.h"
 #include "Pm1x64Mapping.h"
+#include "Pd1x64Mapping.h"
+#include "PdRunPath.h"
 #include "SmallRangeCalibSelection.h"
 #include "IlTestMath.h"
 #include "M576GlobalException.h"
@@ -2644,7 +2646,7 @@ void CM576CalibratorDlg::SyncCsvPathWithMode()
 		if (m_nCalMode == 0)
 			hint = _T("CSV: output\\pm_mcs1|2, pm_1x64_1|2.csv (built-in)");
 		else
-			hint = _T("CSV: output\\pd_mcs1|2, pd_1x64_1|2.csv (built-in)");
+			hint = _T("CSV: output\\pd_mcs1|mcs2|1x64_2 (+Mapping); no 1#1x64");
 		::SetDlgItemText(m_hWnd, IDC_STATIC_PATH_CSV_HINT, hint);
 		UpdateData(FALSE);
 	}
@@ -2652,20 +2654,23 @@ void CM576CalibratorDlg::SyncCsvPathWithMode()
 
 void CM576CalibratorDlg::SyncRecal0ControlsVisibility()
 {
-	const BOOL showCmdA = (m_nCalMode == 0);
-	const int sw = showCmdA ? SW_SHOW : SW_HIDE;
+	/// PM: TLS + wavelength + pm_range (RECAL 0). PD: TLS + wavelength for SWL only; hide pm_range.
+	const BOOL showTlsWl = TRUE;
+	const BOOL showPmRange = (m_nCalMode == 0);
+	const int swTls = showTlsWl ? SW_SHOW : SW_HIDE;
+	const int swPm = showPmRange ? SW_SHOW : SW_HIDE;
 	if (CWnd* p = GetDlgItem(IDC_STATIC_LABEL_TLS))
-		p->ShowWindow(sw);
+		p->ShowWindow(swTls);
 	if (CWnd* p = GetDlgItem(IDC_COMBO_TLS))
-		p->ShowWindow(sw);
+		p->ShowWindow(swTls);
 	if (CWnd* p = GetDlgItem(IDC_STATIC_LABEL_WL))
-		p->ShowWindow(sw);
+		p->ShowWindow(swTls);
 	if (CWnd* p = GetDlgItem(IDC_COMBO_WAVELENGTH))
-		p->ShowWindow(sw);
+		p->ShowWindow(swTls);
 	if (CWnd* p = GetDlgItem(IDC_STATIC_LABEL_PM))
-		p->ShowWindow(sw);
+		p->ShowWindow(swPm);
 	if (CWnd* p = GetDlgItem(IDC_COMBO_PM_RANGE))
-		p->ShowWindow(sw);
+		p->ShowWindow(swPm);
 }
 
 BOOL CM576CalibratorDlg::OpenPort()
@@ -6035,6 +6040,31 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 	const int total = (int)steps.GetSize();
 	const CString pdAbs = ResolveFilePath(m_strCsvPd[fileSlot].Trim());
 	const std::string csvBasename = M576PathBasenameUtf8(pdAbs);
+	CArray<SMems1x64PdMapRow, SMems1x64PdMapRow const&> map1x64Rows;
+	{
+		CString mapErr;
+		if (!M576PdRunPath::Prepare1x64MappingOrFail(fileSlot, pdAbs, steps, map1x64Rows, mapErr))
+		{
+			SafeAppendLog(mapErr);
+			CString m;
+			m.Format(_T("PD slot %d: skipping path run (2#1x64 firmware mapping required)."), fileSlot + 1);
+			SafeAppendLog(m);
+			std::string detail = M576CStringToUtf8(mapErr);
+			TruncatePathOutcomeDetail(detail);
+			for (int si = 0; si < total; ++si)
+			{
+				SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, si + 1, steps[si]);
+				o.result = CalibPathStepResult::Skipped;
+				o.failCategory = CalibPathFailCategory::FileMappingSkip;
+				o.failStage = "1x64 mapping";
+				o.commDetail = detail;
+				PushPathFailureOutcome(o);
+			}
+			globalProgress += total;
+			SafeSetProgressPos(globalProgress);
+			return;
+		}
+	}
 	const DWORD readTimeout1d = ComputeRecal1DReadTimeoutMs(m_delayMs, m_dacRange, m_dacStep);
 	const int gridN = AxisPointCount(m_dacRange, m_dacStep);
 	CStringA lineOk, lineY, lineX;
@@ -6719,6 +6749,42 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			break;
 		if (pdSkipStep)
 		{
+			/// INV-15: record sweep/pre-peak skip before continue (was dead code after continue).
+			SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, i + 1, st);
+			o.result = CalibPathStepResult::Failed;
+			o.crossRound = lastCrossRoundPd;
+			o.lastBaseY = yMovingBasePd;
+			o.lastBaseX = lastMovingXPd;
+			o.lastOffsetY = ySeedDacRangePd;
+			o.lastOffsetX = lastAttemptDacRangeXPd;
+			o.sweepCol0Y = xFixedDacPd;
+			o.sweepCol0X = sweep1LineCol0Pd;
+			o.sampleCountY = (int)powY.size();
+			o.sampleCountX = (int)powX.size();
+			M576FillSweepPowContext(o, powY, true);
+			M576FillSweepPowContext(o, powX, false);
+			if (yPreCodePd != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::YPrePeak;
+				o.failStage = "Y pre-sweep";
+				o.peakAttempts = yPreAttemptsPd;
+				M576FillPeakCodeFields(o, yPreCodePd);
+			}
+			else if (xPreCodePdOuter != M576::Peak1DValidateCode::Ok)
+			{
+				o.failCategory = CalibPathFailCategory::XPrePeak;
+				o.failStage = "X pre-sweep";
+				o.peakAttempts = xPreAttemptsPdOuter;
+				M576FillPeakCodeFields(o, xPreCodePdOuter);
+			}
+			else
+			{
+				o.failCategory = CalibPathFailCategory::CommSweep;
+				o.failStage = "RECAL 5 sweep";
+				o.commDetail = M576CStringToUtf8(err);
+				TruncatePathOutcomeDetail(o.commDetail);
+			}
+			PushPathFailureOutcome(o);
 			++globalProgress;
 			SafeSetProgressPos(globalProgress);
 			continue;
@@ -6753,10 +6819,33 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 			}
 			SDacU16 dacU;
 			RawCrossPeakDacToU16Pair((double)rawXiPd, (double)rawYiPd, dacU.uX, dacU.uY);
-			if (fileSlot < 2)
+			CString applyErr;
+			if (!M576PdRunPath::ApplyPeakToSession(
+					st,
+					fileSlot,
+					i,
+					idxOcc3,
+					idxOcc4,
+					dacU.uX,
+					dacU.uY,
+					mcsTempSlot,
+					memsCalibSlot,
+					map1x64Rows,
+					m_lutByTrans,
+					m_mems1x64,
+					applyErr))
 			{
-				ApplyRecalPeakToLutPd(
-					st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, mcsTempSlot, m_lutByTrans[fileSlot]);
+				SafeAppendLog(applyErr.IsEmpty() ? _T("PD ApplyPeak failed") : applyErr);
+				SCalibPathStepOutcome o = M576MakePdOutcome(fileSlot, csvBasename, i + 1, st);
+				o.result = CalibPathStepResult::Failed;
+				o.failCategory = CalibPathFailCategory::CsvValidation;
+				o.failStage = "PD apply peak";
+				o.commDetail = M576CStringToUtf8(applyErr);
+				TruncatePathOutcomeDetail(o.commDetail);
+				PushPathFailureOutcome(o);
+			}
+			else if (fileSlot < 2)
+			{
 				SCalibrationStatRow srow;
 				if (CalibBuildStatRowPdLut(
 						st,
@@ -6774,13 +6863,24 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 						srow))
 					PushCalibStatRow(srow);
 			}
-			else
+			else if (fileSlot == 3 && i < map1x64Rows.GetSize())
 			{
-				ApplyRecalPeakToMems1x64Pd(
-					st, idxOcc3, idxOcc4, dacU.uX, dacU.uY, memsCalibSlot, m_mems1x64[fileSlot - 2]);
+				const SMems1x64PdMapRow& mr = map1x64Rows[i];
 				SCalibrationStatRow srow;
-				if (CalibBuildStatRowPdMems(
-						st, fileSlot, i + 1, br, bc, nLut, rawXiPd, rawYiPd, dacU, memsCalibSlot, srow))
+				if (CalibBuildStatRowPdMemsMapped(
+						st,
+						fileSlot,
+						i + 1,
+						br,
+						bc,
+						nLut,
+						rawXiPd,
+						rawYiPd,
+						dacU,
+						mr.sw1to4 - 1,
+						mr.chY1based - 1,
+						memsCalibSlot,
+						srow))
 					PushCalibStatRow(srow);
 			}
 		}
@@ -6823,13 +6923,6 @@ void CM576CalibratorDlg::RunPathPdFile(int fileSlot, CArray<SPathStepPd, SPathSt
 				o.failStage = "Y pre-sweep";
 				o.peakAttempts = yPreAttemptsPd;
 				M576FillPeakCodeFields(o, yPreCodePd);
-			}
-			else if (pdSkipStep)
-			{
-				o.failCategory = CalibPathFailCategory::CommSweep;
-				o.failStage = "RECAL 5 sweep";
-				o.commDetail = M576CStringToUtf8(err);
-				TruncatePathOutcomeDetail(o.commDetail);
 			}
 			else
 			{

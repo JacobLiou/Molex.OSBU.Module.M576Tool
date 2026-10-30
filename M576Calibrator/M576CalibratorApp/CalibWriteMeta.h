@@ -112,5 +112,21 @@ BOOL CalibBuildStatRowPdMems(
 	int memsCalibSlot,
 	SCalibrationStatRow& row);
 
+/// PD 1x64: offsets from firmware mapping SW_x / CH_y.
+BOOL CalibBuildStatRowPdMemsMapped(
+	const SPathStepPd& step,
+	int fileSlot,
+	int pathLine1Based,
+	int peakRow,
+	int peakCol,
+	int gridN,
+	int rawDacX,
+	int rawDacY,
+	SDacU16 dac,
+	int block0to3,
+	int inBlk0based,
+	int memsCalibSlot,
+	SCalibrationStatRow& row);
+
 /// UTF-8 BOM + CSV, one header block then rows.
 BOOL WriteCalibrationStatsCsv(LPCTSTR path, const std::vector<SCalibrationStatRow>& rows, CString& err);

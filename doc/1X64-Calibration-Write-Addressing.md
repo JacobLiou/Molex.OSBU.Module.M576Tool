@@ -42,7 +42,7 @@
 
 ### 3b. 遗留规则（`ApplyRecalPeakToMems1x64`）
 
-`ApplyRecalPeakToMems1x64` 仍保留在 `LutPeakApply.cpp`（按 `ch1`/`ch4` 做 `/16`、`%16`）。**PM trans3/4 已不再调用**；**PD** 仍使用 `ApplyRecalPeakToMems1x64Pd`（按端口推导，本轮未引入 PD 映射表）。
+`ApplyRecalPeakToMems1x64` 仍保留在 `LutPeakApply.cpp`（按 `ch1`/`ch4` 做 `/16`、`%16`）。**PM trans3/4 已不再调用**；**PD** 使用 `ApplyRecalPeakToMems1x64PdMapped` + **`pd_1x64_2Mapping.csv`**（与路径 CSV 同行序；`SW_x`/`CH_y`），见 `Pd1x64Mapping.cpp` / **INV-PD04**。
 
 | `target_index` | 遗留 MEMS 写址所用的逻辑端口 |
 |----------------|------------------------------|

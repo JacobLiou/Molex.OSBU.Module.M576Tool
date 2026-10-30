@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "LutPeakApply.h"
 #include "CalibConstants.h"
+#include "PdProtocol.h"
 // LutPeakApply.cpp：寻峰得到的 DAC 对写入 session LUT 或 1x64 MEMS 系数（int16 钳位与 Y/X 轴映射）。
 #include <algorithm>
 #include <cmath>
@@ -181,49 +182,18 @@ void ApplyRecalPeakToLutPd(
 	int mcsTempSlot,
 	stLutSettingZ4671& lut)
 {
-	const int t = step.targetSwitchIndex;
-
-	if (t == 3)
-	{
-		(void)occTarget3;
-		if (step.ch1 < 1 || step.ch1 > 32 || step.ch2 < 1 || step.ch2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
-			return;
-		const int swIdx = M576McsBlock1To32ToLutSwIdx0(step.ch1);
-		const int chIdx = step.ch2 - 1;
-		WriteDacPair(lut, swIdx, chIdx, mcsTempSlot, dacX, dacY);
+	(void)occTarget3;
+	(void)occTarget4;
+	M576PdProtocol::SMcsLutAddr addr;
+	if (!M576PdProtocol::ResolveMcsLutAddr(step.targetSwitchIndex, step.ch1, step.ch2, addr))
 		return;
-	}
-	if (t == 4)
-	{
-		(void)occTarget4;
-		if (step.ch1 < 33 || step.ch1 > 64 || step.ch2 < 1 || step.ch2 > (PORT_MAX_COUNT + MID_MAX_COUNT))
-			return;
-		const int block = step.ch1 - 32;
-		int swIdx = M576McsBlock1To32ToLutSwIdx0(block) + M576_MCS2_SW_INDEX_OFFSET;
-		if (swIdx > 33)
-			swIdx = 33;
-		const int chIdx = step.ch2 - 1;
-		WriteDacPair(lut, swIdx, chIdx, mcsTempSlot, dacX, dacY);
-		return;
-	}
-
-	if (t == 1 || t == 2)
-	{
-		int ch64 = step.ch1;
-		if (ch64 < 1 || ch64 > 64)
-			return;
-		const int ch0 = ch64 - 1;
-		const int swSlot = (ch0 < 32) ? 32 : 33;
-		const int chIdx = ch0 % 32;
-		WriteDacPair(lut, swSlot, chIdx, mcsTempSlot, dacX, dacY);
-		return;
-	}
+	WriteDacPair(lut, addr.swIdx0, addr.chIdx0, mcsTempSlot, dacX, dacY);
 }
 
-void ApplyRecalPeakToMems1x64Pd(
+void ApplyRecalPeakToMems1x64PdMapped(
 	const SPathStepPd& step,
-	int /*occTarget3*/,
-	int /*occTarget4*/,
+	int sw1to4,
+	int chY1based,
 	unsigned short dacX,
 	unsigned short dacY,
 	int calibSlot,
@@ -232,16 +202,9 @@ void ApplyRecalPeakToMems1x64Pd(
 	if (pSw4 == NULL)
 		return;
 	const int t = step.targetSwitchIndex;
-	if (t == 3 || t == 4)
-		return;
 	if (t != 1 && t != 2)
 		return;
-	if (step.ch1 < 1 || step.ch1 > 64)
+	if (sw1to4 < 1 || sw1to4 > 4 || chY1based < 1 || chY1based > 17)
 		return;
-	const int ch0 = step.ch1 - 1;
-	const int block = ch0 / 16;
-	const int inBlk = ch0 % 16;
-	if (block < 0 || block > 3)
-		return;
-	WriteMems1x64DacPair(pSw4, block, inBlk, dacX, dacY, calibSlot);
+	WriteMems1x64DacPair(pSw4, sw1to4 - 1, chY1based - 1, dacX, dacY, calibSlot);
 }

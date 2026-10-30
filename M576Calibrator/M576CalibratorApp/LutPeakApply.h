@@ -62,10 +62,11 @@ void ApplyRecalPeakToMems1x64(
 	int calibSlot,
 	stM576OneX64MemsSwCoef* pSw4);
 
-void ApplyRecalPeakToMems1x64Pd(
+/// PD 2#1x64: write via firmware mapping SW_x (1..4) / CH_y (1..17). Do not use port/16.
+void ApplyRecalPeakToMems1x64PdMapped(
 	const SPathStepPd& step,
-	int occTarget3,
-	int occTarget4,
+	int sw1to4,
+	int chY1based,
 	unsigned short dacX,
 	unsigned short dacY,
 	int calibSlot,

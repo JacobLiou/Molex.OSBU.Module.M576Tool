@@ -16,6 +16,7 @@ const char* CalibPathFailCategoryLabelA(CalibPathFailCategory c)
 	case CalibPathFailCategory::CommSweep: return "sweep comm/parse";
 	case CalibPathFailCategory::CommSerialBreak: return "serial break";
 	case CalibPathFailCategory::YPrePeak: return "Y pre-sweep peak";
+	case CalibPathFailCategory::XPrePeak: return "X pre-sweep peak";
 	case CalibPathFailCategory::YCrossPeak: return "cross Y peak";
 	case CalibPathFailCategory::XCrossPeak: return "cross X peak";
 	case CalibPathFailCategory::PmRangeMismatch: return "PM range mismatch";
@@ -36,6 +37,7 @@ const wchar_t* CalibPathFailCategoryLabelW(CalibPathFailCategory c)
 	case CalibPathFailCategory::CommSweep: return L"sweep comm/parse";
 	case CalibPathFailCategory::CommSerialBreak: return L"serial break";
 	case CalibPathFailCategory::YPrePeak: return L"Y pre-sweep peak";
+	case CalibPathFailCategory::XPrePeak: return L"X pre-sweep peak";
 	case CalibPathFailCategory::YCrossPeak: return L"cross Y peak";
 	case CalibPathFailCategory::XCrossPeak: return L"cross X peak";
 	case CalibPathFailCategory::PmRangeMismatch: return L"PM range mismatch";
@@ -149,6 +151,7 @@ std::string FormatRunPathCategoryBreakdownText(const SRunPathSummary& summary)
 		{
 		case CalibPathFailCategory::PmRangeMismatch:
 		case CalibPathFailCategory::YPrePeak:
+		case CalibPathFailCategory::XPrePeak:
 		case CalibPathFailCategory::YCrossPeak:
 		case CalibPathFailCategory::XCrossPeak:
 		case CalibPathFailCategory::CommRecalSetup:

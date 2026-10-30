@@ -21,6 +21,7 @@ enum class CalibPathFailCategory
 	CommSweep,
 	CommSerialBreak,
 	YPrePeak,
+	XPrePeak,
 	YCrossPeak,
 	XCrossPeak,
 	PmRangeMismatch,
